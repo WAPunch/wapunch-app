@@ -35,20 +35,28 @@ export const supabase = createClient(
 );
 
 // Warn if environment variables are missing
-if (!supabaseUrl || !supabaseAnonKey) {
-  if (import.meta.env.DEV) {
-    console.warn(
-      '⚠️ Supabase environment variables are missing!\n' +
+if (!supabaseUrl || !supabaseAnonKey || supabaseUrl.includes('placeholder')) {
+  const isProduction = import.meta.env.PROD;
+  const message = isProduction
+    ? '⚠️ Supabase environment variables are missing in production!\n' +
+      'Please configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel:\n' +
+      '1. Go to your Vercel project settings\n' +
+      '2. Navigate to Environment Variables\n' +
+      '3. Add both variables for Production, Preview, and Development\n' +
+      '4. Redeploy your application'
+    : '⚠️ Supabase environment variables are missing!\n' +
       'Please create a .env.local file with:\n' +
       'VITE_SUPABASE_URL=your-project-url\n' +
       'VITE_SUPABASE_ANON_KEY=your-publishable-key\n\n' +
       'Get these from your Supabase project settings (Settings > API)\n' +
-      'Use the "publishable" key (not the "secret" key)'
-    );
-  }
+      'Use the "publishable" key (not the "secret" key)';
+  
+  console.warn(message);
   logger.warn('Missing Supabase environment variables', {
     hasUrl: !!supabaseUrl,
     hasKey: !!supabaseAnonKey,
+    urlValue: supabaseUrl ? `${supabaseUrl.substring(0, 20)}...` : 'MISSING',
+    isProduction,
   });
 }
 

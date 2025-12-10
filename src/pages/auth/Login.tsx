@@ -53,9 +53,19 @@ export default function Login() {
       });
       
       if (!supabaseUrl || !supabaseAnonKey || supabaseUrl.includes('placeholder')) {
-        setLoginError(
-          'Supabase no está configurado. Por favor, configura las variables de entorno VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en un archivo .env.local y REINICIA el servidor de desarrollo.'
-        );
+        const isProduction = import.meta.env.PROD;
+        const errorMessage = isProduction
+          ? 'Supabase no está configurado en Vercel. Por favor:\n1. Ve a tu proyecto en Vercel\n2. Settings > Environment Variables\n3. Agrega VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY\n4. Selecciona todos los ambientes (Production, Preview, Development)\n5. Guarda y redesplega la aplicación'
+          : 'Supabase no está configurado. Por favor, configura las variables de entorno VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en un archivo .env.local y REINICIA el servidor de desarrollo.';
+        
+        console.error('Supabase configuration error:', {
+          hasUrl: !!supabaseUrl,
+          hasKey: !!supabaseAnonKey,
+          urlValue: supabaseUrl || 'MISSING',
+          isProduction,
+        });
+        
+        setLoginError(errorMessage);
         setIsLoading(false);
         return;
       }
