@@ -44,13 +44,20 @@ export default function Login() {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
       
-      console.log('Environment variables check:', {
+      // Enhanced logging for debugging in production
+      const envCheck = {
         url: supabaseUrl,
         urlLength: supabaseUrl?.length,
         hasKey: !!supabaseAnonKey,
         keyLength: supabaseAnonKey?.length,
-        keyStart: supabaseAnonKey?.substring(0, 20)
-      });
+        keyStart: supabaseAnonKey?.substring(0, 20),
+        isProduction: import.meta.env.PROD,
+        allViteEnvKeys: Object.keys(import.meta.env).filter(k => k.startsWith('VITE_')),
+        hasViteSupabaseUrl: 'VITE_SUPABASE_URL' in import.meta.env,
+        hasViteSupabaseAnonKey: 'VITE_SUPABASE_ANON_KEY' in import.meta.env
+      };
+      
+      console.log('Environment variables check:', envCheck);
       
       if (!supabaseUrl || !supabaseAnonKey || supabaseUrl.includes('placeholder')) {
         const isProduction = import.meta.env.PROD;

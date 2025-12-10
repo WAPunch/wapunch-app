@@ -7,14 +7,17 @@ const getSupabaseConfig = () => {
   const url = import.meta.env.VITE_SUPABASE_URL || '';
   const key = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '';
   
-  if (import.meta.env.DEV) {
-    console.log('🔧 Supabase config loaded:', {
-      url: url || 'MISSING',
-      hasKey: !!key,
-      keyLength: key?.length || 0,
-      keyStart: key?.substring(0, 20) || 'N/A'
-    });
-  }
+  // Log in both dev and production for debugging
+  const envInfo = {
+    url: url || 'MISSING',
+    hasKey: !!key,
+    keyLength: key?.length || 0,
+    keyStart: key?.substring(0, 20) || 'N/A',
+    isProduction: import.meta.env.PROD,
+    allEnvKeys: Object.keys(import.meta.env).filter(k => k.startsWith('VITE_'))
+  };
+  
+  console.log('🔧 Supabase config loaded:', envInfo);
   
   return { url, key };
 };
