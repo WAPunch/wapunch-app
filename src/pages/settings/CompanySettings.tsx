@@ -399,7 +399,7 @@ export default function CompanySettings() {
         {/* Content Area */}
         <div className="flex-1 flex flex-col">
           {/* Settings Content */}
-          <div className="flex-1 p-8 overflow-auto">
+          <div className="flex-1 overflow-auto" style={{ padding: '28px 32px 32px 32px' }}>
             <div className="max-w-6xl">
               <div className="mb-6">
                 <h2 className="text-xl font-semibold text-gray-900 mb-2">
