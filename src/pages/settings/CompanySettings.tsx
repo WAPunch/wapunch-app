@@ -34,7 +34,6 @@ interface CompanyFormData {
 export default function CompanySettings() {
   const { getPreviousPage } = usePreviousPage();
   const [activeSection, setActiveSection] = useState<string>('company-info');
-  const [activeTab, setActiveTab] = useState<string>('general');
   
   // Company form state
   const [companyData, setCompanyData] = useState<CompanyFormData>({
@@ -87,39 +86,8 @@ export default function CompanySettings() {
     { id: 'billing', label: 'Billing', icon: DollarSign }
   ];
 
-  // Tab configurations
-  const sectionTabs: Record<string, Array<{ id: string; label: string }>> = {
-    'company-info': [
-      { id: 'general', label: 'General Information' }
-    ],
-    'employees': [
-      { id: 'general', label: 'General' }
-    ],
-    'time-and-attendance': [
-      { id: 'general', label: 'General' }
-    ],
-    'branches': [
-      { id: 'general', label: 'General' }
-    ],
-    'users': [
-      { id: 'general', label: 'General' }
-    ],
-    'integrations': [
-      { id: 'general', label: 'General' }
-    ],
-    'billing': [
-      { id: 'general', label: 'General' }
-    ]
-  };
-
-  const currentTabs = sectionTabs[activeSection] || [];
-
   const handleSectionChange = (sectionId: string): void => {
     setActiveSection(sectionId);
-    const newTabs = sectionTabs[sectionId];
-    if (newTabs && newTabs.length > 0) {
-      setActiveTab(newTabs[0]?.id || 'general');
-    }
   };
 
   const handleCloseSettings = (): void => {
@@ -134,8 +102,6 @@ export default function CompanySettings() {
 
   const renderTabContent = () => {
     if (activeSection === 'company-info') {
-      switch (activeTab) {
-        case 'general':
           const handleCompanyChange = (field: keyof CompanyFormData, value: string) => {
             setCompanyData(prev => ({ ...prev, [field]: value }));
           };
@@ -151,18 +117,18 @@ export default function CompanySettings() {
             setHasChanges(false);
           };
 
-          const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-            const file = e.target.files?.[0];
-            if (file) {
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                setCompanyData(prev => ({ ...prev, logo: reader.result as string }));
-              };
-              reader.readAsDataURL(file);
-            }
+      const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            setCompanyData(prev => ({ ...prev, logo: reader.result as string }));
           };
+          reader.readAsDataURL(file);
+        }
+      };
 
-          return (
+      return (
             <div className="bg-white border border-gray-200 rounded-lg p-6">
               <div className="space-y-8">
                 {/* Company Logo */}
@@ -351,8 +317,7 @@ export default function CompanySettings() {
                 </div>
               </div>
             </div>
-          );
-      }
+      );
     }
 
     // Default content for other sections
@@ -379,9 +344,9 @@ export default function CompanySettings() {
             <h1 className="text-lg font-semibold text-gray-900">Settings</h1>
           </div>
 
-          <div className="h-6 w-px bg-gray-200 ml-6 mr-6"></div>
+          <div className="h-6 w-px bg-gray-200 ml-6 mr-6" style={{ marginLeft: '111px' }}></div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" style={{ marginLeft: '4px' }}>
             <Building className="text-gray-900" style={{ width: '18px', height: '18px' }} />
             <span className="text-sm font-medium text-gray-900">Arquiluz S.A.</span>
           </div>
@@ -402,10 +367,6 @@ export default function CompanySettings() {
       <div className="flex h-[calc(100vh-48px)]">
         {/* Settings Sidebar */}
         <div className="bg-white border-r border-gray-200 flex-shrink-0" style={{ width: '240px' }}>
-          <div className="px-6 border-b border-gray-200 flex items-center" style={{ height: '48px' }}>
-            <p className="text-xs text-gray-500">Manage your system settings and content</p>
-          </div>
-
           <nav className="px-4 pt-6 pb-4">
             <ul className="space-y-1">
               {settingsMenu.map((item) => {
@@ -437,43 +398,12 @@ export default function CompanySettings() {
 
         {/* Content Area */}
         <div className="flex-1 flex flex-col">
-          {/* Secondary Navigation */}
-          {currentTabs.length > 0 && (
-            <div className="bg-gray-50 border-b border-gray-200 flex-shrink-0 px-6" style={{ height: '48px' }}>
-              <div className="flex items-center" style={{ height: '48px' }}>
-                <div className="flex items-stretch h-full -mx-2">
-                  {currentTabs.map((tab) => (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveTab(tab.id)}
-                      className={`font-medium transition-colors flex items-center justify-center px-4 rounded-t-lg ${
-                        tab.id === activeTab
-                          ? 'bg-white text-primary border-b-2 border-primary'
-                          : 'hover:text-primary hover:bg-white/50'
-                      }`}
-                      style={{
-                        fontSize: '14px',
-                        height: '46px',
-                        minWidth: '140px'
-                      }}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Settings Content */}
           <div className="flex-1 p-8 overflow-auto">
             <div className="max-w-6xl">
               <div className="mb-6">
                 <h2 className="text-xl font-semibold text-gray-900 mb-2">
                   {settingsMenu.find(item => item.id === activeSection)?.label}
-                  {currentTabs.length > 0 && activeTab &&
-                    ` - ${currentTabs.find(tab => tab.id === activeTab)?.label}`
-                  }
                 </h2>
                 <p className="text-sm text-gray-600">
                   Configure and manage your {settingsMenu.find(item => item.id === activeSection)?.label.toLowerCase()} settings and content.
