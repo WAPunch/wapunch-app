@@ -110,18 +110,22 @@ export const useCompanyStore = create<CompanyState>()(
           set({ availableCompanies: companyUsers });
 
           // If no current company is set, use the first one
-          if (!get().currentCompany && companyUsers.length > 0 && companyUsers[0].company) {
-            get().setCurrentCompany(companyUsers[0].company, companyUsers[0]);
+          if (!get().currentCompany && companyUsers.length > 0) {
+            const firstCompanyUser = companyUsers[0];
+            if (firstCompanyUser?.company) {
+              get().setCurrentCompany(firstCompanyUser.company, firstCompanyUser);
+            }
           }
 
           logger.info('User companies loaded', { count: companyUsers.length });
-        } catch (error: any) {
-          logger.error('Error loading user companies', error);
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : 'Failed to load companies';
+          logger.error('Error loading user companies', error instanceof Error ? error : new Error(String(error)));
           if (import.meta.env.DEV) {
             console.error('❌ Error in loadUserCompanies:', error);
           }
           set({ 
-            error: error?.message || 'Failed to load companies',
+            error: errorMessage,
             availableCompanies: [],
           });
         } finally {
@@ -137,7 +141,7 @@ export const useCompanyStore = create<CompanyState>()(
         );
 
         if (!companyUser || !companyUser.company) {
-          logger.error('Company not found', { companyId });
+          logger.error('Company not found', new Error(`Company with id ${companyId} not found`));
           set({ error: 'Company not found' });
           return;
         }

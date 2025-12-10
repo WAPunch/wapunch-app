@@ -67,6 +67,11 @@ export default function ManageOrganizations() {
       const company = companies[0];
 
       // Check if user is already a member
+      if (!company) {
+        setError('Company not found');
+        return;
+      }
+
       const { data: existingMembership } = await supabase
         .from('company_users')
         .select('id')

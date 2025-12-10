@@ -198,7 +198,7 @@ function App() {
       try {
         await initAuth();
       } catch (error) {
-        logger.error('Error initializing auth', error);
+        logger.error('Error initializing auth', error instanceof Error ? error : new Error(String(error)));
         // Don't break the app if auth init fails
         useAuthStore.getState().setLoading(false);
       }

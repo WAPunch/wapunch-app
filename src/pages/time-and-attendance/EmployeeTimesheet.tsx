@@ -59,6 +59,8 @@ interface Employee {
   email: string;
   location: string;
   avatar?: string;
+  phone?: string;
+  status?: string;
 }
 
 export default function EmployeeTimesheet() {
@@ -137,16 +139,22 @@ export default function EmployeeTimesheet() {
   const goToPreviousEmployee = () => {
     if (currentEmployeeIndex > 0) {
       const newIndex = currentEmployeeIndex - 1;
-      setCurrentEmployeeIndex(newIndex);
-      setEmployee(employeeList[newIndex]);
+      const prevEmployee = employeeList[newIndex];
+      if (prevEmployee) {
+        setCurrentEmployeeIndex(newIndex);
+        setEmployee(prevEmployee);
+      }
     }
   };
 
   const goToNextEmployee = () => {
     if (currentEmployeeIndex < employeeList.length - 1) {
       const newIndex = currentEmployeeIndex + 1;
-      setCurrentEmployeeIndex(newIndex);
-      setEmployee(employeeList[newIndex]);
+      const nextEmployee = employeeList[newIndex];
+      if (nextEmployee) {
+        setCurrentEmployeeIndex(newIndex);
+        setEmployee(nextEmployee);
+      }
     }
   };
 
@@ -208,13 +216,16 @@ export default function EmployeeTimesheet() {
       }
     } else {
       // No employee in sessionStorage, use first employee
-      setEmployee(mockEmployees[0]);
-      setCurrentEmployeeIndex(0);
-      setBreadcrumbs([
-        { label: 'Time & Attendance' },
-        { label: 'Team Attendance', href: '/time-and-attendance/team-attendance' },
-        { label: mockEmployees[0].employeeName }
-      ]);
+      const firstEmployee = mockEmployees[0];
+      if (firstEmployee) {
+        setEmployee(firstEmployee);
+        setCurrentEmployeeIndex(0);
+        setBreadcrumbs([
+          { label: 'Time & Attendance' },
+          { label: 'Team Attendance', href: '/time-and-attendance/team-attendance' },
+          { label: firstEmployee.employeeName }
+        ]);
+      }
     }
   }, [setBreadcrumbs, clearSubmoduleNav]);
 
@@ -235,15 +246,18 @@ export default function EmployeeTimesheet() {
       const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
       
       if (isWeekend) {
-        mockData.push({
-          date: date.toISOString().split('T')[0],
-          timeEntries: [],
-          sessions: [],
-          totalHours: 0,
-          status: 'on-leave',
-          location: emp.location,
-          notes: 'Weekend'
-        });
+        const dateStr = date.toISOString().split('T')[0];
+        if (dateStr) {
+          mockData.push({
+            date: dateStr,
+            timeEntries: [],
+            sessions: [],
+            totalHours: 0,
+            status: 'on-leave',
+            location: emp.location,
+            notes: 'Weekend'
+          });
+        }
       } else {
         // Generate mock time entries and sessions for weekdays
         const timeEntries: TimeEntry[] = [];
@@ -259,14 +273,18 @@ export default function EmployeeTimesheet() {
         for (let i = 0; i < numEntries; i++) {
           const clockIn = `${8 + Math.floor(Math.random() * 2)}:${Math.floor(Math.random() * 60).toString().padStart(2, '0')}`;
           const hours = 2 + Math.random() * 4; // 2-6 hours per entry
-          const clockOut = `${parseInt(clockIn.split(':')[0]) + Math.floor(hours)}:${Math.floor((hours % 1) * 60).toString().padStart(2, '0')}`;
+          const clockInHour = parseInt(clockIn.split(':')[0] || '8');
+          const clockOut = `${clockInHour + Math.floor(hours)}:${Math.floor((hours % 1) * 60).toString().padStart(2, '0')}`;
+          const dateStr = date.toISOString().split('T')[0] || '';
+          const projectIndex = Math.floor(Math.random() * projects.length);
+          const activityIndex = Math.floor(Math.random() * activities.length);
           
           timeEntries.push({
-            id: `${emp.id}-${date.toISOString().split('T')[0]}-${i}`,
+            id: `${emp.id}-${dateStr}-${i}`,
             clockIn,
             clockOut,
-            project: projects[Math.floor(Math.random() * projects.length)],
-            activity: activities[Math.floor(Math.random() * activities.length)],
+            project: projects[projectIndex] || '',
+            activity: activities[activityIndex] || '',
             hours: Math.round(hours * 100) / 100,
             notes: `Entry ${i + 1} for ${date.toLocaleDateString()}`
           });
@@ -309,7 +327,7 @@ export default function EmployeeTimesheet() {
               endTime,
               duration: Math.round(duration * 100) / 100,
               location: emp.location,
-              description: descriptions[sessionType][Math.floor(Math.random() * descriptions[sessionType].length)],
+              description: descriptions[sessionType]?.[Math.floor(Math.random() * (descriptions[sessionType]?.length || 1))] || '',
               notes: `${sessionType} session ${i + 1}`
             });
             
@@ -322,19 +340,22 @@ export default function EmployeeTimesheet() {
           status = 'absent';
         } else if (totalHours < 6) {
           status = 'partial';
-        } else if (timeEntries[0]?.clockIn && parseInt(timeEntries[0].clockIn.split(':')[0]) > 9) {
+        } else if (timeEntries[0]?.clockIn && parseInt(timeEntries[0].clockIn.split(':')[0] || '0') > 9) {
           status = 'late';
         }
 
-        mockData.push({
-          date: date.toISOString().split('T')[0],
-          timeEntries,
-          sessions,
-          totalHours: Math.round(totalHours * 100) / 100,
-          status,
-          location: emp.location,
-          notes: `${numEntries} time entries, ${sessions.length} sessions`
-        });
+        const dateStr = date.toISOString().split('T')[0];
+        if (dateStr) {
+          mockData.push({
+            date: dateStr,
+            timeEntries,
+            sessions,
+            totalHours: Math.round(totalHours * 100) / 100,
+            status,
+            location: emp.location,
+            notes: `${numEntries} time entries, ${sessions.length} sessions`
+          });
+        }
       }
     });
 
@@ -477,6 +498,7 @@ export default function EmployeeTimesheet() {
     const weekDates = getWeekDates(currentWeek);
     const startDate = weekDates[0];
     const endDate = weekDates[6];
+    if (!startDate || !endDate) return '';
     return `${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
   };
 
@@ -493,8 +515,8 @@ export default function EmployeeTimesheet() {
     }, 0);
   }, [weeklyAttendance]);
 
-  const getDailyOvertime = (day: DayAttendance) => {
-    return day.sessions.reduce((sum, session) => {
+  const getDailyOvertime = (day: DailyAttendance) => {
+    return day.sessions.reduce((sum: number, session: Session) => {
       const overtimeHours = Math.max(0, session.duration - 8);
       return sum + overtimeHours;
     }, 0);
@@ -647,7 +669,7 @@ export default function EmployeeTimesheet() {
                       if (!groups[session.type]) {
                         groups[session.type] = [];
                       }
-                      groups[session.type].push(session);
+                      groups[session.type]?.push(session);
                       return groups;
                     }, {} as Record<string, Session[]>);
 

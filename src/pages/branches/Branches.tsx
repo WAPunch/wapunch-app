@@ -224,7 +224,7 @@ export default function Branches() {
       )}
 
       {/* Search and Filters */}
-      {!branchesError && (
+      {!branchesError && !branchesLoading && (
       <div className="mb-4">
         <div className={`bg-white border border-gray-200 py-6 px-6 ${
           showFilters ? 'rounded-t-lg' : 'rounded-lg'
@@ -471,7 +471,7 @@ export default function Branches() {
       )}
 
       {/* List View */}
-      {!branchesError && viewMode === 'list' && (
+      {!branchesError && !branchesLoading && viewMode === 'list' && (
         <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-4">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -558,7 +558,7 @@ export default function Branches() {
       )}
 
       {/* Map View */}
-      {!branchesError && viewMode === 'map' && (
+      {!branchesError && !branchesLoading && viewMode === 'map' && (
         <div className="flex gap-4 mb-4">
           {/* Branch List - 30% width */}
           <div className="w-[30%] bg-white border border-gray-200 rounded-lg overflow-hidden">
@@ -610,6 +610,7 @@ export default function Branches() {
       )}
 
       {/* Pagination */}
+      {!branchesLoading && (
       <div className="bg-white border border-gray-200 rounded-lg py-6 px-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -698,6 +699,7 @@ export default function Branches() {
           )}
         </div>
       </div>
+      )}
 
     </div>
   );

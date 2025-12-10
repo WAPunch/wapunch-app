@@ -59,7 +59,7 @@ export const getCurrentUser = async () => {
     if (error) throw error;
     return user;
   } catch (error) {
-    logger.error('Error getting current user', error);
+    logger.error('Error getting current user', error instanceof Error ? error : new Error(String(error)));
     return null;
   }
 };
@@ -76,7 +76,7 @@ export const getUserProfile = async (userId: string) => {
     if (error) throw error;
     return data;
   } catch (error) {
-    logger.error('Error getting user profile', error);
+    logger.error('Error getting user profile', error instanceof Error ? error : new Error(String(error)));
     return null;
   }
 };

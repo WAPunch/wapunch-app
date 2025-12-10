@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { router } from '../../lib/router';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
+import { useWhosWorking, WhosWorkingEmployee } from '../../hooks/useWhosWorking';
 import { 
   Users, 
   Search, 
@@ -30,23 +31,8 @@ import {
   Flag
 } from 'lucide-react';
 
-interface Employee {
-  id: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  jobTitle: string;
-  department: string;
-  status: 'present' | 'on-break' | 'on-transfer' | 'on-leave' | 'absent';
-  location: string;
-  lastActivityTime: string;
-  lastActivity: 'clock-in' | 'break-start' | 'transfer-start' | 'clock-out' | 'break-end' | 'transfer-end';
-  activityDetails: string;
-  avatar?: string;
-  phone?: string;
-  latitude?: number;
-  longitude?: number;
-}
+// Using WhosWorkingEmployee from hook
+type Employee = WhosWorkingEmployee;
 
 // Function to generate avatar initials (100% reliable, works everywhere)
 const generateAvatarInitials = (firstName: string, lastName: string) => {
@@ -93,6 +79,7 @@ const getStatusDotColor = (status: string) => {
 
 export default function WhosWorking() {
   const { registerSubmodules } = useSubmoduleNav();
+  const { employees: employeesData, isLoading: employeesLoading, error: employeesError, refetch } = useWhosWorking();
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -139,158 +126,8 @@ export default function WhosWorking() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const employees: Employee[] = [
-    {
-      id: '1',
-      firstName: 'Alex',
-      lastName: 'Manager',
-      email: 'alex.manager@arquiluz.com',
-      jobTitle: 'Chief Executive Officer',
-      department: 'Executive',
-      status: 'present',
-      location: 'San Francisco, CA',
-      lastActivityTime: '9:15 AM',
-      lastActivity: 'clock-in',
-      activityDetails: 'Clock-in - Badge Reader',
-      latitude: 37.7749,
-      longitude: -122.4194
-    },
-    {
-      id: '2',
-      firstName: 'Alex',
-      lastName: 'Thompson',
-      email: 'alex.thompson@arquiluz.com',
-      jobTitle: 'DevOps Engineer',
-      department: 'Engineering',
-      status: 'on-break',
-      location: 'Seattle, WA',
-      lastActivityTime: '10:30 AM',
-      lastActivity: 'break-start',
-      activityDetails: 'Break Start - Mobile App',
-      latitude: 47.6062,
-      longitude: -122.3321
-    },
-    {
-      id: '3',
-      firstName: 'Amanda',
-      lastName: 'Foster',
-      email: 'amanda.foster@arquiluz.com',
-      jobTitle: 'HR Specialist',
-      department: 'Human Resources',
-      status: 'present',
-      location: 'Portland, OR',
-      lastActivityTime: '8:45 AM',
-      lastActivity: 'clock-in',
-      activityDetails: 'Clock-in - Biometric Scanner',
-      latitude: 45.5152,
-      longitude: -122.6784
-    },
-    {
-      id: '4',
-      firstName: 'David',
-      lastName: 'Kim',
-      email: 'david.kim@arquiluz.com',
-      jobTitle: 'VP of Product',
-      department: 'Product',
-      status: 'on-transfer',
-      location: 'Austin, TX',
-      lastActivityTime: '11:20 AM',
-      lastActivity: 'transfer-start',
-      activityDetails: 'Transfer Start - Mobile App',
-      latitude: 30.2672,
-      longitude: -97.7431
-    },
-    {
-      id: '5',
-      firstName: 'Emily',
-      lastName: 'Davis',
-      email: 'emily.davis@arquiluz.com',
-      jobTitle: 'Design Lead',
-      department: 'Design',
-      status: 'present',
-      location: 'New York, NY',
-      lastActivityTime: '9:00 AM',
-      lastActivity: 'clock-in',
-      activityDetails: 'Clock-in - Badge Reader',
-      latitude: 40.7128,
-      longitude: -74.0060
-    },
-    {
-      id: '6',
-      firstName: 'Jennifer',
-      lastName: 'Liu',
-      email: 'jennifer.liu@arquiluz.com',
-      jobTitle: 'Product Manager',
-      department: 'Product',
-      status: 'on-leave',
-      location: 'Austin, TX',
-      lastActivityTime: 'Yesterday',
-      lastActivity: 'clock-out',
-      activityDetails: 'Clock-out - Mobile App',
-      latitude: 30.2672,
-      longitude: -97.7431
-    },
-    {
-      id: '7',
-      firstName: 'Kevin',
-      lastName: 'Chang',
-      email: 'kevin.chang@arquiluz.com',
-      jobTitle: 'Data Analyst',
-      department: 'Analytics',
-      status: 'absent',
-      location: 'Boston, MA',
-      lastActivityTime: 'Yesterday',
-      lastActivity: 'clock-out',
-      activityDetails: 'Clock-out - Badge Reader',
-      latitude: 42.3601,
-      longitude: -71.0589
-    },
-    {
-      id: '8',
-      firstName: 'Lisa',
-      lastName: 'Anderson',
-      email: 'lisa.anderson@arquiluz.com',
-      jobTitle: 'Sales Manager',
-      department: 'Sales',
-      status: 'present',
-      location: 'Miami, FL',
-      lastActivityTime: '8:30 AM',
-      lastActivity: 'clock-in',
-      activityDetails: 'Clock-in - Biometric Scanner',
-      latitude: 25.7617,
-      longitude: -80.1918
-    },
-    {
-      id: '9',
-      firstName: 'Marcus',
-      lastName: 'Rodriguez',
-      email: 'marcus.rodriguez@arquiluz.com',
-      jobTitle: 'UX Designer',
-      department: 'Design',
-      status: 'on-break',
-      location: 'New York, NY',
-      lastActivityTime: '10:45 AM',
-      lastActivity: 'break-start',
-      activityDetails: 'Break Start - Mobile App',
-      latitude: 40.7128,
-      longitude: -74.0060
-    },
-    {
-      id: '10',
-      firstName: 'Michael',
-      lastName: 'Chen',
-      email: 'michael.chen@arquiluz.com',
-      jobTitle: 'Engineering Manager',
-      department: 'Engineering',
-      status: 'present',
-      location: 'San Francisco, CA',
-      lastActivityTime: '9:05 AM',
-      lastActivity: 'clock-in',
-      activityDetails: 'Clock-in - Badge Reader',
-      latitude: 37.7749,
-      longitude: -122.4194
-    }
-  ];
+  // Use employees from Supabase hook instead of mock data
+  const employees: Employee[] = employeesData;
 
   const filteredEmployees = useMemo(() => {
     const filtered = employees.filter(employee => {
@@ -587,13 +424,36 @@ export default function WhosWorking() {
         <div className="mb-6">
           <h1 className="text-xl font-semibold text-foreground mb-1">Who's Working</h1>
           <p className="text-xs" style={{ color: 'var(--gray-500)' }}>
-            Track your team's current status and location
-            {filteredEmployees.length > itemsPerPage ? ` (Page ${currentPage} of ${totalPages})` : ''}
+            {employeesLoading 
+              ? 'Loading employee status...' 
+              : `Track your team's current status and location${filteredEmployees.length > itemsPerPage ? ` (Page ${currentPage} of ${totalPages})` : ''}`
+            }
           </p>
         </div>
+      </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+      {/* Error Message */}
+      {employeesError && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <div className="flex items-center gap-2">
+            <span className="text-red-600">⚠️</span>
+            <div>
+              <div className="text-sm font-medium text-red-800">Error loading employee status</div>
+              <div className="text-sm text-red-700">{employeesError}</div>
+            </div>
+            <button
+              onClick={() => refetch()}
+              className="ml-auto px-3 py-1 text-sm bg-red-100 text-red-800 rounded hover:bg-red-200"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Stats Cards */}
+      {!employeesLoading && !employeesError && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
           <button 
             onClick={() => handleSummaryCardClick('present')}
             className={`bg-white border rounded-lg p-4 transition-all duration-200 hover:shadow-md cursor-pointer ${
@@ -680,9 +540,10 @@ export default function WhosWorking() {
             </div>
           </button>
         </div>
-      </div>
+        )}
 
       {/* Search and Filters */}
+      {!employeesLoading && !employeesError && (
       <div className="mb-4">
         <div className={`bg-white border border-gray-200 py-6 px-6 ${
           showFilters ? 'rounded-t-lg' : 'rounded-lg'
@@ -769,7 +630,7 @@ export default function WhosWorking() {
                      onClick={() => setShowStatusDropdown(!showStatusDropdown)}>
                   <span className="text-gray-700">
                     {selectedStatus.length === 0 ? 'All Statuses' : 
-                     selectedStatus.length === 1 ? selectedStatus[0].replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase()) :
+                     selectedStatus.length === 1 ? (selectedStatus[0] || '').replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase()) :
                      `${selectedStatus.length} selected`}
                   </span>
                   <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1006,9 +867,10 @@ export default function WhosWorking() {
           </div>
         )}
       </div>
+      )}
 
       {/* Table View */}
-      {viewMode === 'table' && (
+      {!employeesLoading && !employeesError && viewMode === 'table' && (
         <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-4">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -1121,7 +983,7 @@ export default function WhosWorking() {
       )}
 
       {/* Map View */}
-      {viewMode === 'map' && (
+      {!employeesLoading && !employeesError && viewMode === 'map' && (
         <div className="flex gap-4 mb-4">
           {/* Employee List - 30% width */}
           <div className="w-[30%] bg-white border border-gray-200 rounded-lg overflow-hidden">
@@ -1179,6 +1041,7 @@ export default function WhosWorking() {
       )}
 
       {/* Pagination */}
+      {!employeesLoading && !employeesError && (
       <div className="bg-white border border-gray-200 rounded-lg py-6 px-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -1263,9 +1126,10 @@ export default function WhosWorking() {
           )}
         </div>
       </div>
+      )}
 
       {/* Empty State */}
-      {filteredEmployees.length === 0 && (
+      {!employeesLoading && !employeesError && filteredEmployees.length === 0 && (
         <div className="text-center py-8">
           <Users className="w-8 h-8 text-gray-400 mx-auto mb-3" />
           <h3 className="text-sm font-semibold text-gray-900 mb-1">No employees found</h3>

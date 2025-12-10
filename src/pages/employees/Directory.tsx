@@ -361,6 +361,7 @@ export default function Directory() {
       </div>
 
       {/* Search and Filters */}
+      {!employeesLoading && (
       <div className="mb-4">
         <div className={`bg-white border border-gray-200 py-6 px-6 ${
           showFilters ? 'rounded-t-lg' : 'rounded-lg'
@@ -685,6 +686,7 @@ export default function Directory() {
           </div>
         )}
       </div>
+      )}
 
       {/* Error Message */}
       {employeesError && (
@@ -706,7 +708,7 @@ export default function Directory() {
       )}
 
       {/* Table View */}
-      {!employeesError && viewMode === 'table' && (
+      {!employeesError && !employeesLoading && viewMode === 'table' && (
         <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-4">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -832,7 +834,7 @@ export default function Directory() {
       )}
 
       {/* Grid View */}
-      {!employeesError && viewMode === 'grid' && (
+      {!employeesError && !employeesLoading && viewMode === 'grid' && (
         <>
           {filteredEmployees.length === 0 ? (
             <div className="bg-white border border-gray-200 rounded-lg p-12 text-center mb-4">
@@ -926,6 +928,7 @@ export default function Directory() {
       )}
 
       {/* Pagination */}
+      {!employeesLoading && (
       <div className="bg-white border border-gray-200 rounded-lg py-6 px-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -1010,6 +1013,7 @@ export default function Directory() {
           )}
           </div>
       </div>
+      )}
     </div>
   );
 }

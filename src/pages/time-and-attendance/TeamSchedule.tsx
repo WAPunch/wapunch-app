@@ -744,30 +744,40 @@ export default function TeamSchedule() {
   ];
 
   // Get current week dates for shift data
-  const getCurrentWeekDates = () => {
+  const getCurrentWeekDates = (): string[] => {
     const today = new Date();
     const start = new Date(today);
     const day = start.getDay();
     const diff = start.getDate() - day + (day === 0 ? -6 : 1);
     start.setDate(diff);
     
-    const week = [];
+    const week: string[] = [];
     for (let i = 0; i < 7; i++) {
       const day = new Date(start);
       day.setDate(start.getDate() + i);
-      week.push(day.toISOString().split('T')[0]);
+      const dateStr = day.toISOString().split('T')[0];
+      if (dateStr) {
+        week.push(dateStr);
+      }
     }
     return week;
   };
 
   const currentWeekDates = getCurrentWeekDates();
+  // Ensure we have all 7 dates, use fallback if needed
+  const getDate = (index: number): string => {
+    const date = currentWeekDates[index];
+    if (date) return date;
+    const fallback = new Date().toISOString().split('T')[0];
+    return fallback || '';
+  };
 
   const shifts: Shift[] = [
     // Monday shifts
     {
       id: '1',
       employeeId: '1',
-      date: currentWeekDates[0], // Monday
+      date: getDate(0), // Monday
       startTime: '09:00',
       endTime: '17:00',
       role: 'Senior Developer',
@@ -777,7 +787,7 @@ export default function TeamSchedule() {
     {
       id: '2',
       employeeId: '2',
-      date: currentWeekDates[0], // Monday
+      date: getDate(0), // Monday
       startTime: '08:00',
       endTime: '16:00',
       role: 'UX Designer',
@@ -787,7 +797,7 @@ export default function TeamSchedule() {
     {
       id: '3',
       employeeId: '3',
-      date: currentWeekDates[0], // Monday
+      date: getDate(0), // Monday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Project Manager',
@@ -797,7 +807,7 @@ export default function TeamSchedule() {
     {
       id: '4',
       employeeId: '4',
-      date: currentWeekDates[0], // Monday
+      date: getDate(0), // Monday
       startTime: '10:00',
       endTime: '19:00',
       role: 'Frontend Developer',
@@ -807,7 +817,7 @@ export default function TeamSchedule() {
     {
       id: '5',
       employeeId: '5',
-      date: currentWeekDates[0], // Monday
+      date: getDate(0), // Monday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Backend Developer',
@@ -817,7 +827,7 @@ export default function TeamSchedule() {
     {
       id: '6',
       employeeId: '6',
-      date: currentWeekDates[0], // Monday
+      date: getDate(0), // Monday
       startTime: '08:00',
       endTime: '17:00',
       role: 'DevOps Engineer',
@@ -827,7 +837,7 @@ export default function TeamSchedule() {
     {
       id: '7',
       employeeId: '7',
-      date: currentWeekDates[0], // Monday
+      date: getDate(0), // Monday
       startTime: '09:00',
       endTime: '18:00',
       role: 'UI Designer',
@@ -837,7 +847,7 @@ export default function TeamSchedule() {
     {
       id: '8',
       employeeId: '8',
-      date: currentWeekDates[0], // Monday
+      date: getDate(0), // Monday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Product Manager',
@@ -847,7 +857,7 @@ export default function TeamSchedule() {
     {
       id: '9',
       employeeId: '9',
-      date: currentWeekDates[0], // Monday
+      date: getDate(0), // Monday
       startTime: '10:00',
       endTime: '19:00',
       role: 'QA Engineer',
@@ -857,7 +867,7 @@ export default function TeamSchedule() {
     {
       id: '10',
       employeeId: '10',
-      date: currentWeekDates[0], // Monday
+      date: getDate(0), // Monday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Full Stack Developer',
@@ -868,7 +878,7 @@ export default function TeamSchedule() {
     {
       id: '56',
       employeeId: '11',
-      date: currentWeekDates[0], // Monday
+      date: getDate(0), // Monday
       startTime: '09:00',
       endTime: '13:00',
       role: 'Marketing Manager',
@@ -878,7 +888,7 @@ export default function TeamSchedule() {
     {
       id: '56b',
       employeeId: '11',
-      date: currentWeekDates[0], // Monday
+      date: getDate(0), // Monday
       startTime: '14:00',
       endTime: '18:00',
       role: 'Marketing Manager',
@@ -888,7 +898,7 @@ export default function TeamSchedule() {
     {
       id: '57',
       employeeId: '12',
-      date: currentWeekDates[0], // Monday
+      date: getDate(0), // Monday
       startTime: '08:00',
       endTime: '17:00',
       role: 'Sales Representative',
@@ -898,7 +908,7 @@ export default function TeamSchedule() {
     {
       id: '58',
       employeeId: '14',
-      date: currentWeekDates[0], // Monday
+      date: getDate(0), // Monday
       startTime: '10:00',
       endTime: '19:00',
       role: 'Data Analyst',
@@ -908,7 +918,7 @@ export default function TeamSchedule() {
     {
       id: '59',
       employeeId: '17',
-      date: currentWeekDates[0], // Monday
+      date: getDate(0), // Monday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Graphic Designer',
@@ -918,7 +928,7 @@ export default function TeamSchedule() {
     {
       id: '60',
       employeeId: '21',
-      date: currentWeekDates[0], // Monday
+      date: getDate(0), // Monday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Financial Analyst',
@@ -929,7 +939,7 @@ export default function TeamSchedule() {
     {
       id: '11',
       employeeId: '1',
-      date: currentWeekDates[1], // Tuesday
+      date: getDate(1), // Tuesday
       startTime: '09:00',
       endTime: '17:00',
       role: 'Senior Developer',
@@ -939,7 +949,7 @@ export default function TeamSchedule() {
     {
       id: '12',
       employeeId: '2',
-      date: currentWeekDates[1], // Tuesday
+      date: getDate(1), // Tuesday
       startTime: '08:00',
       endTime: '16:00',
       role: 'UX Designer',
@@ -949,7 +959,7 @@ export default function TeamSchedule() {
     {
       id: '13',
       employeeId: '3',
-      date: currentWeekDates[1], // Tuesday
+      date: getDate(1), // Tuesday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Project Manager',
@@ -959,7 +969,7 @@ export default function TeamSchedule() {
     {
       id: '14',
       employeeId: '4',
-      date: currentWeekDates[1], // Tuesday
+      date: getDate(1), // Tuesday
       startTime: '10:00',
       endTime: '19:00',
       role: 'Frontend Developer',
@@ -969,7 +979,7 @@ export default function TeamSchedule() {
     {
       id: '15',
       employeeId: '5',
-      date: currentWeekDates[1], // Tuesday
+      date: getDate(1), // Tuesday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Backend Developer',
@@ -979,7 +989,7 @@ export default function TeamSchedule() {
     {
       id: '16',
       employeeId: '6',
-      date: currentWeekDates[1], // Tuesday
+      date: getDate(1), // Tuesday
       startTime: '08:00',
       endTime: '17:00',
       role: 'DevOps Engineer',
@@ -989,7 +999,7 @@ export default function TeamSchedule() {
     {
       id: '17',
       employeeId: '7',
-      date: currentWeekDates[1], // Tuesday
+      date: getDate(1), // Tuesday
       startTime: '09:00',
       endTime: '18:00',
       role: 'UI Designer',
@@ -999,7 +1009,7 @@ export default function TeamSchedule() {
     {
       id: '18',
       employeeId: '8',
-      date: currentWeekDates[1], // Tuesday
+      date: getDate(1), // Tuesday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Product Manager',
@@ -1009,7 +1019,7 @@ export default function TeamSchedule() {
     {
       id: '19',
       employeeId: '9',
-      date: currentWeekDates[1], // Tuesday
+      date: getDate(1), // Tuesday
       startTime: '10:00',
       endTime: '19:00',
       role: 'QA Engineer',
@@ -1019,7 +1029,7 @@ export default function TeamSchedule() {
     {
       id: '20',
       employeeId: '10',
-      date: currentWeekDates[1], // Tuesday
+      date: getDate(1), // Tuesday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Full Stack Developer',
@@ -1030,7 +1040,7 @@ export default function TeamSchedule() {
     {
       id: '61',
       employeeId: '13',
-      date: currentWeekDates[1], // Tuesday
+      date: getDate(1), // Tuesday
       startTime: '10:00',
       endTime: '19:00',
       role: 'Content Writer',
@@ -1040,7 +1050,7 @@ export default function TeamSchedule() {
     {
       id: '62',
       employeeId: '15',
-      date: currentWeekDates[1], // Tuesday
+      date: getDate(1), // Tuesday
       startTime: '09:00',
       endTime: '18:00',
       role: 'HR Specialist',
@@ -1050,7 +1060,7 @@ export default function TeamSchedule() {
     {
       id: '63',
       employeeId: '19',
-      date: currentWeekDates[1], // Tuesday
+      date: getDate(1), // Tuesday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Business Analyst',
@@ -1061,7 +1071,7 @@ export default function TeamSchedule() {
     {
       id: '21',
       employeeId: '1',
-      date: currentWeekDates[2], // Wednesday
+      date: getDate(2), // Wednesday
       startTime: '09:00',
       endTime: '17:00',
       role: 'Senior Developer',
@@ -1071,7 +1081,7 @@ export default function TeamSchedule() {
     {
       id: '22',
       employeeId: '2',
-      date: currentWeekDates[2], // Wednesday
+      date: getDate(2), // Wednesday
       startTime: '08:00',
       endTime: '16:00',
       role: 'UX Designer',
@@ -1081,7 +1091,7 @@ export default function TeamSchedule() {
     {
       id: '23',
       employeeId: '3',
-      date: currentWeekDates[2], // Wednesday
+      date: getDate(2), // Wednesday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Project Manager',
@@ -1091,7 +1101,7 @@ export default function TeamSchedule() {
     {
       id: '24',
       employeeId: '4',
-      date: currentWeekDates[2], // Wednesday
+      date: getDate(2), // Wednesday
       startTime: '10:00',
       endTime: '19:00',
       role: 'Frontend Developer',
@@ -1101,7 +1111,7 @@ export default function TeamSchedule() {
     {
       id: '25',
       employeeId: '5',
-      date: currentWeekDates[2], // Wednesday
+      date: getDate(2), // Wednesday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Backend Developer',
@@ -1111,7 +1121,7 @@ export default function TeamSchedule() {
     {
       id: '26',
       employeeId: '6',
-      date: currentWeekDates[2], // Wednesday
+      date: getDate(2), // Wednesday
       startTime: '08:00',
       endTime: '17:00',
       role: 'DevOps Engineer',
@@ -1121,7 +1131,7 @@ export default function TeamSchedule() {
     {
       id: '27',
       employeeId: '7',
-      date: currentWeekDates[2], // Wednesday
+      date: getDate(2), // Wednesday
       startTime: '09:00',
       endTime: '18:00',
       role: 'UI Designer',
@@ -1131,7 +1141,7 @@ export default function TeamSchedule() {
     {
       id: '28',
       employeeId: '8',
-      date: currentWeekDates[2], // Wednesday
+      date: getDate(2), // Wednesday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Product Manager',
@@ -1141,7 +1151,7 @@ export default function TeamSchedule() {
     {
       id: '29',
       employeeId: '9',
-      date: currentWeekDates[2], // Wednesday
+      date: getDate(2), // Wednesday
       startTime: '10:00',
       endTime: '19:00',
       role: 'QA Engineer',
@@ -1151,7 +1161,7 @@ export default function TeamSchedule() {
     {
       id: '30',
       employeeId: '10',
-      date: currentWeekDates[2], // Wednesday
+      date: getDate(2), // Wednesday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Full Stack Developer',
@@ -1162,7 +1172,7 @@ export default function TeamSchedule() {
     {
       id: '31',
       employeeId: '1',
-      date: currentWeekDates[3], // Thursday
+      date: getDate(3), // Thursday
       startTime: '09:00',
       endTime: '17:00',
       role: 'Senior Developer',
@@ -1172,7 +1182,7 @@ export default function TeamSchedule() {
     {
       id: '32',
       employeeId: '2',
-      date: currentWeekDates[3], // Thursday
+      date: getDate(3), // Thursday
       startTime: '08:00',
       endTime: '16:00',
       role: 'UX Designer',
@@ -1182,7 +1192,7 @@ export default function TeamSchedule() {
     {
       id: '33',
       employeeId: '3',
-      date: currentWeekDates[3], // Thursday
+      date: getDate(3), // Thursday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Project Manager',
@@ -1192,7 +1202,7 @@ export default function TeamSchedule() {
     {
       id: '34',
       employeeId: '4',
-      date: currentWeekDates[3], // Thursday
+      date: getDate(3), // Thursday
       startTime: '10:00',
       endTime: '19:00',
       role: 'Frontend Developer',
@@ -1202,7 +1212,7 @@ export default function TeamSchedule() {
     {
       id: '35',
       employeeId: '5',
-      date: currentWeekDates[3], // Thursday
+      date: getDate(3), // Thursday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Backend Developer',
@@ -1212,7 +1222,7 @@ export default function TeamSchedule() {
     {
       id: '36',
       employeeId: '6',
-      date: currentWeekDates[3], // Thursday
+      date: getDate(3), // Thursday
       startTime: '08:00',
       endTime: '17:00',
       role: 'DevOps Engineer',
@@ -1222,7 +1232,7 @@ export default function TeamSchedule() {
     {
       id: '37',
       employeeId: '7',
-      date: currentWeekDates[3], // Thursday
+      date: getDate(3), // Thursday
       startTime: '09:00',
       endTime: '18:00',
       role: 'UI Designer',
@@ -1232,7 +1242,7 @@ export default function TeamSchedule() {
     {
       id: '38',
       employeeId: '8',
-      date: currentWeekDates[3], // Thursday
+      date: getDate(3), // Thursday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Product Manager',
@@ -1242,7 +1252,7 @@ export default function TeamSchedule() {
     {
       id: '39',
       employeeId: '9',
-      date: currentWeekDates[3], // Thursday
+      date: getDate(3), // Thursday
       startTime: '10:00',
       endTime: '19:00',
       role: 'QA Engineer',
@@ -1252,7 +1262,7 @@ export default function TeamSchedule() {
     {
       id: '40',
       employeeId: '10',
-      date: currentWeekDates[3], // Thursday
+      date: getDate(3), // Thursday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Full Stack Developer',
@@ -1263,7 +1273,7 @@ export default function TeamSchedule() {
     {
       id: '41',
       employeeId: '1',
-      date: currentWeekDates[4], // Friday
+      date: getDate(4), // Friday
       startTime: '09:00',
       endTime: '17:00',
       role: 'Senior Developer',
@@ -1273,7 +1283,7 @@ export default function TeamSchedule() {
     {
       id: '42',
       employeeId: '2',
-      date: currentWeekDates[4], // Friday
+      date: getDate(4), // Friday
       startTime: '08:00',
       endTime: '16:00',
       role: 'UX Designer',
@@ -1283,7 +1293,7 @@ export default function TeamSchedule() {
     {
       id: '43',
       employeeId: '3',
-      date: currentWeekDates[4], // Friday
+      date: getDate(4), // Friday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Project Manager',
@@ -1293,7 +1303,7 @@ export default function TeamSchedule() {
     {
       id: '44',
       employeeId: '4',
-      date: currentWeekDates[4], // Friday
+      date: getDate(4), // Friday
       startTime: '10:00',
       endTime: '19:00',
       role: 'Frontend Developer',
@@ -1303,7 +1313,7 @@ export default function TeamSchedule() {
     {
       id: '45',
       employeeId: '5',
-      date: currentWeekDates[4], // Friday
+      date: getDate(4), // Friday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Backend Developer',
@@ -1313,7 +1323,7 @@ export default function TeamSchedule() {
     {
       id: '46',
       employeeId: '6',
-      date: currentWeekDates[4], // Friday
+      date: getDate(4), // Friday
       startTime: '08:00',
       endTime: '17:00',
       role: 'DevOps Engineer',
@@ -1323,7 +1333,7 @@ export default function TeamSchedule() {
     {
       id: '47',
       employeeId: '7',
-      date: currentWeekDates[4], // Friday
+      date: getDate(4), // Friday
       startTime: '09:00',
       endTime: '18:00',
       role: 'UI Designer',
@@ -1333,7 +1343,7 @@ export default function TeamSchedule() {
     {
       id: '48',
       employeeId: '8',
-      date: currentWeekDates[4], // Friday
+      date: getDate(4), // Friday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Product Manager',
@@ -1343,7 +1353,7 @@ export default function TeamSchedule() {
     {
       id: '49',
       employeeId: '9',
-      date: currentWeekDates[4], // Friday
+      date: getDate(4), // Friday
       startTime: '10:00',
       endTime: '19:00',
       role: 'QA Engineer',
@@ -1353,7 +1363,7 @@ export default function TeamSchedule() {
     {
       id: '50',
       employeeId: '10',
-      date: currentWeekDates[4], // Friday
+      date: getDate(4), // Friday
       startTime: '09:00',
       endTime: '18:00',
       role: 'Full Stack Developer',
@@ -1364,7 +1374,7 @@ export default function TeamSchedule() {
     {
       id: '51',
       employeeId: '1',
-      date: currentWeekDates[5], // Saturday
+      date: getDate(5), // Saturday
       startTime: '10:00',
       endTime: '16:00',
       role: 'Senior Developer',
@@ -1374,7 +1384,7 @@ export default function TeamSchedule() {
     {
       id: '52',
       employeeId: '6',
-      date: currentWeekDates[5], // Saturday
+      date: getDate(5), // Saturday
       startTime: '09:00',
       endTime: '15:00',
       role: 'DevOps Engineer',
@@ -1384,7 +1394,7 @@ export default function TeamSchedule() {
     {
       id: '53',
       employeeId: '18',
-      date: currentWeekDates[5], // Saturday
+      date: getDate(5), // Saturday
       startTime: '08:00',
       endTime: '14:00',
       role: 'System Administrator',
@@ -1395,7 +1405,7 @@ export default function TeamSchedule() {
     {
       id: '54',
       employeeId: '6',
-      date: currentWeekDates[6], // Sunday
+      date: getDate(6), // Sunday
       startTime: '10:00',
       endTime: '16:00',
       role: 'DevOps Engineer',
@@ -1405,7 +1415,7 @@ export default function TeamSchedule() {
     {
       id: '55',
       employeeId: '22',
-      date: currentWeekDates[6], // Sunday
+      date: getDate(6), // Sunday
       startTime: '09:00',
       endTime: '15:00',
       role: 'Security Engineer',
@@ -1577,6 +1587,7 @@ export default function TeamSchedule() {
   const getWeekRange = () => {
     const start = weekDates[0];
     const end = weekDates[6];
+    if (!start || !end) return '';
     return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
   };
 
@@ -1827,7 +1838,7 @@ export default function TeamSchedule() {
                      onClick={() => setShowStatusDropdown(!showStatusDropdown)}>
                   <span className="text-gray-700">
                     {selectedStatus.length === 0 ? 'All Statuses' : 
-                     selectedStatus.length === 1 ? selectedStatus[0].replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase()) :
+                     selectedStatus.length === 1 ? (selectedStatus[0] || '').replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase()) :
                      `${selectedStatus.length} selected`}
                   </span>
                   <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1941,7 +1952,7 @@ export default function TeamSchedule() {
             </button>
             <div className="text-center">
               <h3 className="text-lg font-semibold text-gray-900">{getWeekRange()}</h3>
-              <p className="text-sm text-gray-500">Week of {weekDates[0].toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+              <p className="text-sm text-gray-500">Week of {weekDates[0]?.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) || ''}</p>
             </div>
             <button
               onClick={() => navigateWeek('next')}
@@ -2145,7 +2156,7 @@ export default function TeamSchedule() {
                 <div className={`w-64 p-3 pl-6 border-r border-gray-200 flex items-center gap-3 ${employeeIndex < paginatedEmployees.length - 1 ? 'border-b border-gray-200' : ''}`}>
                   <div className="relative">
                     <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center text-white text-sm font-medium">
-                      {generateAvatarInitials(employee.name.split(' ')[0], employee.name.split(' ')[1] || '')}
+                      {generateAvatarInitials(employee.name.split(' ')[0] || '', employee.name.split(' ')[1] || '')}
                     </div>
                     <div 
                       className={`absolute -bottom-0.5 -right-0.5 ${getDotSize('sm')} rounded-full border border-white`}

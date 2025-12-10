@@ -322,6 +322,7 @@ export default function TeamDevices() {
       id: '7',
       deviceName: 'Dell UltraSharp 27"',
       deviceType: 'Monitor',
+      operatingSystem: 'N/A',
       brand: 'Dell',
       model: 'UltraSharp U2723QE',
       serialNumber: 'DL987654321',
@@ -734,7 +735,9 @@ export default function TeamDevices() {
             </thead>
             <tbody className="divide-y divide-gray-200">
               {paginatedDevices.map((device) => {
-                const [firstName, lastName] = device.assignedEmployeeName.split(' ');
+                const nameParts = device.assignedEmployeeName.split(' ');
+                const firstName = nameParts[0] || '';
+                const lastName = nameParts.slice(1).join(' ') || '';
                 const avatarColor = generateAvatarColor(firstName, lastName);
                 const avatarInitials = generateAvatarInitials(firstName, lastName);
                 

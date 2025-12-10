@@ -157,7 +157,7 @@ export const useAuthStore = create<AuthState>()(
             storeAny.__authListenerSet = subscription;
           }
         } catch (error) {
-          logger.error('Error initializing auth', error);
+          logger.error('Error initializing auth', error instanceof Error ? error : new Error(String(error)));
           // Always set loading to false, even on error
           set({ 
             isLoading: false,
@@ -195,7 +195,7 @@ export const useAuthStore = create<AuthState>()(
         try {
           await supabase.auth.signOut();
         } catch (error) {
-          logger.error('Error signing out from Supabase', error);
+          logger.error('Error signing out from Supabase', error instanceof Error ? error : new Error(String(error)));
         }
         
         set({
