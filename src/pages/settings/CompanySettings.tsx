@@ -5,10 +5,6 @@ import {
   Building,
   Users,
   Clock,
-  Calendar,
-  FileText,
-  TrendingUp,
-  Heart,
   DollarSign,
   UserCheck,
   Settings as SettingsIcon,
@@ -19,7 +15,7 @@ import {
 
 export default function CompanySettings() {
   const { getPreviousPage } = usePreviousPage();
-  const [activeSection, setActiveSection] = useState<string>('time-and-attendance');
+  const [activeSection, setActiveSection] = useState<string>('company-info');
   const [activeTab, setActiveTab] = useState<string>('general');
 
   // Handle ESC key to close settings and return to previous page
@@ -44,75 +40,39 @@ export default function CompanySettings() {
     return () => document.removeEventListener('keydown', handleEscape);
   }, [getPreviousPage]);
 
-  // Settings menu configuration based on our app modules
+  // Settings menu configuration based on WAPunch modules
   const settingsMenu = [
-    { id: 'time-and-attendance', label: 'Time & Attendance', icon: Clock },
+    { id: 'company-info', label: 'Company', icon: Building },
     { id: 'employees', label: 'Employees', icon: Users },
-    { id: 'pto-leaves', label: 'PTO & Leaves', icon: Calendar },
-    { id: 'company-info', label: 'Company Info', icon: Building },
-    { id: 'lighthouse', label: 'Lighthouse', icon: BookOpen },
-    { id: 'performance', label: 'Performance', icon: TrendingUp },
-    { id: 'benefits', label: 'Benefits', icon: Heart },
-    { id: 'payroll', label: 'Payroll', icon: DollarSign },
-    { id: 'users', label: 'Users', icon: UserCheck }
+    { id: 'time-and-attendance', label: 'Time & Attendance', icon: Clock },
+    { id: 'branches', label: 'Branches', icon: Building },
+    { id: 'users', label: 'Users', icon: UserCheck },
+    { id: 'integrations', label: 'Integrations', icon: SettingsIcon },
+    { id: 'billing', label: 'Billing', icon: DollarSign }
   ];
 
-  // Tab configurations for each section
+  // Tab configurations for each section (single tab per module for now)
   const sectionTabs: Record<string, Array<{ id: string; label: string }>> = {
-    'time-and-attendance': [
-      { id: 'general', label: 'General' },
-      { id: 'time-tracking', label: 'Time Tracking' },
-      { id: 'overtime', label: 'Overtime Rules' },
-      { id: 'holidays', label: 'Holidays' },
-      { id: 'locations', label: 'Locations' }
+    'company-info': [
+      { id: 'general', label: 'General' }
     ],
     'employees': [
-      { id: 'employee-settings', label: 'Employee Settings' },
-      { id: 'permissions', label: 'Permissions' },
-      { id: 'workflows', label: 'Workflows' },
-      { id: 'departments', label: 'Departments' }
+      { id: 'general', label: 'General' }
     ],
-    'pto-leaves': [
-      { id: 'leave-types', label: 'Leave Types' },
-      { id: 'accrual-rules', label: 'Accrual Rules' },
-      { id: 'approval-flow', label: 'Approval Flow' },
-      { id: 'policies', label: 'Policies' }
+    'time-and-attendance': [
+      { id: 'general', label: 'General' }
     ],
-    'company-info': [
-      { id: 'general', label: 'General' },
-      { id: 'branding', label: 'Branding' },
-      { id: 'locations', label: 'Locations' },
-      { id: 'policies', label: 'Policies' }
-    ],
-    'lighthouse': [
-      { id: 'about-us', label: 'About Us' },
-      { id: 'courses', label: 'Courses & Training' },
-      { id: 'job-descriptions', label: 'Job Descriptions' },
-      { id: 'sops', label: 'Standard Operating Procedures' }
-    ],
-    'performance': [
-      { id: 'goals', label: 'Goals & Objectives' },
-      { id: 'reviews', label: 'Performance Reviews' },
-      { id: 'feedback', label: 'Feedback System' },
-      { id: 'metrics', label: 'Performance Metrics' }
-    ],
-    'benefits': [
-      { id: 'health-insurance', label: 'Health Insurance' },
-      { id: 'retirement', label: 'Retirement Plans' },
-      { id: 'wellness', label: 'Wellness Programs' },
-      { id: 'other-benefits', label: 'Other Benefits' }
-    ],
-    'payroll': [
-      { id: 'salary-structure', label: 'Salary Structure' },
-      { id: 'deductions', label: 'Deductions' },
-      { id: 'tax-settings', label: 'Tax Settings' },
-      { id: 'pay-schedules', label: 'Pay Schedules' }
+    'branches': [
+      { id: 'general', label: 'General' }
     ],
     'users': [
-      { id: 'user-management', label: 'User Management' },
-      { id: 'roles', label: 'Roles & Permissions' },
-      { id: 'security', label: 'Security' },
-      { id: 'access-control', label: 'Access Control' }
+      { id: 'general', label: 'General' }
+    ],
+    'integrations': [
+      { id: 'general', label: 'General' }
+    ],
+    'billing': [
+      { id: 'general', label: 'General' }
     ]
   };
 
@@ -291,7 +251,7 @@ export default function CompanySettings() {
 
     if (activeSection === 'employees') {
       switch (activeTab) {
-        case 'employee-settings':
+        case 'general':
           return (
             <div className="bg-white border border-gray-200 rounded-lg p-6">
               <div className="space-y-6">
@@ -314,32 +274,221 @@ export default function CompanySettings() {
       }
     }
 
-    if (activeSection === 'company-info') {
+    if (activeSection === 'company') {
       switch (activeTab) {
         case 'general':
+          const handleCompanyChange = (field: keyof CompanyFormData, value: string) => {
+            setCompanyData(prev => ({ ...prev, [field]: value }));
+          };
+
+          const handleSaveCompany = () => {
+            // TODO: Save to backend
+            setOriginalCompanyData(companyData);
+            setHasChanges(false);
+          };
+
+          const handleCancelCompany = () => {
+            setCompanyData(originalCompanyData);
+            setHasChanges(false);
+          };
+
+          const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+            const file = e.target.files?.[0];
+            if (file) {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                setCompanyData(prev => ({ ...prev, logo: reader.result as string }));
+              };
+              reader.readAsDataURL(file);
+            }
+          };
+
           return (
             <div className="bg-white border border-gray-200 rounded-lg p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-8">
+                {/* Company Logo */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Company Name</label>
-                  <input type="text" defaultValue="Arquiluz S.A." className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" />
+                  <label className="block text-sm font-medium text-gray-700 mb-3">Company Logo</label>
+                  <div className="flex items-center gap-4">
+                    <div className="w-24 h-24 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50">
+                      {companyData.logo ? (
+                        <img src={companyData.logo} alt="Company logo" className="w-full h-full object-contain rounded-lg" />
+                      ) : (
+                        <Building2 className="w-10 h-10 text-gray-400" />
+                      )}
+                    </div>
+                    <div>
+                      <input
+                        type="file"
+                        id="logo-upload"
+                        accept="image/*"
+                        onChange={handleLogoUpload}
+                        className="hidden"
+                      />
+                      <label
+                        htmlFor="logo-upload"
+                        className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer transition-colors"
+                      >
+                        <Upload className="w-4 h-4" />
+                        Upload Logo
+                      </label>
+                      <p className="text-xs text-gray-500 mt-2">PNG, JPG or SVG (max. 2MB)</p>
+                    </div>
+                  </div>
                 </div>
+
+                {/* Company Name - Mandatory */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Legal Name</label>
-                  <input type="text" defaultValue="Arquiluz Sociedad Anonima" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" />
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Company Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={companyData.companyName}
+                    onChange={(e) => handleCompanyChange('companyName', e.target.value)}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    placeholder="Enter company name"
+                  />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Tax ID</label>
-                  <input type="text" defaultValue="123-45-6789" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" />
-                </div>
+
+                {/* Industry Dropdown */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Industry</label>
-                  <select className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent">
-                    <option>Architecture & Design</option>
-                    <option>Technology</option>
-                    <option>Construction</option>
-                    <option>Consulting</option>
+                  <select
+                    value={companyData.industry}
+                    onChange={(e) => handleCompanyChange('industry', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  >
+                    <option value="">Select an industry</option>
+                    <option value="architecture">Architecture & Design</option>
+                    <option value="technology">Technology & Software</option>
+                    <option value="construction">Construction</option>
+                    <option value="consulting">Consulting</option>
+                    <option value="education">Education</option>
+                    <option value="finance">Finance & Banking</option>
+                    <option value="healthcare">Healthcare</option>
+                    <option value="hospitality">Hospitality</option>
+                    <option value="manufacturing">Manufacturing</option>
+                    <option value="retail">Retail</option>
+                    <option value="other">Other</option>
                   </select>
+                </div>
+
+                {/* Address Section */}
+                <div className="space-y-4">
+                  <h4 className="text-sm font-medium text-gray-900 flex items-center gap-2">
+                    <MapPin className="w-4 h-4" />
+                    Address
+                  </h4>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Street Address</label>
+                    <input
+                      type="text"
+                      value={companyData.address}
+                      onChange={(e) => handleCompanyChange('address', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      placeholder="Enter street address"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">City</label>
+                      <input
+                        type="text"
+                        value={companyData.city}
+                        onChange={(e) => handleCompanyChange('city', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        placeholder="Enter city"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Country</label>
+                      <input
+                        type="text"
+                        value={companyData.country}
+                        onChange={(e) => handleCompanyChange('country', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        placeholder="Enter country"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Contact Information */}
+                <div className="space-y-4">
+                  <h4 className="text-sm font-medium text-gray-900">Contact Information</h4>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                        <PhoneIcon className="w-4 h-4" />
+                        Phone
+                      </label>
+                      <input
+                        type="tel"
+                        value={companyData.phone}
+                        onChange={(e) => handleCompanyChange('phone', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        placeholder="+1 (555) 123-4567"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                        <Mail className="w-4 h-4" />
+                        Email
+                      </label>
+                      <input
+                        type="email"
+                        value={companyData.email}
+                        onChange={(e) => handleCompanyChange('email', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        placeholder="contact@company.com"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                      <Globe className="w-4 h-4" />
+                      Website
+                    </label>
+                    <input
+                      type="url"
+                      value={companyData.website}
+                      onChange={(e) => handleCompanyChange('website', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      placeholder="https://www.company.com"
+                    />
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 pt-4 border-t border-gray-200">
+                  <button
+                    onClick={handleSaveCompany}
+                    disabled={!hasChanges || !companyData.companyName.trim()}
+                    className={`px-6 py-2 rounded-md font-medium transition-colors ${
+                      hasChanges && companyData.companyName.trim()
+                        ? 'bg-primary text-white hover:bg-primary/90'
+                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    Save Changes
+                  </button>
+                  <button
+                    onClick={handleCancelCompany}
+                    disabled={!hasChanges}
+                    className={`px-6 py-2 rounded-md font-medium transition-colors ${
+                      hasChanges
+                        ? 'border border-gray-300 text-gray-700 hover:bg-gray-50'
+                        : 'border border-gray-200 text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    Cancel
+                  </button>
                 </div>
               </div>
             </div>
