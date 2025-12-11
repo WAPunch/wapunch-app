@@ -78,9 +78,7 @@ export default function CompanySettings() {
   // Settings menu configuration
   const settingsMenu = [
     { id: 'company-info', label: 'Company', icon: Building },
-    { id: 'employees', label: 'Employees', icon: Users },
     { id: 'time-and-attendance', label: 'Time & Attendance', icon: Clock },
-    { id: 'branches', label: 'Branches', icon: Building },
     { id: 'users', label: 'Users', icon: UserCheck },
     { id: 'integrations', label: 'Integrations', icon: SettingsIcon },
     { id: 'billing', label: 'Billing', icon: DollarSign }
