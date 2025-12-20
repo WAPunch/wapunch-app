@@ -50,10 +50,10 @@ interface DailyAttendance {
   notes?: string;
 }
 
-interface Employee {
+interface Worker {
   id: string;
-  employeeId: string;
-  employeeName: string;
+  workerId: string;
+  workerName: string;
   role: string;
   department: string;
   email: string;
@@ -63,20 +63,20 @@ interface Employee {
   status?: string;
 }
 
-export default function EmployeeTimesheet() {
+export default function WorkerTimesheet() {
   const { setBreadcrumbs, clearSubmoduleNav } = useSubmoduleNav();
   const [currentWeek, setCurrentWeek] = useState(new Date());
-  const [employee, setEmployee] = useState<Employee | null>(null);
+  const [worker, setWorker] = useState<Worker | null>(null);
   const [weeklyAttendance, setWeeklyAttendance] = useState<DailyAttendance[]>([]);
-  const [employeeList, setEmployeeList] = useState<Employee[]>([]);
-  const [currentEmployeeIndex, setCurrentEmployeeIndex] = useState(0);
+  const [workerList, setWorkerList] = useState<Worker[]>([]);
+  const [currentWorkerIndex, setCurrentWorkerIndex] = useState(0);
 
-  // Mock employee list (in a real app, this would come from an API)
-  const mockEmployees: Employee[] = [
+  // Mock worker list (in a real app, this would come from an API)
+  const mockWorkers: Worker[] = [
     {
       id: '1',
-      employeeId: '1',
-      employeeName: 'John Doe',
+      workerId: '1',
+      workerName: 'John Doe',
       role: 'Software Engineer',
       department: 'Engineering',
       email: 'john.doe@company.com',
@@ -87,8 +87,8 @@ export default function EmployeeTimesheet() {
     },
     {
       id: '2',
-      employeeId: '2',
-      employeeName: 'Jane Smith',
+      workerId: '2',
+      workerName: 'Jane Smith',
       role: 'Product Manager',
       department: 'Product',
       email: 'jane.smith@company.com',
@@ -99,8 +99,8 @@ export default function EmployeeTimesheet() {
     },
     {
       id: '3',
-      employeeId: '3',
-      employeeName: 'Mike Johnson',
+      workerId: '3',
+      workerName: 'Mike Johnson',
       role: 'UX Designer',
       department: 'Design',
       email: 'mike.johnson@company.com',
@@ -111,8 +111,8 @@ export default function EmployeeTimesheet() {
     },
     {
       id: '4',
-      employeeId: '4',
-      employeeName: 'Sarah Wilson',
+      workerId: '4',
+      workerName: 'Sarah Wilson',
       role: 'Marketing Specialist',
       department: 'Marketing',
       email: 'sarah.wilson@company.com',
@@ -123,8 +123,8 @@ export default function EmployeeTimesheet() {
     },
     {
       id: '5',
-      employeeId: '5',
-      employeeName: 'David Brown',
+      workerId: '5',
+      workerName: 'David Brown',
       role: 'DevOps Engineer',
       department: 'Engineering',
       email: 'david.brown@company.com',
@@ -135,25 +135,25 @@ export default function EmployeeTimesheet() {
     }
   ];
 
-  // Employee navigation functions
-  const goToPreviousEmployee = () => {
-    if (currentEmployeeIndex > 0) {
-      const newIndex = currentEmployeeIndex - 1;
-      const prevEmployee = employeeList[newIndex];
-      if (prevEmployee) {
-        setCurrentEmployeeIndex(newIndex);
-        setEmployee(prevEmployee);
+  // Worker navigation functions
+  const goToPreviousWorker = () => {
+    if (currentWorkerIndex > 0) {
+      const newIndex = currentWorkerIndex - 1;
+      const prevWorker = workerList[newIndex];
+      if (prevWorker) {
+        setCurrentWorkerIndex(newIndex);
+        setWorker(prevWorker);
       }
     }
   };
 
-  const goToNextEmployee = () => {
-    if (currentEmployeeIndex < employeeList.length - 1) {
-      const newIndex = currentEmployeeIndex + 1;
-      const nextEmployee = employeeList[newIndex];
-      if (nextEmployee) {
-        setCurrentEmployeeIndex(newIndex);
-        setEmployee(nextEmployee);
+  const goToNextWorker = () => {
+    if (currentWorkerIndex < workerList.length - 1) {
+      const newIndex = currentWorkerIndex + 1;
+      const nextWorker = workerList[newIndex];
+      if (nextWorker) {
+        setCurrentWorkerIndex(newIndex);
+        setWorker(nextWorker);
       }
     }
   };
@@ -162,52 +162,52 @@ export default function EmployeeTimesheet() {
     // Clear submodule navigation and set breadcrumbs
     clearSubmoduleNav();
     
-    // Initialize employee list
-    setEmployeeList(mockEmployees);
+    // Initialize worker list
+    setWorkerList(mockWorkers);
     
-    // Load employee data from sessionStorage
-    const selectedEmployeeData = sessionStorage.getItem('selectedEmployee');
-    if (selectedEmployeeData) {
+    // Load worker data from sessionStorage
+    const selectedWorkerData = sessionStorage.getItem('selectedWorker');
+    if (selectedWorkerData) {
       try {
-        const parsedEmployee = JSON.parse(selectedEmployeeData);
-        const mappedEmployee: Employee = {
-          id: parsedEmployee.id,
-          employeeId: parsedEmployee.employeeId,
-          employeeName: parsedEmployee.employeeName,
-          role: parsedEmployee.role,
-          department: parsedEmployee.department,
-          email: parsedEmployee.email || `${parsedEmployee.employeeName.toLowerCase().replace(' ', '.')}@company.com`,
-          location: parsedEmployee.location || 'Office'
+        const parsedWorker = JSON.parse(selectedWorkerData);
+        const mappedWorker: Worker = {
+          id: parsedWorker.id,
+          workerId: parsedWorker.workerId,
+          workerName: parsedWorker.workerName,
+          role: parsedWorker.role,
+          department: parsedWorker.department,
+          email: parsedWorker.email || `${parsedWorker.workerName.toLowerCase().replace(' ', '.')}@company.com`,
+          location: parsedWorker.location || 'Office'
         };
-        setEmployee(mappedEmployee);
+        setWorker(mappedWorker);
         
-        // Find the index of the current employee in the list
-        const employeeIndex = mockEmployees.findIndex(emp => emp.id === mappedEmployee.id);
-        if (employeeIndex !== -1) {
-          setCurrentEmployeeIndex(employeeIndex);
+        // Find the index of the current worker in the list
+        const workerIndex = mockWorkers.findIndex(emp => emp.id === mappedWorker.id);
+        if (workerIndex !== -1) {
+          setCurrentWorkerIndex(workerIndex);
         }
         
         // Set breadcrumbs
-        const slug = mappedEmployee.employeeName.toLowerCase().replace(/\s+/g, '-');
+        const slug = mappedWorker.workerName.toLowerCase().replace(/\s+/g, '-');
         setBreadcrumbs([
           { label: 'Time & Attendance' },
           { label: 'Team Attendance', href: '/time-and-attendance/team-attendance' },
-          { label: mappedEmployee.employeeName }
+          { label: mappedWorker.workerName }
         ]);
       } catch (error) {
-        console.error('Error parsing employee data:', error);
-        // Fallback employee data
-        const fallbackEmployee: Employee = {
+        console.error('Error parsing worker data:', error);
+        // Fallback worker data
+        const fallbackWorker: Worker = {
           id: '1',
-          employeeId: '1',
-          employeeName: 'John Doe',
+          workerId: '1',
+          workerName: 'John Doe',
           role: 'Software Developer',
           department: 'Engineering',
           email: 'john.doe@company.com',
           location: 'Office'
         };
-        setEmployee(fallbackEmployee);
-        setCurrentEmployeeIndex(0);
+        setWorker(fallbackWorker);
+        setCurrentWorkerIndex(0);
         setBreadcrumbs([
           { label: 'Time & Attendance' },
           { label: 'Team Attendance', href: '/time-and-attendance/team-attendance' },
@@ -215,15 +215,15 @@ export default function EmployeeTimesheet() {
         ]);
       }
     } else {
-      // No employee in sessionStorage, use first employee
-      const firstEmployee = mockEmployees[0];
-      if (firstEmployee) {
-        setEmployee(firstEmployee);
-        setCurrentEmployeeIndex(0);
+      // No worker in sessionStorage, use first worker
+      const firstWorker = mockWorkers[0];
+      if (firstWorker) {
+        setWorker(firstWorker);
+        setCurrentWorkerIndex(0);
         setBreadcrumbs([
           { label: 'Time & Attendance' },
           { label: 'Team Attendance', href: '/time-and-attendance/team-attendance' },
-          { label: firstEmployee.employeeName }
+          { label: firstWorker.workerName }
         ]);
       }
     }
@@ -231,13 +231,13 @@ export default function EmployeeTimesheet() {
 
   // Generate weekly attendance data
   useEffect(() => {
-    if (employee) {
-      const weekData = generateWeeklyAttendance(employee, currentWeek);
+    if (worker) {
+      const weekData = generateWeeklyAttendance(worker, currentWeek);
       setWeeklyAttendance(weekData);
     }
-  }, [employee, currentWeek]);
+  }, [worker, currentWeek]);
 
-  const generateWeeklyAttendance = (emp: Employee, weekStart: Date): DailyAttendance[] => {
+  const generateWeeklyAttendance = (emp: Worker, weekStart: Date): DailyAttendance[] => {
     const weekDates = getWeekDates(weekStart);
     const mockData: DailyAttendance[] = [];
 
@@ -526,13 +526,13 @@ export default function EmployeeTimesheet() {
     router.navigate('/time-and-attendance/team-attendance');
   };
 
-  if (!employee) {
+  if (!worker) {
     return (
       <div className="p-6">
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="text-center">
-            <h2 className="text-2xl font-semibold text-muted-foreground mb-2">No employee selected</h2>
-            <p className="text-muted-foreground">Please select an employee to view their timesheet</p>
+            <h2 className="text-2xl font-semibold text-muted-foreground mb-2">No worker selected</h2>
+            <p className="text-muted-foreground">Please select an worker to view their timesheet</p>
           </div>
         </div>
       </div>
@@ -546,47 +546,47 @@ export default function EmployeeTimesheet() {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-primary rounded-full flex items-center justify-center text-white text-lg font-medium">
-              {employee.employeeName.split(' ').map(n => n[0]).join('')}
+              {worker.workerName.split(' ').map(n => n[0]).join('')}
             </div>
             <div>
               <h1 className="text-xl font-semibold text-foreground mb-1">
-                {employee.employeeName} - Weekly Timesheet
+                {worker.workerName} - Weekly Timesheet
               </h1>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span>{employee.role}</span>
+                <span>{worker.role}</span>
                 <span>•</span>
-                <span>{employee.department}</span>
+                <span>{worker.department}</span>
                 <span>•</span>
-                <span>{employee.location}</span>
+                <span>{worker.location}</span>
               </div>
             </div>
           </div>
           
-          {/* Employee Navigation */}
+          {/* Worker Navigation */}
           <div className="flex items-center gap-3">
             <button
-              onClick={goToPreviousEmployee}
-              disabled={currentEmployeeIndex === 0}
+              onClick={goToPreviousWorker}
+              disabled={currentWorkerIndex === 0}
               className={`flex items-center gap-1 px-2 py-1 border rounded text-xs transition-colors ${
-                currentEmployeeIndex === 0
+                currentWorkerIndex === 0
                   ? 'border-gray-200 text-gray-400 cursor-not-allowed'
                   : 'border-gray-300 text-gray-700 hover:bg-gray-50'
               }`}
-              title="Previous employee"
+              title="Previous worker"
             >
               <ChevronLeft className="w-3 h-3" />
               Previous
             </button>
             
             <button
-              onClick={goToNextEmployee}
-              disabled={currentEmployeeIndex === employeeList.length - 1}
+              onClick={goToNextWorker}
+              disabled={currentWorkerIndex === workerList.length - 1}
               className={`flex items-center gap-1 px-2 py-1 border rounded text-xs transition-colors ${
-                currentEmployeeIndex === employeeList.length - 1
+                currentWorkerIndex === workerList.length - 1
                   ? 'border-gray-200 text-gray-400 cursor-not-allowed'
                   : 'border-gray-300 text-gray-700 hover:bg-gray-50'
               }`}
-              title="Next employee"
+              title="Next worker"
             >
               Next
               <ChevronRight className="w-3 h-3" />

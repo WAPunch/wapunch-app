@@ -1,169 +1,258 @@
 import { useEffect } from 'react';
 import { useSubmoduleNav } from '../hooks/useSubmoduleNav';
-import { Home, Inbox, Users, TrendingUp, AlertTriangle, CheckCircle, Clock, DollarSign } from 'lucide-react';
+import { useWorkers } from '../hooks/useWorkers';
+import { useSites } from '../hooks/useSites';
+import { useWhosWorking } from '../hooks/useWhosWorking';
+import { useCompany } from '../hooks/useCompany';
+import { router } from '../lib/router';
+import { Home, Users, MapPin, Clock, Building2, TrendingUp, Activity } from 'lucide-react';
 
 export default function ManagementDashboard() {
   const { registerSubmodules } = useSubmoduleNav();
+  const { workers, isLoading: workersLoading } = useWorkers();
+  const { sites, isLoading: sitesLoading } = useSites();
+  const { workers: activeWorkers, isLoading: activeWorkersLoading } = useWhosWorking();
+  const { currentCompany } = useCompany();
 
   useEffect(() => {
     // Register submodule tabs for management dashboard
     registerSubmodules('Management Dashboard', [
-      { id: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: Home },
-      { id: 'inbox', label: 'Inbox', href: '/inbox', icon: Inbox }
+      { id: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: Home }
     ]);
   }, [registerSubmodules]);
 
-  const managementStats = [
-    { title: 'Total Employees', value: '247', change: '+12', changeType: 'positive', icon: Users },
-    { title: 'Open Positions', value: '8', change: '+3', changeType: 'neutral', icon: AlertTriangle },
-    { title: 'Avg Performance', value: '4.2/5', change: '+0.3', changeType: 'positive', icon: TrendingUp },
-    { title: 'Monthly Payroll', value: '$2.4M', change: '+5%', changeType: 'positive', icon: DollarSign }
-  ];
+  // Calculate active workers (present, on-break, on-transfer)
+  const workersCurrentlyIn = activeWorkers.filter(w => 
+    w.status === 'present' || w.status === 'on-break' || w.status === 'on-transfer'
+  ).length;
 
-  const pendingApprovals = [
-    { type: 'PTO Request', employee: 'Sarah Johnson', details: '3 days - Feb 15-17', priority: 'medium' },
-    { type: 'Expense Report', employee: 'Mike Chen', details: '$1,250 - Conference travel', priority: 'high' },
-    { type: 'Promotion Review', employee: 'Alex Rodriguez', details: 'Senior Developer role', priority: 'high' },
-    { type: 'Budget Request', employee: 'Emily Davis', details: 'Q1 Marketing budget', priority: 'medium' }
-  ];
+  // Calculate active sites
+  const activeSites = sites.filter(s => s.is_active).length;
 
-  const teamPerformance = [
-    { department: 'Engineering', performance: 92, employees: 45, trend: 'up' },
-    { department: 'Product', performance: 88, employees: 12, trend: 'up' },
-    { department: 'Design', performance: 85, employees: 8, trend: 'stable' },
-    { department: 'Sales', performance: 78, employees: 32, trend: 'down' }
-  ];
-
-  const recentActivities = [
-    { action: 'New hire onboarded', details: 'Lisa Brown joined HR department', time: '2 hours ago' },
-    { action: 'Performance review completed', details: 'Q4 reviews for Engineering team', time: '1 day ago' },
-    { action: 'Policy updated', details: 'Remote work policy revision', time: '2 days ago' },
-    { action: 'Training completed', details: 'Security awareness training', time: '3 days ago' }
-  ];
-
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'high': return 'text-status-red bg-red-50';
-      case 'medium': return 'text-status-yellow bg-yellow-50';
-      default: return 'text-status-green bg-green-50';
-    }
+  const handleNavigateToWhosWorking = () => {
+    router.navigate('/time-and-attendance/whos-working');
   };
 
-  const getTrendIcon = (trend: string) => {
-    switch (trend) {
-      case 'up': return <TrendingUp className="h-4 w-4 text-status-green" />;
-      case 'down': return <TrendingUp className="h-4 w-4 text-status-red rotate-180" />;
-      default: return <div className="h-4 w-4 rounded-full bg-neutral-gray" />;
-    }
+  const handleNavigateToWorkers = () => {
+    router.navigate('/workers/directory');
   };
+
+  const handleNavigateToSites = () => {
+    router.navigate('/sites');
+  };
+
+  const isLoading = workersLoading || sitesLoading || activeWorkersLoading;
 
   return (
     <div className="p-6">
-      {/* Management Header */}
+      {/* Dashboard Header */}
       <div className="mb-8">
-        <h1 className="text-title font-semibold text-foreground mb-1">Management Dashboard</h1>
-        <p className="text-small text-muted-foreground">Overview of team performance, approvals, and key metrics</p>
+        <h1 className="text-title font-semibold text-foreground mb-1">Dashboard</h1>
+        <p className="text-small text-muted-foreground">Overview of your attendance tracking system</p>
       </div>
 
-      {/* Management Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {managementStats.map((stat, index) => (
-          <div key={index} className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-all duration-200 hover:border-primary/20">
-            <div className="flex items-center justify-between mb-4">
-              <stat.icon className="h-8 w-8 text-primary" />
-              <div className="text-right">
-                <div className="text-2xl font-bold text-foreground">{stat.value}</div>
-                <div className={`text-sm ${stat.changeType === 'positive' ? 'text-status-green' : stat.changeType === 'negative' ? 'text-status-red' : 'text-muted-foreground'}`}>
-                  {stat.change}
-                </div>
+      {/* Company Information Card */}
+      {currentCompany && (
+        <div className="bg-white border border-gray-200 rounded-lg p-6 mb-8">
+          <div className="flex items-start gap-4">
+            <div className="flex items-center justify-center w-16 h-16 rounded-lg bg-primary/10">
+              <Building2 className="h-8 w-8 text-primary" />
+            </div>
+            <div className="flex-1">
+              <h2 className="text-xl font-semibold text-foreground mb-2">{currentCompany.name}</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-muted-foreground">
+                {currentCompany.country && (
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4" />
+                    <span>{currentCompany.country}</span>
+                  </div>
+                )}
+                {currentCompany.timezone && (
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4" />
+                    <span>Timezone: {currentCompany.timezone}</span>
+                  </div>
+                )}
               </div>
             </div>
-            <div className="text-sm font-medium text-muted-foreground">{stat.title}</div>
           </div>
-        ))}
+        </div>
+      )}
+
+      {/* Main Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+        {/* Total Workers */}
+        <button
+          onClick={handleNavigateToWorkers}
+          className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-all duration-200 hover:border-primary/20 text-left w-full"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <Users className="h-8 w-8 text-primary" />
+            <div className="text-right">
+              <div className="text-3xl font-bold text-foreground">
+                {isLoading ? '...' : workers.length}
+              </div>
+            </div>
+          </div>
+          <div className="text-sm font-medium text-muted-foreground">Total Workers</div>
+          <div className="text-xs text-primary mt-2">View all workers →</div>
+        </button>
+
+        {/* Workers Currently In */}
+        <button
+          onClick={handleNavigateToWhosWorking}
+          className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-all duration-200 hover:border-primary/20 text-left w-full"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <Activity className="h-8 w-8 text-status-green" />
+            <div className="text-right">
+              <div className="text-3xl font-bold text-foreground">
+                {isLoading ? '...' : workersCurrentlyIn}
+              </div>
+              {!isLoading && workers.length > 0 && (
+                <div className="text-sm text-status-green">
+                  {Math.round((workersCurrentlyIn / workers.length) * 100)}%
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="text-sm font-medium text-muted-foreground">Currently Working</div>
+          <div className="text-xs text-primary mt-2">See who's working →</div>
+        </button>
+
+        {/* Total Sites */}
+        <button
+          onClick={handleNavigateToSites}
+          className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-all duration-200 hover:border-primary/20 text-left w-full"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <MapPin className="h-8 w-8 text-status-blue" />
+            <div className="text-right">
+              <div className="text-3xl font-bold text-foreground">
+                {isLoading ? '...' : sites.length}
+              </div>
+              {!isLoading && sites.length > 0 && (
+                <div className="text-sm text-muted-foreground">
+                  {activeSites} active
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="text-sm font-medium text-muted-foreground">Total Sites</div>
+          <div className="text-xs text-primary mt-2">Manage sites →</div>
+        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Pending Approvals */}
+        {/* Worker Status Breakdown */}
         <div className="bg-white border border-gray-200 rounded-lg p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-heading font-semibold">Pending Approvals</h2>
-            <div className="bg-red-50 text-status-red text-xs px-2 py-1 rounded-full">
-              {pendingApprovals.length} pending
-            </div>
-          </div>
+          <h2 className="text-heading font-semibold mb-6">Worker Status</h2>
           <div className="space-y-4">
-            {pendingApprovals.map((approval, index) => (
-              <div key={index} className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg transition-colors">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium">{approval.type}</span>
-                    <span className={`text-xs px-2 py-1 rounded-full ${getPriorityColor(approval.priority)}`}>
-                      {approval.priority}
+            {!isLoading && (
+              <>
+                <div className="p-3 hover:bg-gray-50 rounded-lg transition-colors">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="font-medium">Present</div>
+                    <span className="font-bold text-status-green">
+                      {activeWorkers.filter(w => w.status === 'present').length}
                     </span>
                   </div>
-                  <div className="text-sm text-muted-foreground">{approval.employee}</div>
-                  <div className="text-xs text-muted-foreground">{approval.details}</div>
-                </div>
-                <div className="flex gap-2">
-                  <button className="px-3 py-1 text-xs bg-green-50 text-status-green rounded hover:opacity-80">
-                    Approve
-                  </button>
-                  <button className="px-3 py-1 text-xs bg-red-50 text-status-red rounded hover:opacity-80">
-                    Reject
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Team Performance */}
-        <div className="bg-white border border-gray-200 rounded-lg p-6">
-          <h2 className="text-heading font-semibold mb-6">Team Performance</h2>
-          <div className="space-y-4">
-            {teamPerformance.map((team, index) => (
-              <div key={index} className="p-3 hover:bg-gray-50 rounded-lg transition-colors">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="font-medium">{team.department}</div>
-                  <div className="flex items-center gap-2">
-                    {getTrendIcon(team.trend)}
-                    <span className="font-bold text-primary-contrast">{team.performance}%</span>
+                  <div className="bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-status-green rounded-full h-2 transition-all duration-300"
+                      style={{ width: `${workers.length > 0 ? (activeWorkers.filter(w => w.status === 'present').length / workers.length) * 100 : 0}%` }}
+                    />
                   </div>
                 </div>
-                <div className="flex justify-between text-sm text-muted-foreground">
-                  <span>{team.employees} employees</span>
-                  <span className="capitalize">{team.trend} trend</span>
+
+                <div className="p-3 hover:bg-gray-50 rounded-lg transition-colors">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="font-medium">On Break</div>
+                    <span className="font-bold text-status-yellow">
+                      {activeWorkers.filter(w => w.status === 'on-break').length}
+                    </span>
+                  </div>
+                  <div className="bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-status-yellow rounded-full h-2 transition-all duration-300"
+                      style={{ width: `${workers.length > 0 ? (activeWorkers.filter(w => w.status === 'on-break').length / workers.length) * 100 : 0}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="mt-2 bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-primary rounded-full h-2 transition-all duration-300"
-                    style={{ width: `${team.performance}%` }}
-                  />
+
+                <div className="p-3 hover:bg-gray-50 rounded-lg transition-colors">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="font-medium">On Transfer</div>
+                    <span className="font-bold text-status-blue">
+                      {activeWorkers.filter(w => w.status === 'on-transfer').length}
+                    </span>
+                  </div>
+                  <div className="bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-status-blue rounded-full h-2 transition-all duration-300"
+                      style={{ width: `${workers.length > 0 ? (activeWorkers.filter(w => w.status === 'on-transfer').length / workers.length) * 100 : 0}%` }}
+                    />
+                  </div>
                 </div>
-              </div>
-            ))}
+
+                <div className="p-3 hover:bg-gray-50 rounded-lg transition-colors">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="font-medium">Absent</div>
+                    <span className="font-bold text-muted-foreground">
+                      {activeWorkers.filter(w => w.status === 'absent').length}
+                    </span>
+                  </div>
+                  <div className="bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-gray-400 rounded-full h-2 transition-all duration-300"
+                      style={{ width: `${workers.length > 0 ? (activeWorkers.filter(w => w.status === 'absent').length / workers.length) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
-      </div>
 
-      {/* Recent Management Activities */}
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <Clock className="h-6 w-6 text-status-blue" />
-          <h2 className="text-heading font-semibold">Recent Activities</h2>
-        </div>
-        <div className="space-y-4">
-          {recentActivities.map((activity, index) => (
-            <div key={index} className="flex items-start gap-4 p-3 hover:bg-gray-50 rounded-lg transition-colors">
-              <CheckCircle className="h-5 w-5 text-status-green mt-0.5 flex-shrink-0" />
-              <div className="flex-1">
-                <div className="font-medium">{activity.action}</div>
-                <div className="text-sm text-muted-foreground">{activity.details}</div>
-              </div>
-              <div className="text-xs text-muted-foreground">{activity.time}</div>
-            </div>
-          ))}
+        {/* Recent Activity */}
+        <div className="bg-white border border-gray-200 rounded-lg p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <Clock className="h-6 w-6 text-status-blue" />
+            <h2 className="text-heading font-semibold">Quick Actions</h2>
+          </div>
+          <div className="space-y-3">
+            <button
+              onClick={() => router.navigate('/time-and-attendance/whos-working')}
+              className="w-full p-4 text-left hover:bg-gray-50 rounded-lg transition-colors border border-gray-200"
+            >
+              <div className="font-medium mb-1">Who's Working</div>
+              <div className="text-sm text-muted-foreground">View real-time worker attendance status</div>
+            </button>
+
+            <button
+              onClick={() => router.navigate('/time-and-attendance/team-attendance')}
+              className="w-full p-4 text-left hover:bg-gray-50 rounded-lg transition-colors border border-gray-200"
+            >
+              <div className="font-medium mb-1">Team Attendance</div>
+              <div className="text-sm text-muted-foreground">Review attendance logs and reports</div>
+            </button>
+
+            <button
+              onClick={() => router.navigate('/workers/directory')}
+              className="w-full p-4 text-left hover:bg-gray-50 rounded-lg transition-colors border border-gray-200"
+            >
+              <div className="font-medium mb-1">Worker Directory</div>
+              <div className="text-sm text-muted-foreground">Manage worker profiles and information</div>
+            </button>
+
+            <button
+              onClick={() => router.navigate('/sites')}
+              className="w-full p-4 text-left hover:bg-gray-50 rounded-lg transition-colors border border-gray-200"
+            >
+              <div className="font-medium mb-1">Manage Sites</div>
+              <div className="text-sm text-muted-foreground">Configure locations and geofencing</div>
+            </button>
+          </div>
         </div>
       </div>
     </div>

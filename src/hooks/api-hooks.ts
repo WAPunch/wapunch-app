@@ -129,26 +129,26 @@ export function useUpdateUserProfile() {
   });
 }
 
-// Employee management hooks
-export function useEmployees() {
-  return useApiQuery(['employees'], '/api/employees');
+// Worker management hooks
+export function useWorkers() {
+  return useApiQuery(['workers'], '/api/workers');
 }
 
-export function useCreateEmployee() {
-  return useApiMutation('/api/employees', 'POST', {
-    invalidateQueries: ['employees'],
+export function useCreateWorker() {
+  return useApiMutation('/api/workers', 'POST', {
+    invalidateQueries: ['workers'],
   });
 }
 
-export function useUpdateEmployee() {
-  return useApiMutation('/api/employees', 'PUT', {
-    invalidateQueries: ['employees'],
+export function useUpdateWorker() {
+  return useApiMutation('/api/workers', 'PUT', {
+    invalidateQueries: ['workers'],
   });
 }
 
-export function useDeleteEmployee() {
-  return useApiMutation('/api/employees', 'DELETE', {
-    invalidateQueries: ['employees'],
+export function useDeleteWorker() {
+  return useApiMutation('/api/workers', 'DELETE', {
+    invalidateQueries: ['workers'],
   });
 }
 

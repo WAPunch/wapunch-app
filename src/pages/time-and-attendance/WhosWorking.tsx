@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { router } from '../../lib/router';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
-import { useWhosWorking, WhosWorkingEmployee } from '../../hooks/useWhosWorking';
+import { useWhosWorking, WhosWorkingWorker } from '../../hooks/useWhosWorking';
 import { 
   Users, 
   Search, 
@@ -31,8 +31,8 @@ import {
   Flag
 } from 'lucide-react';
 
-// Using WhosWorkingEmployee from hook
-type Employee = WhosWorkingEmployee;
+// Using WhosWorkingWorker from hook
+type Worker = WhosWorkingWorker;
 
 // Function to generate avatar initials (100% reliable, works everywhere)
 const generateAvatarInitials = (firstName: string, lastName: string) => {
@@ -79,7 +79,7 @@ const getStatusDotColor = (status: string) => {
 
 export default function WhosWorking() {
   const { registerSubmodules } = useSubmoduleNav();
-  const { employees: employeesData, isLoading: employeesLoading, error: employeesError, refetch } = useWhosWorking();
+  const { workers: workersData, isLoading: workersLoading, error: workersError, refetch } = useWhosWorking();
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -126,29 +126,29 @@ export default function WhosWorking() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Use employees from Supabase hook instead of mock data
-  const employees: Employee[] = employeesData;
+  // Use workers from Supabase hook instead of mock data
+  const workers: Worker[] = workersData;
 
-  const filteredEmployees = useMemo(() => {
-    const filtered = employees.filter(employee => {
+  const filteredWorkers = useMemo(() => {
+    const filtered = workers.filter(worker => {
       // Search filter
       const searchLower = searchTerm.toLowerCase();
       const matchesSearch = !searchTerm || (
-        employee.firstName.toLowerCase().includes(searchLower) ||
-        employee.lastName.toLowerCase().includes(searchLower) ||
-        employee.email.toLowerCase().includes(searchLower) ||
-        employee.jobTitle.toLowerCase().includes(searchLower) ||
-        employee.department.toLowerCase().includes(searchLower)
+        worker.firstName.toLowerCase().includes(searchLower) ||
+        worker.lastName.toLowerCase().includes(searchLower) ||
+        worker.email.toLowerCase().includes(searchLower) ||
+        worker.jobTitle.toLowerCase().includes(searchLower) ||
+        worker.department.toLowerCase().includes(searchLower)
       );
 
       // Department filter
-      const matchesDepartment = selectedDepartment.length === 0 || selectedDepartment.includes(employee.department);
+      const matchesDepartment = selectedDepartment.length === 0 || selectedDepartment.includes(worker.department);
 
       // Status filter
-      const matchesStatus = selectedStatus.length === 0 || selectedStatus.includes(employee.status);
+      const matchesStatus = selectedStatus.length === 0 || selectedStatus.includes(worker.status);
 
       // Location filter
-      const matchesLocation = selectedLocation.length === 0 || selectedLocation.includes(employee.location);
+      const matchesLocation = selectedLocation.length === 0 || selectedLocation.includes(worker.location);
 
       return matchesSearch && matchesDepartment && matchesStatus && matchesLocation;
     });
@@ -182,12 +182,12 @@ export default function WhosWorking() {
       if (strA > strB) return sortOrder === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [searchTerm, employees, sortBy, sortOrder, selectedDepartment, selectedStatus, selectedLocation]);
+  }, [searchTerm, workers, sortBy, sortOrder, selectedDepartment, selectedStatus, selectedLocation]);
 
   // Pagination calculations
-  const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
+  const totalPages = Math.ceil(filteredWorkers.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedEmployees = filteredEmployees.slice(startIndex, startIndex + itemsPerPage);
+  const paginatedWorkers = filteredWorkers.slice(startIndex, startIndex + itemsPerPage);
 
   // Reset to first page when search changes
   useMemo(() => {
@@ -424,22 +424,22 @@ export default function WhosWorking() {
         <div className="mb-6">
           <h1 className="text-xl font-semibold text-foreground mb-1">Who's Working</h1>
           <p className="text-xs" style={{ color: 'var(--gray-500)' }}>
-            {employeesLoading 
-              ? 'Loading employee status...' 
-              : `Track your team's current status and location${filteredEmployees.length > itemsPerPage ? ` (Page ${currentPage} of ${totalPages})` : ''}`
+            {workersLoading 
+              ? 'Loading worker status...' 
+              : `Track your team's current status and location${filteredWorkers.length > itemsPerPage ? ` (Page ${currentPage} of ${totalPages})` : ''}`
             }
           </p>
         </div>
       </div>
 
       {/* Error Message */}
-      {employeesError && (
+      {workersError && (
         <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
           <div className="flex items-center gap-2">
             <span className="text-red-600">⚠️</span>
             <div>
-              <div className="text-sm font-medium text-red-800">Error loading employee status</div>
-              <div className="text-sm text-red-700">{employeesError}</div>
+              <div className="text-sm font-medium text-red-800">Error loading worker status</div>
+              <div className="text-sm text-red-700">{workersError}</div>
             </div>
             <button
               onClick={() => refetch()}
@@ -452,7 +452,7 @@ export default function WhosWorking() {
       )}
 
       {/* Stats Cards */}
-      {!employeesLoading && !employeesError && (
+      {!workersLoading && !workersError && (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
           <button 
             onClick={() => handleSummaryCardClick('present')}
@@ -466,7 +466,7 @@ export default function WhosWorking() {
             <div className="flex items-center gap-3">
               <CheckCircle className="h-5 w-5 text-status-green" />
               <div className="text-2xl font-bold text-gray-900">
-                {employees.filter(e => e.status === 'present').length}
+                {workers.filter(e => e.status === 'present').length}
               </div>
               <div className="text-sm text-muted-foreground">Present</div>
             </div>
@@ -483,7 +483,7 @@ export default function WhosWorking() {
             <div className="flex items-center gap-3">
               <XCircle className="h-5 w-5 text-status-red" />
               <div className="text-2xl font-bold text-gray-900">
-                {employees.filter(e => e.status === 'absent').length}
+                {workers.filter(e => e.status === 'absent').length}
               </div>
               <div className="text-sm text-muted-foreground">Absent</div>
             </div>
@@ -500,7 +500,7 @@ export default function WhosWorking() {
             <div className="flex items-center gap-3">
               <ClockIcon className="h-5 w-5 text-status-yellow" />
               <div className="text-2xl font-bold text-gray-900">
-                {employees.filter(e => e.status === 'on-break').length}
+                {workers.filter(e => e.status === 'on-break').length}
               </div>
               <div className="text-sm text-muted-foreground">On Break</div>
             </div>
@@ -517,7 +517,7 @@ export default function WhosWorking() {
             <div className="flex items-center gap-3">
               <MapPinIcon className="h-5 w-5 text-status-blue" />
               <div className="text-2xl font-bold text-gray-900">
-                {employees.filter(e => e.status === 'on-transfer').length}
+                {workers.filter(e => e.status === 'on-transfer').length}
               </div>
               <div className="text-sm text-muted-foreground">On Transfer</div>
             </div>
@@ -534,7 +534,7 @@ export default function WhosWorking() {
             <div className="flex items-center gap-3">
               <CalendarCheck className="h-5 w-5 text-status-purple" />
               <div className="text-2xl font-bold text-gray-900">
-                {employees.filter(e => e.status === 'on-leave').length}
+                {workers.filter(e => e.status === 'on-leave').length}
               </div>
               <div className="text-sm text-muted-foreground">On Leave</div>
             </div>
@@ -543,7 +543,7 @@ export default function WhosWorking() {
         )}
 
       {/* Search and Filters */}
-      {!employeesLoading && !employeesError && (
+      {!workersLoading && !workersError && (
       <div className="mb-4">
         <div className={`bg-white border border-gray-200 py-6 px-6 ${
           showFilters ? 'rounded-t-lg' : 'rounded-lg'
@@ -554,12 +554,12 @@ export default function WhosWorking() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search employees by name, email, job title, or employee ID..."
+                placeholder="Search workers by name, email, job title, or worker ID..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-3 py-1 border border-gray-200 rounded text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
-                aria-label="Search employees"
-                id="employee-search"
+                aria-label="Search workers"
+                id="worker-search"
               />
             </div>
             
@@ -870,7 +870,7 @@ export default function WhosWorking() {
       )}
 
       {/* Table View */}
-      {!employeesLoading && !employeesError && viewMode === 'table' && (
+      {!workersLoading && !workersError && viewMode === 'table' && (
         <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-4">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -881,7 +881,7 @@ export default function WhosWorking() {
                       onClick={() => handleSort('firstName')}
                       className="flex items-center gap-1 hover:text-gray-700"
                     >
-                      Employee
+                      Worker
                       {sortBy === 'firstName' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                     </button>
                   </th>
@@ -910,49 +910,49 @@ export default function WhosWorking() {
                 </tr>
               </thead>
               <tbody>
-                {paginatedEmployees.map((employee, _index) => (
-                  <tr key={employee.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                {paginatedWorkers.map((worker, _index) => (
+                  <tr key={worker.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-3">
                         <div className="relative">
                           <div 
                             className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium" 
-                            style={{ backgroundColor: generateAvatarColor(employee.firstName, employee.lastName) }}
+                            style={{ backgroundColor: generateAvatarColor(worker.firstName, worker.lastName) }}
                           >
-                            {generateAvatarInitials(employee.firstName, employee.lastName)}
+                            {generateAvatarInitials(worker.firstName, worker.lastName)}
                           </div>
                           <div 
                             className={`absolute -bottom-0.5 -right-0.5 ${getDotSize('sm')} rounded-full border border-white`}
-                            style={{ backgroundColor: getStatusDotColor(employee.status) }}>
+                            style={{ backgroundColor: getStatusDotColor(worker.status) }}>
                           </div>
                         </div>
                         <div>
                           <div className="font-medium text-gray-900 text-sm">
-                            {employee.firstName} {employee.lastName}
+                            {worker.firstName} {worker.lastName}
                           </div>
-                          <div className="text-xs" style={{ color: 'var(--gray-500)' }}>{employee.jobTitle}</div>
+                          <div className="text-xs" style={{ color: 'var(--gray-500)' }}>{worker.jobTitle}</div>
                         </div>
                       </div>
                     </td>
-                    <td className="py-4 px-4 text-gray-900 text-sm">{employee.department}</td>
+                    <td className="py-4 px-4 text-gray-900 text-sm">{worker.department}</td>
                     <td className="py-4 px-4">
                       <div className="flex items-center gap-2">
-                        {getStatusIcon(employee.status)}
-                        {getStatusBadge(employee.status)}
+                        {getStatusIcon(worker.status)}
+                        {getStatusBadge(worker.status)}
                       </div>
                     </td>
                     <td className="py-4 px-4 text-gray-600 text-sm">
-                      {(employee.status === 'absent' || employee.status === 'on-leave') ? '--' : employee.lastActivityTime}
+                      {(worker.status === 'absent' || worker.status === 'on-leave') ? '--' : worker.lastActivityTime}
                     </td>
                     <td className="py-4 px-4 text-gray-600 text-sm">
-                      {(employee.status === 'absent' || employee.status === 'on-leave') ? '--' : employee.location}
+                      {(worker.status === 'absent' || worker.status === 'on-leave') ? '--' : worker.location}
                     </td>
                     <td className="py-4 px-4 text-gray-600 text-sm max-w-xs">
-                      {(employee.status === 'absent' || employee.status === 'on-leave') ? (
+                      {(worker.status === 'absent' || worker.status === 'on-leave') ? (
                         <div className="truncate">--</div>
                       ) : (
-                        <div className="truncate" title={employee.activityDetails}>
-                          {employee.activityDetails}
+                        <div className="truncate" title={worker.activityDetails}>
+                          {worker.activityDetails}
                         </div>
                       )}
                     </td>
@@ -960,15 +960,15 @@ export default function WhosWorking() {
                       <div className="flex items-center">
                         <button 
                           className="p-1 hover:bg-gray-100 rounded transition-colors"
-                          aria-label={`View ${employee.firstName} ${employee.lastName}`}
-                          title={`View ${employee.firstName} ${employee.lastName}`}
+                          aria-label={`View ${worker.firstName} ${worker.lastName}`}
+                          title={`View ${worker.firstName} ${worker.lastName}`}
                         >
                           <Eye className="w-4 h-4" />
                         </button>
                         <button 
                           className="p-1 hover:bg-gray-100 rounded transition-colors"
-                          aria-label={`More options for ${employee.firstName} ${employee.lastName}`}
-                          title={`More options for ${employee.firstName} ${employee.lastName}`}
+                          aria-label={`More options for ${worker.firstName} ${worker.lastName}`}
+                          title={`More options for ${worker.firstName} ${worker.lastName}`}
                         >
                           <MoreVertical className="w-4 h-4" />
                         </button>
@@ -983,37 +983,37 @@ export default function WhosWorking() {
       )}
 
       {/* Map View */}
-      {!employeesLoading && !employeesError && viewMode === 'map' && (
+      {!workersLoading && !workersError && viewMode === 'map' && (
         <div className="flex gap-4 mb-4">
-          {/* Employee List - 30% width */}
+          {/* Worker List - 30% width */}
           <div className="w-[30%] bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div className="bg-gray-50 border-b border-gray-200 px-4 py-3">
-              <h3 className="text-sm font-medium text-gray-900">Employees ({filteredEmployees.length})</h3>
+              <h3 className="text-sm font-medium text-gray-900">Workers ({filteredWorkers.length})</h3>
             </div>
             <div className="h-[432px] overflow-y-auto">
-              {paginatedEmployees.map((employee) => (
+              {paginatedWorkers.map((worker) => (
                 <div
-                  key={employee.id}
+                  key={worker.id}
                   className="border-b border-gray-100 hover:bg-gray-50 transition-colors p-3 cursor-pointer"
                 >
                   <div className="flex items-center gap-3">
                     <div className="relative">
                       <div 
                         className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium" 
-                        style={{ backgroundColor: generateAvatarColor(employee.firstName, employee.lastName) }}
+                        style={{ backgroundColor: generateAvatarColor(worker.firstName, worker.lastName) }}
                       >
-                        {generateAvatarInitials(employee.firstName, employee.lastName)}
+                        {generateAvatarInitials(worker.firstName, worker.lastName)}
                       </div>
                       <div 
                         className={`absolute -bottom-0.5 -right-0.5 ${getDotSize('sm')} rounded-full border border-white`}
-                        style={{ backgroundColor: getStatusDotColor(employee.status) }}>
+                        style={{ backgroundColor: getStatusDotColor(worker.status) }}>
                       </div>
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-gray-900 text-sm">
-                        {employee.firstName} {employee.lastName}
+                        {worker.firstName} {worker.lastName}
                       </div>
-                      <div className="text-xs" style={{ color: 'var(--gray-500)' }}>{employee.jobTitle}</div>
+                      <div className="text-xs" style={{ color: 'var(--gray-500)' }}>{worker.jobTitle}</div>
                     </div>
                   </div>
                 </div>
@@ -1024,7 +1024,7 @@ export default function WhosWorking() {
           {/* Map - 70% width */}
           <div className="w-[70%] bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div className="bg-gray-50 border-b border-gray-200 px-4 py-3">
-              <h3 className="text-sm font-medium text-gray-900">Employee Locations</h3>
+              <h3 className="text-sm font-medium text-gray-900">Worker Locations</h3>
             </div>
             <div className="h-[432px] bg-gray-100 flex items-center justify-center">
               <div className="text-center">
@@ -1032,7 +1032,7 @@ export default function WhosWorking() {
                 <h3 className="text-sm font-semibold text-gray-900 mb-1">Map View</h3>
                 <p className="text-xs text-gray-600">Interactive map will be implemented here</p>
                 <p className="text-xs text-gray-500 mt-2">
-                  Showing {filteredEmployees.length} employees with location data
+                  Showing {filteredWorkers.length} workers with location data
                 </p>
               </div>
             </div>
@@ -1041,7 +1041,7 @@ export default function WhosWorking() {
       )}
 
       {/* Pagination */}
-      {!employeesLoading && !employeesError && (
+      {!workersLoading && !workersError && (
       <div className="bg-white border border-gray-200 rounded-lg py-6 px-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -1062,7 +1062,7 @@ export default function WhosWorking() {
               <option value={100}>100</option>
             </select>
             <span className="text-xs text-gray-600">
-              Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredEmployees.length)} of {filteredEmployees.length}
+              Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredWorkers.length)} of {filteredWorkers.length}
             </span>
           </div>
 
@@ -1129,10 +1129,10 @@ export default function WhosWorking() {
       )}
 
       {/* Empty State */}
-      {!employeesLoading && !employeesError && filteredEmployees.length === 0 && (
+      {!workersLoading && !workersError && filteredWorkers.length === 0 && (
         <div className="text-center py-8">
           <Users className="w-8 h-8 text-gray-400 mx-auto mb-3" />
-          <h3 className="text-sm font-semibold text-gray-900 mb-1">No employees found</h3>
+          <h3 className="text-sm font-semibold text-gray-900 mb-1">No workers found</h3>
           <p className="text-xs text-gray-600">Try adjusting your search criteria.</p>
         </div>
       )}

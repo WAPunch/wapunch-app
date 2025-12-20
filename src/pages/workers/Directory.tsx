@@ -1,10 +1,9 @@
 import { useEffect, useState, useMemo } from 'react';
 import { router } from '../../lib/router';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
-import { useEmployees } from '../../hooks/useEmployees';
+import { useWorkers } from '../../hooks/useWorkers';
 import { 
   Users, 
-  GitBranch, 
   Search, 
   Filter,
   Plus,
@@ -25,7 +24,7 @@ import {
   Edit
 } from 'lucide-react';
 
-interface Employee {
+interface Worker {
   id: string;
   firstName: string;
   lastName: string;
@@ -37,6 +36,7 @@ interface Employee {
   startDate: string;
   avatar?: string;
   phone?: string;
+  worker_type?: 'employee' | 'contractor';
 }
 
 // Function to generate avatar initials (100% reliable, works everywhere)
@@ -66,13 +66,13 @@ const getDotSize = (avatarSize: 'sm' | 'md' | 'lg') => {
 
 export default function Directory() {
   const { registerSubmodules } = useSubmoduleNav();
-  const { employees: employeesData, isLoading: employeesLoading, error: employeesError, refetch } = useEmployees();
+  const { workers: workersData, isLoading: workersLoading, error: workersError, refetch } = useWorkers();
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
-  const [sortBy, setSortBy] = useState<'firstName' | 'jobTitle' | 'department' | 'startDate'>('firstName');
+  const [sortBy, setSortBy] = useState<'firstName' | 'jobTitle' | 'department'>('firstName');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [selectedDepartment, setSelectedDepartment] = useState<string[]>([]);
   const [selectedStatus, setSelectedStatus] = useState<string[]>([]);
@@ -88,10 +88,9 @@ export default function Directory() {
   const [locationSearchTerm, setLocationSearchTerm] = useState('');
 
   useEffect(() => {
-    // Register submodule tabs for management employees section
-    registerSubmodules('Employee Directory', [
-      { id: 'directory', label: 'Directory', href: '/employees/directory', icon: Users },
-      { id: 'org-chart', label: 'Organizational Chart', href: '/employees/organizational-chart', icon: GitBranch }
+    // Register submodule tabs for management workers section
+    registerSubmodules('Worker Directory', [
+      { id: 'directory', label: 'Directory', href: '/workers/directory', icon: Users }
     ]);
   }, [registerSubmodules]);
 
@@ -118,34 +117,31 @@ export default function Directory() {
     };
   }, []);
 
-  // Use employees from Supabase instead of mock data
-  const employees: Employee[] = employeesData;
+  // Use workers from Supabase instead of mock data
+  const workers: Worker[] = workersData;
 
-  const filteredEmployees = useMemo(() => {
-    const filtered = employees.filter(employee => {
+  const filteredWorkers = useMemo(() => {
+    const filtered = workers.filter(worker => {
       // Search filter
       const searchLower = searchTerm.toLowerCase();
       const matchesSearch = !searchTerm || (
-        employee.firstName.toLowerCase().includes(searchLower) ||
-        employee.lastName.toLowerCase().includes(searchLower) ||
-        employee.email.toLowerCase().includes(searchLower) ||
-        employee.jobTitle.toLowerCase().includes(searchLower) ||
-        employee.department.toLowerCase().includes(searchLower)
+        worker.firstName.toLowerCase().includes(searchLower) ||
+        worker.lastName.toLowerCase().includes(searchLower) ||
+        worker.email.toLowerCase().includes(searchLower) ||
+        worker.jobTitle.toLowerCase().includes(searchLower) ||
+        worker.department.toLowerCase().includes(searchLower)
       );
 
       // Department filter
-      const matchesDepartment = selectedDepartment.length === 0 || selectedDepartment.includes(employee.department);
+      const matchesDepartment = selectedDepartment.length === 0 || selectedDepartment.includes(worker.department);
 
       // Status filter
-      const matchesStatus = selectedStatus.length === 0 || selectedStatus.includes(employee.status);
+      const matchesStatus = selectedStatus.length === 0 || selectedStatus.includes(worker.status);
 
-      // Employment type filter (assuming all employees are full-time for now)
+      // Employment type filter (assuming all workers are full-time for now)
       const matchesEmploymentType = selectedEmploymentType.length === 0 || selectedEmploymentType.includes('Full-time');
 
-      // Location filter
-      const matchesLocation = selectedLocation.length === 0 || selectedLocation.includes(employee.location);
-
-      return matchesSearch && matchesDepartment && matchesStatus && matchesEmploymentType && matchesLocation;
+      return matchesSearch && matchesDepartment && matchesStatus && matchesEmploymentType;
     });
 
     // Apply sorting
@@ -166,33 +162,23 @@ export default function Directory() {
           aValue = a.department.toLowerCase();
           bValue = b.department.toLowerCase();
           break;
-        case 'startDate':
-          aValue = new Date(a.startDate);
-          bValue = new Date(b.startDate);
-          break;
         default:
           aValue = a.firstName.toLowerCase();
           bValue = b.firstName.toLowerCase();
       }
 
-      if (sortBy === 'startDate') {
-        const dateA = aValue as Date;
-        const dateB = bValue as Date;
-        return sortOrder === 'asc' ? dateA.getTime() - dateB.getTime() : dateB.getTime() - dateA.getTime();
-      } else {
-        const strA = aValue as string;
-        const strB = bValue as string;
-        if (strA < strB) return sortOrder === 'asc' ? -1 : 1;
-        if (strA > strB) return sortOrder === 'asc' ? 1 : -1;
-        return 0;
-      }
+      const strA = aValue as string;
+      const strB = bValue as string;
+      if (strA < strB) return sortOrder === 'asc' ? -1 : 1;
+      if (strA > strB) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
     });
-  }, [searchTerm, employees, sortBy, sortOrder, selectedDepartment, selectedStatus, selectedEmploymentType, selectedLocation]);
+  }, [searchTerm, workers, sortBy, sortOrder, selectedDepartment, selectedStatus, selectedEmploymentType]);
 
   // Pagination calculations
-  const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
+  const totalPages = Math.ceil(filteredWorkers.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedEmployees = filteredEmployees.slice(startIndex, startIndex + itemsPerPage);
+  const paginatedWorkers = filteredWorkers.slice(startIndex, startIndex + itemsPerPage);
 
   // Reset to first page when search changes
   useMemo(() => {
@@ -214,12 +200,10 @@ export default function Directory() {
     setSelectedDepartment([]);
     setSelectedStatus([]);
     setSelectedEmploymentType([]);
-    setSelectedLocation([]);
     setSearchTerm('');
     setDepartmentSearchTerm('');
     setStatusSearchTerm('');
     setEmploymentTypeSearchTerm('');
-    setLocationSearchTerm('');
   };
 
   // Helper functions for multi-select
@@ -288,15 +272,15 @@ export default function Directory() {
     );
   };
 
-  // Navigate to employee info page
-  const handleEditEmployee = (employee: Employee) => {
-    // Store employee data in sessionStorage for the Employee Info page
-    sessionStorage.setItem('selectedEmployee', JSON.stringify(employee));
+  // Navigate to worker info page
+  const handleEditWorker = (worker: Worker) => {
+    // Store worker data in sessionStorage for the Worker Info page
+    sessionStorage.setItem('selectedWorker', JSON.stringify(worker));
     
-    // Create slug from employee name
-    const slug = `${employee.firstName.toLowerCase()}-${employee.lastName.toLowerCase()}`;
+    // Create slug from worker name
+    const slug = `${worker.firstName.toLowerCase()}-${worker.lastName.toLowerCase()}`;
     
-    router.navigate(`/employees/employee-info/${slug}`);
+    router.navigate(`/workers/worker-info/${slug}`);
   };
 
   const getStatusBadge = (status: string) => {
@@ -343,9 +327,9 @@ export default function Directory() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold text-foreground mb-1">Employee Directory</h1>
+          <h1 className="text-xl font-semibold text-foreground mb-1">Worker Directory</h1>
           <p className="text-xs" style={{ color: 'var(--gray-500)' }}>
-            {`Manage your team of ${filteredEmployees.length} employees${filteredEmployees.length > itemsPerPage ? ` (Page ${currentPage} of ${totalPages})` : ''}`}
+            {`Manage your team of ${filteredWorkers.length} workers${filteredWorkers.length > itemsPerPage ? ` (Page ${currentPage} of ${totalPages})` : ''}`}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -361,7 +345,7 @@ export default function Directory() {
       </div>
 
       {/* Search and Filters */}
-      {!employeesLoading && (
+      {!workersLoading && (
       <div className="mb-4">
         <div className={`bg-white border border-gray-200 py-6 px-6 ${
           showFilters ? 'rounded-t-lg' : 'rounded-lg'
@@ -372,12 +356,12 @@ export default function Directory() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
             type="text"
-                placeholder="Search employees by name, email, job title, or employee ID..."
+                placeholder="Search workers by name, email, job title, or worker ID..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-3 py-1 border border-gray-200 rounded text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
-                aria-label="Search employees"
-                id="employee-search"
+                aria-label="Search workers"
+                id="worker-search"
           />
         </div>
             
@@ -672,15 +656,6 @@ export default function Directory() {
                   Department
                   {sortBy === 'department' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                 </button>
-                <button 
-                  onClick={() => handleSort('startDate')}
-                  className={`text-xs hover:text-gray-900 flex items-center gap-1 ${
-                    sortBy === 'startDate' ? 'text-gray-900 font-medium' : 'text-gray-600'
-                  }`}
-                >
-                  Start Date
-                  {sortBy === 'startDate' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
-                </button>
               </div>
             </div>
           </div>
@@ -689,13 +664,13 @@ export default function Directory() {
       )}
 
       {/* Error Message */}
-      {employeesError && (
+      {workersError && (
         <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
           <div className="flex items-center gap-2">
             <span className="text-red-600">⚠️</span>
             <div>
-              <div className="text-sm font-medium text-red-800">Error loading employees</div>
-              <div className="text-sm text-red-700">{employeesError}</div>
+              <div className="text-sm font-medium text-red-800">Error loading workers</div>
+              <div className="text-sm text-red-700">{workersError}</div>
             </div>
             <button
               onClick={() => refetch()}
@@ -708,7 +683,7 @@ export default function Directory() {
       )}
 
       {/* Table View */}
-      {!employeesError && !employeesLoading && viewMode === 'table' && (
+      {!workersError && !workersLoading && viewMode === 'table' && (
         <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-4">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -719,8 +694,20 @@ export default function Directory() {
                     onClick={() => handleSort('firstName')}
                     className="flex items-center gap-1 hover:text-gray-700"
                   >
-                    Employee
+                    Worker
                     {sortBy === 'firstName' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
+                  </button>
+                </th>
+                <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs">
+                  Worker Type
+                </th>
+                <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs">
+                  <button
+                    onClick={() => handleSort('department')}
+                    className="flex items-center gap-1 hover:text-gray-700"
+                  >
+                    Department
+                    {sortBy === 'department' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                   </button>
                 </th>
                 <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs">
@@ -732,93 +719,81 @@ export default function Directory() {
                     {sortBy === 'jobTitle' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                   </button>
                 </th>
-                <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs">
-                  <button
-                    onClick={() => handleSort('department')}
-                    className="flex items-center gap-1 hover:text-gray-700"
-                  >
-                    Department
-                    {sortBy === 'department' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
-                  </button>
-                </th>
                 <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs">Status</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs">Location</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs">
-                  <button
-                    onClick={() => handleSort('startDate')}
-                    className="flex items-center gap-1 hover:text-gray-700"
-                  >
-                    Start Date
-                    {sortBy === 'startDate' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
-                  </button>
-                </th>
                 <th className="text-left py-3 px-2 font-medium text-gray-900 text-xs w-24">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredEmployees.length === 0 ? (
+              {filteredWorkers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center">
+                  <td colSpan={6} className="py-12 text-center">
                     <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-600 mb-2">No employees found</p>
+                    <p className="text-gray-600 mb-2">No workers found</p>
                     <p className="text-sm text-gray-500">
-                      {employeesData.length === 0 
-                        ? 'Start by adding employees to your company'
+                      {workersData.length === 0 
+                        ? 'Start by adding workers to your company'
                         : 'Try adjusting your search criteria'}
                     </p>
                   </td>
                 </tr>
               ) : (
-                paginatedEmployees.map((employee, _index) => (
-                <tr key={employee.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                paginatedWorkers.map((worker, _index) => (
+                <tr key={worker.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                                     <td className="py-4 px-6">
                     <div className="flex items-center gap-3">
                       <div className="relative">
                         <div 
                           className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium" 
-                          style={{ backgroundColor: generateAvatarColor(employee.firstName, employee.lastName) }}
+                          style={{ backgroundColor: generateAvatarColor(worker.firstName, worker.lastName) }}
                         >
-                          {generateAvatarInitials(employee.firstName, employee.lastName)}
+                          {generateAvatarInitials(worker.firstName, worker.lastName)}
                         </div>
                         <div 
                           className={`absolute -bottom-0.5 -right-0.5 ${getDotSize('sm')} rounded-full border border-white`}
                           style={{
                             backgroundColor: 
-                              employee.status === 'Active' ? 'var(--avatar-status-green)' :
-                              employee.status === 'On Leave' ? 'var(--avatar-status-orange)' :
-                              employee.status === 'Onboarding' ? 'var(--avatar-status-blue)' :
-                              employee.status === 'Suspended' ? 'var(--avatar-status-red)' :
+                              worker.status === 'Active' ? 'var(--avatar-status-green)' :
+                              worker.status === 'On Leave' ? 'var(--avatar-status-orange)' :
+                              worker.status === 'Onboarding' ? 'var(--avatar-status-blue)' :
+                              worker.status === 'Suspended' ? 'var(--avatar-status-red)' :
                               'var(--avatar-status-gray)'
                           }}>
                         </div>
                       </div>
                       <div>
                         <div className="font-medium text-gray-900 text-sm">
-                          {employee.firstName} {employee.lastName}
+                          {worker.firstName} {worker.lastName}
                         </div>
-                        <div className="text-xs" style={{ color: 'var(--gray-500)' }}>{employee.email}</div>
+                        <div className="text-xs" style={{ color: 'var(--gray-500)' }}>{worker.email}</div>
                       </div>
                   </div>
                   </td>
-                  <td className="py-4 px-4 text-gray-900 text-sm">{employee.jobTitle}</td>
-                  <td className="py-4 px-4 text-gray-900 text-sm">{employee.department}</td>
-                  <td className="py-4 px-4">{getStatusBadge(employee.status)}</td>
-                  <td className="py-4 px-4 text-gray-600 text-sm">{employee.location}</td>
-                  <td className="py-4 px-4 text-gray-600 text-sm">{employee.startDate}</td>
+                  <td className="py-4 px-4">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      worker.worker_type === 'contractor' 
+                        ? 'bg-purple-50 text-purple-700' 
+                        : 'bg-blue-50 text-blue-700'
+                    }`}>
+                      {worker.worker_type === 'contractor' ? 'Contractor' : 'Employee'}
+                    </span>
+                  </td>
+                  <td className="py-4 px-4 text-gray-900 text-sm">{worker.department}</td>
+                  <td className="py-4 px-4 text-gray-900 text-sm">{worker.jobTitle}</td>
+                  <td className="py-4 px-4">{getStatusBadge(worker.status)}</td>
                   <td className="py-2 px-2 w-24">
                     <div className="flex items-center">
                       <button 
-                        onClick={() => handleEditEmployee(employee)}
+                        onClick={() => handleEditWorker(worker)}
                         className="p-1 hover:bg-gray-100 rounded transition-colors"
-                        aria-label={`View ${employee.firstName} ${employee.lastName}`}
-                        title={`View ${employee.firstName} ${employee.lastName}`}
+                        aria-label={`View ${worker.firstName} ${worker.lastName}`}
+                        title={`View ${worker.firstName} ${worker.lastName}`}
                       >
                         <Eye className="w-4 h-4" />
                       </button>
                       <button 
                         className="p-1 hover:bg-gray-100 rounded transition-colors"
-                        aria-label={`More options for ${employee.firstName} ${employee.lastName}`}
-                        title={`More options for ${employee.firstName} ${employee.lastName}`}
+                        aria-label={`More options for ${worker.firstName} ${worker.lastName}`}
+                        title={`More options for ${worker.firstName} ${worker.lastName}`}
                       >
                         <MoreVertical className="w-4 h-4" />
                       </button>
@@ -834,60 +809,60 @@ export default function Directory() {
       )}
 
       {/* Grid View */}
-      {!employeesError && !employeesLoading && viewMode === 'grid' && (
+      {!workersError && !workersLoading && viewMode === 'grid' && (
         <>
-          {filteredEmployees.length === 0 ? (
+          {filteredWorkers.length === 0 ? (
             <div className="bg-white border border-gray-200 rounded-lg p-12 text-center mb-4">
               <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-600 mb-2">No employees found</p>
+              <p className="text-gray-600 mb-2">No workers found</p>
               <p className="text-sm text-gray-500">
-                {employeesData.length === 0 
-                  ? 'Start by adding employees to your company'
+                {workersData.length === 0 
+                  ? 'Start by adding workers to your company'
                   : 'Try adjusting your search criteria'}
               </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-4">
-              {paginatedEmployees.map((employee) => (
+              {paginatedWorkers.map((worker) => (
             <div
-              key={employee.id}
+              key={worker.id}
               className="bg-white border border-gray-200 hover:shadow-lg transition-all duration-200 hover:border-primary/20 group rounded-lg p-6"
             >
-              {/* Employee Avatar and Basic Info */}
+              {/* Worker Avatar and Basic Info */}
               <div className="flex items-start gap-3 mb-4">
                 <div className="relative">
                   <div 
                     className="w-12 h-12 rounded-full flex items-center justify-center text-white font-medium text-base" 
-                    style={{ backgroundColor: generateAvatarColor(employee.firstName, employee.lastName) }}
+                    style={{ backgroundColor: generateAvatarColor(worker.firstName, worker.lastName) }}
                   >
-                    {generateAvatarInitials(employee.firstName, employee.lastName)}
+                    {generateAvatarInitials(worker.firstName, worker.lastName)}
                   </div>
                   <div 
                     className={`absolute -bottom-1 -right-1 ${getDotSize('lg')} rounded-full border-2 border-white`}
                     style={{
                       backgroundColor: 
-                        employee.status === 'Active' ? 'var(--avatar-status-green)' :
-                        employee.status === 'On Leave' ? 'var(--avatar-status-orange)' :
-                        employee.status === 'Onboarding' ? 'var(--avatar-status-blue)' :
-                        employee.status === 'Suspended' ? 'var(--avatar-status-red)' :
+                        worker.status === 'Active' ? 'var(--avatar-status-green)' :
+                        worker.status === 'On Leave' ? 'var(--avatar-status-orange)' :
+                        worker.status === 'Onboarding' ? 'var(--avatar-status-blue)' :
+                        worker.status === 'Suspended' ? 'var(--avatar-status-red)' :
                         'var(--avatar-status-gray)'
                     }}>
                   </div>
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-sm font-semibold text-gray-900 group-hover:text-primary transition-colors">
-                    {employee.firstName} {employee.lastName}
+                    {worker.firstName} {worker.lastName}
                   </h3>
-                  <p className="text-xs text-gray-600 truncate">{employee.jobTitle}</p>
+                  <p className="text-xs text-gray-600 truncate">{worker.jobTitle}</p>
                   <div className="mt-1">
-                    {getStatusBadge(employee.status)}
+                    {getStatusBadge(worker.status)}
                   </div>
                 </div>
                 <button 
-                  onClick={() => handleEditEmployee(employee)}
+                  onClick={() => handleEditWorker(worker)}
                   className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-primary"
-                  aria-label={`Edit ${employee.firstName} ${employee.lastName}`}
-                  title={`Edit ${employee.firstName} ${employee.lastName}`}
+                  aria-label={`Edit ${worker.firstName} ${worker.lastName}`}
+                  title={`Edit ${worker.firstName} ${worker.lastName}`}
                 >
                   <Edit className="w-4 h-4" />
                 </button>
@@ -897,26 +872,18 @@ export default function Directory() {
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-xs text-gray-600">
                   <Mail className="w-3 h-3 flex-shrink-0" />
-                  <span className="truncate">{employee.email}</span>
+                  <span className="truncate">{worker.email}</span>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-600">
                   <Phone className="w-3 h-3 flex-shrink-0" />
-                  <span>{employee.phone || '+1 (555) 000-0000'}</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-gray-600">
-                  <MapPin className="w-3 h-3 flex-shrink-0" />
-                  <span className="truncate">{employee.location}</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-gray-600">
-                  <Calendar className="w-3 h-3 flex-shrink-0" />
-                  <span>Started {new Date(employee.startDate).toLocaleDateString()}</span>
+                  <span>{worker.phone || '+1 (555) 000-0000'}</span>
                 </div>
               </div>
 
               {/* Department and Manager */}
               <div className="mt-4 pt-4 border-t border-gray-100">
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-medium text-gray-900">{employee.department}</span>
+                  <span className="text-xs font-medium text-gray-900">{worker.department}</span>
                   <span className="text-xs text-gray-500">Reports to Manager</span>
                 </div>
               </div>
@@ -928,7 +895,7 @@ export default function Directory() {
       )}
 
       {/* Pagination */}
-      {!employeesLoading && (
+      {!workersLoading && (
       <div className="bg-white border border-gray-200 rounded-lg py-6 px-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -949,7 +916,7 @@ export default function Directory() {
               <option value={100}>100</option>
             </select>
             <span className="text-xs text-gray-600">
-              Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredEmployees.length)} of {filteredEmployees.length}
+              Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredWorkers.length)} of {filteredWorkers.length}
             </span>
           </div>
 

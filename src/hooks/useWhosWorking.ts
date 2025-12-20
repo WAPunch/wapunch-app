@@ -22,7 +22,7 @@ export interface WhosWorkingEmployee {
 }
 
 interface UseWhosWorkingResult {
-  employees: WhosWorkingEmployee[];
+  workers: WhosWorkingEmployee[];
   isLoading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
@@ -93,19 +93,19 @@ const formatTime = (timestamp: string): string => {
 
 export const useWhosWorking = (): UseWhosWorkingResult => {
   const { currentCompany } = useCompany();
-  const [employees, setEmployees] = useState<WhosWorkingEmployee[]>([]);
+  const [workers, setWorkers] = useState<WhosWorkingEmployee[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchEmployees = async () => {
+  const fetchWorkers = async () => {
     if (!currentCompany?.id) {
-      setEmployees([]);
+      setWorkers([]);
       setIsLoading(false);
       return;
     }
 
     try {
-      if (employees.length === 0) {
+      if (workers.length === 0) {
         setIsLoading(true);
       }
       setError(null);
@@ -114,9 +114,10 @@ export const useWhosWorking = (): UseWhosWorkingResult => {
         console.log('🔍 Fetching who\'s working for company:', currentCompany.id);
       }
 
-      // Fetch employees with their current status
-      const { data: employeesData, error: employeesError } = await supabase
-        .from('employees')
+      // Fetch workers with their current status
+      // Note: Workers are NOT users, so we don't select user_id
+      const { data: workersData, error: workersError } = await supabase
+        .from('workers')
         .select(`
           id,
           first_name,
@@ -126,38 +127,38 @@ export const useWhosWorking = (): UseWhosWorkingResult => {
           is_active,
           archived,
           whatsapp_number,
-          user_id
+          email
         `)
         .eq('company_id', currentCompany.id)
         .eq('is_deleted', false)
         .order('first_name', { ascending: true });
 
-      if (employeesError) {
+      if (workersError) {
         if (import.meta.env.DEV) {
-          console.error('❌ Error fetching employees:', employeesError);
+          console.error('❌ Error fetching workers:', workersError);
         }
-        throw employeesError;
+        throw workersError;
       }
 
-      // Fetch latest attendance log for each employee
-      const employeeIds = (employeesData || []).map((emp: any) => emp.id);
+      // Fetch latest attendance log for each worker
+      const workerIds = (workersData || []).map((worker: any) => worker.id);
       
       let latestLogs: any[] = [];
-      if (employeeIds.length > 0) {
+      if (workerIds.length > 0) {
         const { data: logsData, error: logsError } = await supabase
           .from('attendance_logs')
           .select(`
             id,
-            employee_id,
+            worker_id,
             log_type,
             log_time,
             latitude,
             longitude,
             source,
-            branch_id,
-            branch:branches(branch_name, branch_address)
+            site_id,
+            site:sites(name, address)
           `)
-          .in('employee_id', employeeIds)
+          .in('worker_id', workerIds)
           .order('log_time', { ascending: false });
 
         if (logsError) {
@@ -165,30 +166,30 @@ export const useWhosWorking = (): UseWhosWorkingResult => {
             console.warn('⚠️ Error fetching attendance logs:', logsError);
           }
         } else {
-          // Get the latest log for each employee
-          const logsByEmployee = new Map<string, any>();
+          // Get the latest log for each worker
+          const logsByWorker = new Map<string, any>();
           (logsData || []).forEach((log: any) => {
-            if (!logsByEmployee.has(log.employee_id)) {
-              logsByEmployee.set(log.employee_id, log);
+            if (!logsByWorker.has(log.worker_id)) {
+              logsByWorker.set(log.worker_id, log);
             }
           });
-          latestLogs = Array.from(logsByEmployee.values());
+          latestLogs = Array.from(logsByWorker.values());
         }
       }
 
-      // Map employees to WhosWorkingEmployee interface
-      const mappedEmployees: WhosWorkingEmployee[] = (employeesData || []).map((emp: any) => {
-        const latestLog = latestLogs.find((log: any) => log.employee_id === emp.id);
+      // Map workers to WhosWorkingEmployee interface
+      const mappedEmployees: WhosWorkingEmployee[] = (workersData || []).map((worker: any) => {
+        const latestLog = latestLogs.find((log: any) => log.worker_id === worker.id);
         
-        const status = mapStatus(emp.current_status || 'out', emp.is_active, emp.archived);
+        const status = mapStatus(worker.current_status || 'out', worker.is_active, worker.archived);
         
-        // Get location from branch or default
+        // Get location from site or default
         let location = 'N/A';
         let latitude: number | undefined;
         let longitude: number | undefined;
         
-        if (latestLog?.branch) {
-          location = latestLog.branch.branch_name || latestLog.branch.branch_address || 'N/A';
+        if (latestLog?.site) {
+          location = latestLog.site.name || latestLog.site.address || 'N/A';
         }
         if (latestLog?.latitude && latestLog?.longitude) {
           latitude = Number(latestLog.latitude);
@@ -203,43 +204,43 @@ export const useWhosWorking = (): UseWhosWorkingResult => {
           : 'No recent activity';
 
         return {
-          id: emp.id,
-          firstName: emp.first_name || '',
-          lastName: emp.last_name || '',
-          email: '', // Email would need to come from profiles table or auth.users via RPC
-          jobTitle: emp.position || 'Employee',
-          department: '', // Department not in employees table
+          id: worker.id,
+          firstName: worker.first_name || '',
+          lastName: worker.last_name || '',
+          email: worker.email || '', // Email is stored directly in workers table
+          jobTitle: worker.position || 'Worker',
+          department: '', // Department not in workers table
           status,
           location,
           lastActivityTime,
           lastActivity,
           activityDetails,
-          phone: emp.whatsapp_number || undefined,
+          phone: worker.whatsapp_number || undefined,
           latitude,
           longitude,
         };
       });
 
-      setEmployees(mappedEmployees);
+      setWorkers(mappedEmployees);
       logger.info('Who\'s working data loaded', { count: mappedEmployees.length, companyId: currentCompany.id });
     } catch (err: any) {
       logger.error('Error loading who\'s working data', err);
       setError(err?.message || 'Failed to load who\'s working data');
-      setEmployees([]);
+      setWorkers([]);
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchEmployees();
+    fetchWorkers();
   }, [currentCompany?.id]);
 
   return {
-    employees,
+    workers,
     isLoading,
     error,
-    refetch: fetchEmployees,
+    refetch: fetchWorkers,
   };
 };
 

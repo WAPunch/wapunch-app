@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { router } from '../../lib/router';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
-import { useBranches } from '../../hooks/useBranches';
+import { useSites } from '../../hooks/useSites';
 import { 
   Search, 
   Filter,
@@ -15,7 +15,7 @@ import {
   MoreVertical
 } from 'lucide-react';
 
-interface Branch {
+interface Site {
   id: string;
   name: string;
   address: string;
@@ -27,9 +27,9 @@ interface Branch {
   country?: string;
 }
 
-export default function Branches() {
+export default function Sites() {
   const { registerSubmodules } = useSubmoduleNav();
-  const { branches: branchesData, isLoading: branchesLoading, error: branchesError, refetch } = useBranches();
+  const { sites: sitesData, isLoading: sitesLoading, error: sitesError, refetch } = useSites();
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -45,14 +45,14 @@ export default function Branches() {
   const [citySearchTerm, setCitySearchTerm] = useState('');
 
   useEffect(() => {
-    // Register submodule tabs for branches section
-    registerSubmodules('Branches', [
-      { id: 'branches', label: 'Branches', href: '/branches', icon: Building2 }
+    // Register submodule tabs for sites section
+    registerSubmodules('Sites', [
+      { id: 'sites', label: 'Sites', href: '/sites', icon: Building2 }
     ]);
   }, [registerSubmodules]);
 
-  // Use branches from Supabase hook
-  const branches = branchesData;
+  // Use sites from Supabase hook
+  const sites = sitesData;
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -72,23 +72,23 @@ export default function Branches() {
   }, []);
 
 
-  const filteredBranches = useMemo(() => {
-    const filtered = branchesData.filter(branch => {
+  const filteredSites = useMemo(() => {
+    const filtered = sitesData.filter(site => {
       // Search filter
       const searchLower = searchTerm.toLowerCase();
       const matchesSearch = !searchTerm || (
-        branch.name.toLowerCase().includes(searchLower) ||
-        branch.address.toLowerCase().includes(searchLower) ||
-        branch.city.toLowerCase().includes(searchLower) ||
-        branch.state.toLowerCase().includes(searchLower) ||
-        `${branch.address}, ${branch.city}, ${branch.state} ${branch.zipCode}`.toLowerCase().includes(searchLower)
+        site.name.toLowerCase().includes(searchLower) ||
+        site.address.toLowerCase().includes(searchLower) ||
+        site.city.toLowerCase().includes(searchLower) ||
+        site.state.toLowerCase().includes(searchLower) ||
+        `${site.address}, ${site.city}, ${site.state} ${site.zipCode}`.toLowerCase().includes(searchLower)
       );
 
       // State filter
-      const matchesState = selectedState.length === 0 || selectedState.includes(branch.state);
+      const matchesState = selectedState.length === 0 || selectedState.includes(site.state);
 
       // City filter
-      const matchesCity = selectedCity.length === 0 || selectedCity.includes(branch.city);
+      const matchesCity = selectedCity.length === 0 || selectedCity.includes(site.city);
 
       return matchesSearch && matchesState && matchesCity;
     });
@@ -116,12 +116,12 @@ export default function Branches() {
       if (aValue > bValue) return sortOrder === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [searchTerm, branches, sortBy, sortOrder, selectedState, selectedCity]);
+  }, [searchTerm, sites, sortBy, sortOrder, selectedState, selectedCity]);
 
   // Pagination calculations
-  const totalPages = Math.ceil(filteredBranches.length / itemsPerPage);
+  const totalPages = Math.ceil(filteredSites.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedBranches = filteredBranches.slice(startIndex, startIndex + itemsPerPage);
+  const paginatedSites = filteredSites.slice(startIndex, startIndex + itemsPerPage);
 
   // Reset to first page when search changes
   useMemo(() => {
@@ -177,7 +177,7 @@ export default function Branches() {
 
   // Filter options based on search terms
   const getFilteredStateOptions = () => {
-    const stateOptions = Array.from(new Set(branchesData.map(b => b.state))).sort();
+    const stateOptions = Array.from(new Set(sitesData.map(s => s.state))).sort();
     if (!stateSearchTerm) return stateOptions;
     return stateOptions.filter(state => 
       state.toLowerCase().includes(stateSearchTerm.toLowerCase())
@@ -185,7 +185,7 @@ export default function Branches() {
   };
 
   const getFilteredCityOptions = () => {
-    const cityOptions = Array.from(new Set(branchesData.map(b => b.city))).sort();
+    const cityOptions = Array.from(new Set(sitesData.map(s => s.city))).sort();
     if (!citySearchTerm) return cityOptions;
     return cityOptions.filter(city => 
       city.toLowerCase().includes(citySearchTerm.toLowerCase())
@@ -197,21 +197,21 @@ export default function Branches() {
       {/* Header */}
       <div className="mb-6">
         <div className="mb-6">
-          <h1 className="text-xl font-semibold text-foreground mb-1">Branches</h1>
+          <h1 className="text-xl font-semibold text-foreground mb-1">Sites</h1>
           <p className="text-xs" style={{ color: 'var(--gray-500)' }}>
-            {`View and manage all company branches${filteredBranches.length > itemsPerPage ? ` (Page ${currentPage} of ${totalPages})` : ''}`}
+            {`View and manage all company sites${filteredSites.length > itemsPerPage ? ` (Page ${currentPage} of ${totalPages})` : ''}`}
           </p>
         </div>
       </div>
 
       {/* Error Message */}
-      {branchesError && (
+      {sitesError && (
         <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
           <div className="flex items-center gap-2">
             <span className="text-red-600">⚠️</span>
             <div>
-              <div className="text-sm font-medium text-red-800">Error loading branches</div>
-              <div className="text-sm text-red-700">{branchesError}</div>
+              <div className="text-sm font-medium text-red-800">Error loading sites</div>
+              <div className="text-sm text-red-700">{sitesError}</div>
             </div>
             <button
               onClick={() => refetch()}
@@ -224,7 +224,7 @@ export default function Branches() {
       )}
 
       {/* Search and Filters */}
-      {!branchesError && !branchesLoading && (
+      {!sitesError && !sitesLoading && (
       <div className="mb-4">
         <div className={`bg-white border border-gray-200 py-6 px-6 ${
           showFilters ? 'rounded-t-lg' : 'rounded-lg'
@@ -235,12 +235,12 @@ export default function Branches() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search branches by name, address, city, or state..."
+                placeholder="Search sites by name, address, city, or state..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-3 py-1 border border-gray-200 rounded text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
-                aria-label="Search branches"
-                id="branch-search"
+                aria-label="Search sites"
+                id="site-search"
               />
             </div>
             
@@ -471,7 +471,7 @@ export default function Branches() {
       )}
 
       {/* List View */}
-      {!branchesError && !branchesLoading && viewMode === 'list' && (
+      {!sitesError && !sitesLoading && viewMode === 'list' && (
         <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-4">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -482,7 +482,7 @@ export default function Branches() {
                       onClick={() => handleSort('name')}
                       className="flex items-center gap-1 hover:text-gray-700"
                     >
-                      Branch Name
+                      Site Name
                       {sortBy === 'name' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                     </button>
                   </th>
@@ -499,50 +499,50 @@ export default function Branches() {
                 </tr>
               </thead>
               <tbody>
-                {filteredBranches.length === 0 ? (
+                {filteredSites.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="py-12 text-center">
                       <Building2 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                      <p className="text-gray-600 mb-2">No branches found</p>
+                      <p className="text-gray-600 mb-2">No sites found</p>
                       <p className="text-sm text-gray-500">
-                        {branchesData.length === 0 
-                          ? 'Start by adding branches to your company'
+                        {sitesData.length === 0 
+                          ? 'Start by adding sites to your company'
                           : 'Try adjusting your search criteria'}
                       </p>
                     </td>
                   </tr>
                 ) : (
-                  paginatedBranches.map((branch) => (
-                  <tr key={branch.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                  paginatedSites.map((site) => (
+                  <tr key={site.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium bg-primary" style={{ backgroundColor: 'var(--primary-brand-hex)' }}>
                           <Building2 className="w-4 h-4" />
                         </div>
                         <div className="font-medium text-gray-900 text-sm">
-                          {branch.name}
+                          {site.name}
                         </div>
                       </div>
                     </td>
                     <td className="py-4 px-4">
                       <div className="flex items-center gap-2 text-gray-600 text-sm">
                         <MapPin className="w-4 h-4 text-gray-400" />
-                        <span>{branch.address}, {branch.city}, {branch.state} {branch.zipCode}</span>
+                        <span>{site.address}, {site.city}, {site.state} {site.zipCode}</span>
                       </div>
                     </td>
                     <td className="py-2 px-2 w-24">
                       <div className="flex items-center">
                         <button 
                           className="p-1 hover:bg-gray-100 rounded transition-colors"
-                          aria-label={`View ${branch.name}`}
-                          title={`View ${branch.name}`}
+                          aria-label={`View ${site.name}`}
+                          title={`View ${site.name}`}
                         >
                           <Eye className="w-4 h-4" />
                         </button>
                         <button 
                           className="p-1 hover:bg-gray-100 rounded transition-colors"
-                          aria-label={`More options for ${branch.name}`}
-                          title={`More options for ${branch.name}`}
+                          aria-label={`More options for ${site.name}`}
+                          title={`More options for ${site.name}`}
                         >
                           <MoreVertical className="w-4 h-4" />
                         </button>
@@ -558,17 +558,17 @@ export default function Branches() {
       )}
 
       {/* Map View */}
-      {!branchesError && !branchesLoading && viewMode === 'map' && (
+      {!sitesError && !sitesLoading && viewMode === 'map' && (
         <div className="flex gap-4 mb-4">
-          {/* Branch List - 30% width */}
+          {/* Site List - 30% width */}
           <div className="w-[30%] bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div className="bg-gray-50 border-b border-gray-200 px-4 py-3">
-              <h3 className="text-sm font-medium text-gray-900">Branches ({filteredBranches.length})</h3>
+              <h3 className="text-sm font-medium text-gray-900">Sites ({filteredSites.length})</h3>
             </div>
             <div className="h-[432px] overflow-y-auto">
-              {paginatedBranches.map((branch) => (
+              {paginatedSites.map((site) => (
                 <div
-                  key={branch.id}
+                  key={site.id}
                   className="border-b border-gray-100 hover:bg-gray-50 transition-colors p-3 cursor-pointer"
                 >
                   <div className="flex items-center gap-3">
@@ -577,11 +577,11 @@ export default function Branches() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-gray-900 text-sm">
-                        {branch.name}
+                        {site.name}
                       </div>
                       <div className="text-xs text-gray-500 flex items-center gap-1 mt-1">
                         <MapPin className="w-3 h-3" />
-                        <span className="truncate">{branch.address}, {branch.city}, {branch.state}</span>
+                        <span className="truncate">{site.address}, {site.city}, {site.state}</span>
                       </div>
                     </div>
                   </div>
@@ -593,7 +593,7 @@ export default function Branches() {
           {/* Map - 70% width */}
           <div className="w-[70%] bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div className="bg-gray-50 border-b border-gray-200 px-4 py-3">
-              <h3 className="text-sm font-medium text-gray-900">Branch Locations</h3>
+              <h3 className="text-sm font-medium text-gray-900">Site Locations</h3>
             </div>
             <div className="h-[432px] bg-gray-100 flex items-center justify-center">
               <div className="text-center">
@@ -601,7 +601,7 @@ export default function Branches() {
                 <h3 className="text-sm font-semibold text-gray-900 mb-1">Map View</h3>
                 <p className="text-xs text-gray-600">Interactive map will be implemented here</p>
                 <p className="text-xs text-gray-500 mt-2">
-                  Showing {filteredBranches.length} branches with location data
+                  Showing {filteredSites.length} sites with location data
                 </p>
               </div>
             </div>
@@ -610,7 +610,7 @@ export default function Branches() {
       )}
 
       {/* Pagination */}
-      {!branchesLoading && (
+      {!sitesLoading && (
       <div className="bg-white border border-gray-200 rounded-lg py-6 px-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -631,7 +631,7 @@ export default function Branches() {
               <option value={100}>100</option>
             </select>
             <span className="text-xs text-gray-600">
-              Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredBranches.length)} of {filteredBranches.length}
+              Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredSites.length)} of {filteredSites.length}
             </span>
           </div>
 

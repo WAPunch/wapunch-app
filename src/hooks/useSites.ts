@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useCompany } from './useCompany';
 import { logger } from '../lib/logger';
 
-export interface Branch {
+export interface Site {
   id: string;
   name: string;
   address: string;
@@ -12,50 +12,50 @@ export interface Branch {
   zipCode: string;
   latitude?: number;
   longitude?: number;
-  country?: string;
+  country: string;
   // Additional fields from database
-  branch_name?: string;
-  branch_address?: string;
-  timezone?: string;
+  site_name: string;
+  site_address: string;
+  timezone: string;
   radius_meters?: number;
-  type?: 'branch' | 'site';
-  is_active?: boolean;
+  type: string;
+  is_active: boolean;
 }
 
-interface UseBranchesResult {
-  branches: Branch[];
+interface UseSitesResult {
+  sites: Site[];
   isLoading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
 }
 
-export const useBranches = (): UseBranchesResult => {
+export const useSites = (): UseSitesResult => {
   const { currentCompany } = useCompany();
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const [sites, setSites] = useState<Site[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchBranches = async () => {
+  const fetchSites = async () => {
     if (!currentCompany?.id) {
-      setBranches([]);
+      setSites([]);
       setIsLoading(false);
       return;
     }
 
     try {
       // Don't set loading to true if we already have data to avoid flickering
-      if (branches.length === 0) {
+      if (sites.length === 0) {
         setIsLoading(true);
       }
       setError(null);
 
       if (import.meta.env.DEV) {
-        console.log('🔍 Fetching branches for company:', currentCompany.id);
+        console.log('🔍 Fetching sites for company:', currentCompany.id);
       }
 
-      // Fetch branches from Supabase
+      // Fetch sites from Supabase
       const { data, error: fetchError } = await supabase
-        .from('branches')
+        .from('sites')
         .select('*')
         .eq('company_id', currentCompany.id)
         .eq('is_deleted', false)
@@ -64,20 +64,21 @@ export const useBranches = (): UseBranchesResult => {
 
       if (fetchError) {
         if (import.meta.env.DEV) {
-          console.error('❌ Error fetching branches:', fetchError);
+          console.error('❌ Error fetching sites:', fetchError);
         }
         throw fetchError;
       }
 
       if (import.meta.env.DEV) {
-        console.log('📦 Branches data received:', data?.length || 0, 'branches');
+        console.log('📦 Sites data received:', data?.length || 0, 'sites');
       }
 
-      // Map database branches to UI Branch interface
-      const mappedBranches: Branch[] = (data || []).map((branch: any) => {
+      // Map database sites to UI Site interface
+      const mappedSites: Site[] = (data || []).map((site: any) => {
         // Parse address to extract city, state, zipCode if possible
         // Format: "address, city, state zipCode" or just "address"
-        const addressParts = branch.branch_address?.split(',').map((s: string) => s.trim()) || [];
+        const siteAddress = site.site_address || '';
+        const addressParts = siteAddress.split(',').map((s: string) => s.trim()) || [];
         let city = '';
         let state = '';
         let zipCode = '';
@@ -91,45 +92,47 @@ export const useBranches = (): UseBranchesResult => {
           }
         }
 
+        const siteName = site.site_name || 'Unnamed Site';
+
         return {
-          id: branch.id,
-          name: branch.branch_name || 'Unnamed Branch',
-          address: branch.branch_address || '',
+          id: site.id,
+          name: siteName,
+          address: siteAddress,
           city,
           state,
           zipCode,
-          latitude: branch.latitude ? Number(branch.latitude) : undefined,
-          longitude: branch.longitude ? Number(branch.longitude) : undefined,
-          country: branch.country || undefined,
-          branch_name: branch.branch_name,
-          branch_address: branch.branch_address,
-          timezone: branch.timezone,
-          radius_meters: branch.radius_meters,
-          type: branch.type,
-          is_active: branch.is_active,
+          latitude: site.latitude ? Number(site.latitude) : undefined,
+          longitude: site.longitude ? Number(site.longitude) : undefined,
+          country: site.country || '',
+          site_name: site.site_name,
+          site_address: site.site_address,
+          timezone: site.timezone || 'UTC',
+          radius_meters: site.radius_meters,
+          type: site.type || 'branch',
+          is_active: site.is_active ?? true,
         };
       });
 
-      setBranches(mappedBranches);
-      logger.info('Branches loaded', { count: mappedBranches.length, companyId: currentCompany.id });
+      setSites(mappedSites);
+      logger.info('Sites loaded', { count: mappedSites.length, companyId: currentCompany.id });
     } catch (err: any) {
-      logger.error('Error loading branches', err);
-      setError(err?.message || 'Failed to load branches');
-      setBranches([]);
+      logger.error('Error loading sites', err);
+      setError(err?.message || 'Failed to load sites');
+      setSites([]);
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchBranches();
+    fetchSites();
   }, [currentCompany?.id]);
 
   return {
-    branches,
+    sites,
     isLoading,
     error,
-    refetch: fetchBranches,
+    refetch: fetchSites,
   };
 };
 

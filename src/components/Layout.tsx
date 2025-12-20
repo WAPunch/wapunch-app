@@ -191,17 +191,17 @@ function Layout({ children }: LayoutProps) {
   const isNavItemActive = useCallback((itemName: string, itemHref: string) => {
     switch (itemName) {
       case 'Dashboard':
-        // Dashboard is active if we're on root, dashboard route, or inbox
-        return currentRoute === '/' || currentRoute === '/dashboard' || currentRoute.includes('/dashboard') || currentRoute.includes('/inbox');
-      case 'Employees':
-        // Employees is active if we're on any employees route
-        return currentRoute.includes('/employees');
-      case 'Branches':
-        // Branches is active if we're on any branches route
-        return currentRoute.includes('/branches');
+        // Dashboard is active if we're on root or dashboard route
+        return currentRoute === '/' || currentRoute === '/dashboard' || currentRoute.includes('/dashboard');
+      case 'Workers':
+        // Workers is active if we're on any workers route
+        return currentRoute.includes('/workers');
+      case 'Sites':
+        // Sites is active if we're on any sites route
+        return currentRoute.includes('/sites');
       case 'My Info':
-        // My Info is active if we're on any employees or my-info route
-        return currentRoute.includes('/employees') || currentRoute.includes('/my-info');
+        // My Info is active if we're on any workers or my-info route
+        return currentRoute.includes('/workers') || currentRoute.includes('/my-info');
       case 'Time & Attendance':
         // Time & Attendance is active if we're on any time-and-attendance route
         return currentRoute.includes('/time-and-attendance');
@@ -219,13 +219,13 @@ function Layout({ children }: LayoutProps) {
 
   // Memoized navigation items for management view
   const navigation = useMemo(() => {
-    // Create base navigation with Employees and Branches inserted after Dashboard
+    // Create navigation with order: Dashboard, Time & Attendance, Workers, Sites, Reports
     const dashboardItem = baseNavigation[0]; // Dashboard
-    const restOfBase = baseNavigation.slice(1); // Everything after Dashboard
+    const timeAttendanceItem = baseNavigation[1]; // Time & Attendance
     
-    const employeesItem = { name: 'Employees', href: '/employees', icon: Users };
-    const branchesItem = { name: 'Branches', href: '/branches', icon: Building2 };
-    return [dashboardItem, employeesItem, branchesItem, ...restOfBase, { name: 'Reports', href: '/reports/company-reports', icon: Printer }];
+    const workersItem = { name: 'Workers', href: '/workers', icon: Users };
+    const sitesItem = { name: 'Sites', href: '/sites', icon: Building2 };
+    return [dashboardItem, timeAttendanceItem, workersItem, sitesItem, { name: 'Reports', href: '/reports/company-reports', icon: Printer }];
   }, []);
 
   const dashboardItem = useMemo(() => 
@@ -262,8 +262,8 @@ function Layout({ children }: LayoutProps) {
       const actualPath = '/dashboard';
       router.navigate(actualPath);
       setCurrentRoute(actualPath);
-    } else if (path === '/employees') {
-      const actualPath = '/employees/directory';
+    } else if (path === '/workers') {
+      const actualPath = '/workers/directory';
       router.navigate(actualPath);
       setCurrentRoute(actualPath);
     } else {
@@ -365,7 +365,7 @@ function Layout({ children }: LayoutProps) {
         {/* Sidebar Navigation */}
         <nav 
           id="main-navigation"
-          className={`min-h-screen fixed left-0 top-0 bottom-0 overflow-y-auto transition-all duration-300 z-50 border-r ${
+          className={`min-h-screen fixed left-0 top-0 bottom-0 overflow-y-auto overflow-x-hidden transition-all duration-300 z-50 border-r ${
             isCollapsed ? 'w-14' : 'w-60'
           }`}
           style={{ 

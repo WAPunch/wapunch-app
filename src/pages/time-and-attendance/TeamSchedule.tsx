@@ -97,7 +97,7 @@ interface Employee {
 
 interface Shift {
   id: string;
-  employeeId: string;
+  workerId: string;
   date: string;
   startTime: string;
   endTime: string;
@@ -776,7 +776,7 @@ export default function TeamSchedule() {
     // Monday shifts
     {
       id: '1',
-      employeeId: '1',
+      workerId: '1',
       date: getDate(0), // Monday
       startTime: '09:00',
       endTime: '17:00',
@@ -786,7 +786,7 @@ export default function TeamSchedule() {
     },
     {
       id: '2',
-      employeeId: '2',
+      workerId: '2',
       date: getDate(0), // Monday
       startTime: '08:00',
       endTime: '16:00',
@@ -796,7 +796,7 @@ export default function TeamSchedule() {
     },
     {
       id: '3',
-      employeeId: '3',
+      workerId: '3',
       date: getDate(0), // Monday
       startTime: '09:00',
       endTime: '18:00',
@@ -806,7 +806,7 @@ export default function TeamSchedule() {
     },
     {
       id: '4',
-      employeeId: '4',
+      workerId: '4',
       date: getDate(0), // Monday
       startTime: '10:00',
       endTime: '19:00',
@@ -816,7 +816,7 @@ export default function TeamSchedule() {
     },
     {
       id: '5',
-      employeeId: '5',
+      workerId: '5',
       date: getDate(0), // Monday
       startTime: '09:00',
       endTime: '18:00',
@@ -826,7 +826,7 @@ export default function TeamSchedule() {
     },
     {
       id: '6',
-      employeeId: '6',
+      workerId: '6',
       date: getDate(0), // Monday
       startTime: '08:00',
       endTime: '17:00',
@@ -836,7 +836,7 @@ export default function TeamSchedule() {
     },
     {
       id: '7',
-      employeeId: '7',
+      workerId: '7',
       date: getDate(0), // Monday
       startTime: '09:00',
       endTime: '18:00',
@@ -846,7 +846,7 @@ export default function TeamSchedule() {
     },
     {
       id: '8',
-      employeeId: '8',
+      workerId: '8',
       date: getDate(0), // Monday
       startTime: '09:00',
       endTime: '18:00',
@@ -856,7 +856,7 @@ export default function TeamSchedule() {
     },
     {
       id: '9',
-      employeeId: '9',
+      workerId: '9',
       date: getDate(0), // Monday
       startTime: '10:00',
       endTime: '19:00',
@@ -866,7 +866,7 @@ export default function TeamSchedule() {
     },
     {
       id: '10',
-      employeeId: '10',
+      workerId: '10',
       date: getDate(0), // Monday
       startTime: '09:00',
       endTime: '18:00',
@@ -877,7 +877,7 @@ export default function TeamSchedule() {
     // Additional Monday shifts for more variety
     {
       id: '56',
-      employeeId: '11',
+      workerId: '11',
       date: getDate(0), // Monday
       startTime: '09:00',
       endTime: '13:00',
@@ -887,7 +887,7 @@ export default function TeamSchedule() {
     },
     {
       id: '56b',
-      employeeId: '11',
+      workerId: '11',
       date: getDate(0), // Monday
       startTime: '14:00',
       endTime: '18:00',
@@ -897,7 +897,7 @@ export default function TeamSchedule() {
     },
     {
       id: '57',
-      employeeId: '12',
+      workerId: '12',
       date: getDate(0), // Monday
       startTime: '08:00',
       endTime: '17:00',
@@ -907,7 +907,7 @@ export default function TeamSchedule() {
     },
     {
       id: '58',
-      employeeId: '14',
+      workerId: '14',
       date: getDate(0), // Monday
       startTime: '10:00',
       endTime: '19:00',
@@ -917,7 +917,7 @@ export default function TeamSchedule() {
     },
     {
       id: '59',
-      employeeId: '17',
+      workerId: '17',
       date: getDate(0), // Monday
       startTime: '09:00',
       endTime: '18:00',
@@ -927,7 +927,7 @@ export default function TeamSchedule() {
     },
     {
       id: '60',
-      employeeId: '21',
+      workerId: '21',
       date: getDate(0), // Monday
       startTime: '09:00',
       endTime: '18:00',
@@ -938,7 +938,7 @@ export default function TeamSchedule() {
     // Tuesday shifts
     {
       id: '11',
-      employeeId: '1',
+      workerId: '1',
       date: getDate(1), // Tuesday
       startTime: '09:00',
       endTime: '17:00',
@@ -948,7 +948,7 @@ export default function TeamSchedule() {
     },
     {
       id: '12',
-      employeeId: '2',
+      workerId: '2',
       date: getDate(1), // Tuesday
       startTime: '08:00',
       endTime: '16:00',
@@ -958,7 +958,7 @@ export default function TeamSchedule() {
     },
     {
       id: '13',
-      employeeId: '3',
+      workerId: '3',
       date: getDate(1), // Tuesday
       startTime: '09:00',
       endTime: '18:00',
@@ -968,7 +968,7 @@ export default function TeamSchedule() {
     },
     {
       id: '14',
-      employeeId: '4',
+      workerId: '4',
       date: getDate(1), // Tuesday
       startTime: '10:00',
       endTime: '19:00',
@@ -978,7 +978,7 @@ export default function TeamSchedule() {
     },
     {
       id: '15',
-      employeeId: '5',
+      workerId: '5',
       date: getDate(1), // Tuesday
       startTime: '09:00',
       endTime: '18:00',
@@ -988,7 +988,7 @@ export default function TeamSchedule() {
     },
     {
       id: '16',
-      employeeId: '6',
+      workerId: '6',
       date: getDate(1), // Tuesday
       startTime: '08:00',
       endTime: '17:00',
@@ -998,7 +998,7 @@ export default function TeamSchedule() {
     },
     {
       id: '17',
-      employeeId: '7',
+      workerId: '7',
       date: getDate(1), // Tuesday
       startTime: '09:00',
       endTime: '18:00',
@@ -1008,7 +1008,7 @@ export default function TeamSchedule() {
     },
     {
       id: '18',
-      employeeId: '8',
+      workerId: '8',
       date: getDate(1), // Tuesday
       startTime: '09:00',
       endTime: '18:00',
@@ -1018,7 +1018,7 @@ export default function TeamSchedule() {
     },
     {
       id: '19',
-      employeeId: '9',
+      workerId: '9',
       date: getDate(1), // Tuesday
       startTime: '10:00',
       endTime: '19:00',
@@ -1028,7 +1028,7 @@ export default function TeamSchedule() {
     },
     {
       id: '20',
-      employeeId: '10',
+      workerId: '10',
       date: getDate(1), // Tuesday
       startTime: '09:00',
       endTime: '18:00',
@@ -1039,7 +1039,7 @@ export default function TeamSchedule() {
     // Additional Tuesday shifts
     {
       id: '61',
-      employeeId: '13',
+      workerId: '13',
       date: getDate(1), // Tuesday
       startTime: '10:00',
       endTime: '19:00',
@@ -1049,7 +1049,7 @@ export default function TeamSchedule() {
     },
     {
       id: '62',
-      employeeId: '15',
+      workerId: '15',
       date: getDate(1), // Tuesday
       startTime: '09:00',
       endTime: '18:00',
@@ -1059,7 +1059,7 @@ export default function TeamSchedule() {
     },
     {
       id: '63',
-      employeeId: '19',
+      workerId: '19',
       date: getDate(1), // Tuesday
       startTime: '09:00',
       endTime: '18:00',
@@ -1070,7 +1070,7 @@ export default function TeamSchedule() {
     // Wednesday shifts
     {
       id: '21',
-      employeeId: '1',
+      workerId: '1',
       date: getDate(2), // Wednesday
       startTime: '09:00',
       endTime: '17:00',
@@ -1080,7 +1080,7 @@ export default function TeamSchedule() {
     },
     {
       id: '22',
-      employeeId: '2',
+      workerId: '2',
       date: getDate(2), // Wednesday
       startTime: '08:00',
       endTime: '16:00',
@@ -1090,7 +1090,7 @@ export default function TeamSchedule() {
     },
     {
       id: '23',
-      employeeId: '3',
+      workerId: '3',
       date: getDate(2), // Wednesday
       startTime: '09:00',
       endTime: '18:00',
@@ -1100,7 +1100,7 @@ export default function TeamSchedule() {
     },
     {
       id: '24',
-      employeeId: '4',
+      workerId: '4',
       date: getDate(2), // Wednesday
       startTime: '10:00',
       endTime: '19:00',
@@ -1110,7 +1110,7 @@ export default function TeamSchedule() {
     },
     {
       id: '25',
-      employeeId: '5',
+      workerId: '5',
       date: getDate(2), // Wednesday
       startTime: '09:00',
       endTime: '18:00',
@@ -1120,7 +1120,7 @@ export default function TeamSchedule() {
     },
     {
       id: '26',
-      employeeId: '6',
+      workerId: '6',
       date: getDate(2), // Wednesday
       startTime: '08:00',
       endTime: '17:00',
@@ -1130,7 +1130,7 @@ export default function TeamSchedule() {
     },
     {
       id: '27',
-      employeeId: '7',
+      workerId: '7',
       date: getDate(2), // Wednesday
       startTime: '09:00',
       endTime: '18:00',
@@ -1140,7 +1140,7 @@ export default function TeamSchedule() {
     },
     {
       id: '28',
-      employeeId: '8',
+      workerId: '8',
       date: getDate(2), // Wednesday
       startTime: '09:00',
       endTime: '18:00',
@@ -1150,7 +1150,7 @@ export default function TeamSchedule() {
     },
     {
       id: '29',
-      employeeId: '9',
+      workerId: '9',
       date: getDate(2), // Wednesday
       startTime: '10:00',
       endTime: '19:00',
@@ -1160,7 +1160,7 @@ export default function TeamSchedule() {
     },
     {
       id: '30',
-      employeeId: '10',
+      workerId: '10',
       date: getDate(2), // Wednesday
       startTime: '09:00',
       endTime: '18:00',
@@ -1171,7 +1171,7 @@ export default function TeamSchedule() {
     // Thursday shifts
     {
       id: '31',
-      employeeId: '1',
+      workerId: '1',
       date: getDate(3), // Thursday
       startTime: '09:00',
       endTime: '17:00',
@@ -1181,7 +1181,7 @@ export default function TeamSchedule() {
     },
     {
       id: '32',
-      employeeId: '2',
+      workerId: '2',
       date: getDate(3), // Thursday
       startTime: '08:00',
       endTime: '16:00',
@@ -1191,7 +1191,7 @@ export default function TeamSchedule() {
     },
     {
       id: '33',
-      employeeId: '3',
+      workerId: '3',
       date: getDate(3), // Thursday
       startTime: '09:00',
       endTime: '18:00',
@@ -1201,7 +1201,7 @@ export default function TeamSchedule() {
     },
     {
       id: '34',
-      employeeId: '4',
+      workerId: '4',
       date: getDate(3), // Thursday
       startTime: '10:00',
       endTime: '19:00',
@@ -1211,7 +1211,7 @@ export default function TeamSchedule() {
     },
     {
       id: '35',
-      employeeId: '5',
+      workerId: '5',
       date: getDate(3), // Thursday
       startTime: '09:00',
       endTime: '18:00',
@@ -1221,7 +1221,7 @@ export default function TeamSchedule() {
     },
     {
       id: '36',
-      employeeId: '6',
+      workerId: '6',
       date: getDate(3), // Thursday
       startTime: '08:00',
       endTime: '17:00',
@@ -1231,7 +1231,7 @@ export default function TeamSchedule() {
     },
     {
       id: '37',
-      employeeId: '7',
+      workerId: '7',
       date: getDate(3), // Thursday
       startTime: '09:00',
       endTime: '18:00',
@@ -1241,7 +1241,7 @@ export default function TeamSchedule() {
     },
     {
       id: '38',
-      employeeId: '8',
+      workerId: '8',
       date: getDate(3), // Thursday
       startTime: '09:00',
       endTime: '18:00',
@@ -1251,7 +1251,7 @@ export default function TeamSchedule() {
     },
     {
       id: '39',
-      employeeId: '9',
+      workerId: '9',
       date: getDate(3), // Thursday
       startTime: '10:00',
       endTime: '19:00',
@@ -1261,7 +1261,7 @@ export default function TeamSchedule() {
     },
     {
       id: '40',
-      employeeId: '10',
+      workerId: '10',
       date: getDate(3), // Thursday
       startTime: '09:00',
       endTime: '18:00',
@@ -1272,7 +1272,7 @@ export default function TeamSchedule() {
     // Friday shifts
     {
       id: '41',
-      employeeId: '1',
+      workerId: '1',
       date: getDate(4), // Friday
       startTime: '09:00',
       endTime: '17:00',
@@ -1282,7 +1282,7 @@ export default function TeamSchedule() {
     },
     {
       id: '42',
-      employeeId: '2',
+      workerId: '2',
       date: getDate(4), // Friday
       startTime: '08:00',
       endTime: '16:00',
@@ -1292,7 +1292,7 @@ export default function TeamSchedule() {
     },
     {
       id: '43',
-      employeeId: '3',
+      workerId: '3',
       date: getDate(4), // Friday
       startTime: '09:00',
       endTime: '18:00',
@@ -1302,7 +1302,7 @@ export default function TeamSchedule() {
     },
     {
       id: '44',
-      employeeId: '4',
+      workerId: '4',
       date: getDate(4), // Friday
       startTime: '10:00',
       endTime: '19:00',
@@ -1312,7 +1312,7 @@ export default function TeamSchedule() {
     },
     {
       id: '45',
-      employeeId: '5',
+      workerId: '5',
       date: getDate(4), // Friday
       startTime: '09:00',
       endTime: '18:00',
@@ -1322,7 +1322,7 @@ export default function TeamSchedule() {
     },
     {
       id: '46',
-      employeeId: '6',
+      workerId: '6',
       date: getDate(4), // Friday
       startTime: '08:00',
       endTime: '17:00',
@@ -1332,7 +1332,7 @@ export default function TeamSchedule() {
     },
     {
       id: '47',
-      employeeId: '7',
+      workerId: '7',
       date: getDate(4), // Friday
       startTime: '09:00',
       endTime: '18:00',
@@ -1342,7 +1342,7 @@ export default function TeamSchedule() {
     },
     {
       id: '48',
-      employeeId: '8',
+      workerId: '8',
       date: getDate(4), // Friday
       startTime: '09:00',
       endTime: '18:00',
@@ -1352,7 +1352,7 @@ export default function TeamSchedule() {
     },
     {
       id: '49',
-      employeeId: '9',
+      workerId: '9',
       date: getDate(4), // Friday
       startTime: '10:00',
       endTime: '19:00',
@@ -1362,7 +1362,7 @@ export default function TeamSchedule() {
     },
     {
       id: '50',
-      employeeId: '10',
+      workerId: '10',
       date: getDate(4), // Friday
       startTime: '09:00',
       endTime: '18:00',
@@ -1373,7 +1373,7 @@ export default function TeamSchedule() {
     // Saturday shifts (some employees work weekends)
     {
       id: '51',
-      employeeId: '1',
+      workerId: '1',
       date: getDate(5), // Saturday
       startTime: '10:00',
       endTime: '16:00',
@@ -1383,7 +1383,7 @@ export default function TeamSchedule() {
     },
     {
       id: '52',
-      employeeId: '6',
+      workerId: '6',
       date: getDate(5), // Saturday
       startTime: '09:00',
       endTime: '15:00',
@@ -1393,7 +1393,7 @@ export default function TeamSchedule() {
     },
     {
       id: '53',
-      employeeId: '18',
+      workerId: '18',
       date: getDate(5), // Saturday
       startTime: '08:00',
       endTime: '14:00',
@@ -1404,7 +1404,7 @@ export default function TeamSchedule() {
     // Sunday shifts
     {
       id: '54',
-      employeeId: '6',
+      workerId: '6',
       date: getDate(6), // Sunday
       startTime: '10:00',
       endTime: '16:00',
@@ -1414,7 +1414,7 @@ export default function TeamSchedule() {
     },
     {
       id: '55',
-      employeeId: '22',
+      workerId: '22',
       date: getDate(6), // Sunday
       startTime: '09:00',
       endTime: '15:00',
@@ -2175,7 +2175,7 @@ export default function TeamSchedule() {
                 
                 {/* Day Cells */}
                 {weekDates.map((date, dayIndex) => {
-                  const dayShifts = getShiftsForDate(date).filter(shift => shift.employeeId === employee.id);
+                  const dayShifts = getShiftsForDate(date).filter(shift => shift.workerId === employee.id);
                   return (
                       <div key={dayIndex} className={`group flex-1 min-h-[60px] relative ${dayIndex < weekDates.length - 1 ? 'border-r border-gray-200' : ''} ${employeeIndex < paginatedEmployees.length - 1 ? 'border-b border-gray-200' : ''}`}>
                       {dayShifts.length > 0 ? (

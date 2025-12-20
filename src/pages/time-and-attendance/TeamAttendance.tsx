@@ -95,7 +95,7 @@ interface TransferEntry {
 
 interface AttendanceRecord {
   id: string;
-  employeeId: string;
+  workerId: string;
   employeeName: string;
   role: string;
   department: string;
@@ -149,7 +149,7 @@ interface WorkSession {
 
 interface NewAttendanceRecord {
   id: string;
-  employeeId: string;
+  workerId: string;
   employeeName: string;
   role: string;
   department: string;
@@ -676,7 +676,7 @@ export default function TeamAttendance() {
   const newAttendanceRecords: NewAttendanceRecord[] = [
     {
       id: 'new-1',
-      employeeId: 'EMP001',
+      workerId: 'EMP001',
       employeeName: 'Sarah Johnson',
       role: 'UI/UX Designer',
       department: 'Design',
@@ -713,7 +713,7 @@ export default function TeamAttendance() {
     },
     {
       id: 'new-2',
-      employeeId: 'EMP002',
+      workerId: 'EMP002',
       employeeName: 'Alex Rodriguez',
       role: 'Project Manager',
       department: 'Management',
@@ -788,7 +788,7 @@ export default function TeamAttendance() {
   const attendanceRecords: AttendanceRecord[] = [
     {
       id: '1',
-      employeeId: '1',
+      workerId: '1',
       employeeName: 'Sarah Johnson',
       role: 'Senior Developer',
       department: 'Engineering',
@@ -858,7 +858,7 @@ export default function TeamAttendance() {
     },
     {
       id: '2',
-      employeeId: '2',
+      workerId: '2',
       employeeName: 'Mike Chen',
       role: 'UX Designer',
       department: 'Design',
@@ -908,7 +908,7 @@ export default function TeamAttendance() {
     },
     {
       id: '3',
-      employeeId: '3',
+      workerId: '3',
       employeeName: 'Alex Rodriguez',
       role: 'Project Manager',
       department: 'Management',
@@ -994,7 +994,7 @@ export default function TeamAttendance() {
     },
     {
       id: '4',
-      employeeId: '4',
+      workerId: '4',
       employeeName: 'Emma Wilson',
       role: 'Marketing Specialist',
       department: 'Marketing',
@@ -1011,7 +1011,7 @@ export default function TeamAttendance() {
     },
     {
       id: '5',
-      employeeId: '5',
+      workerId: '5',
       employeeName: 'David Kim',
       role: 'DevOps Engineer',
       department: 'Engineering',
@@ -1058,7 +1058,7 @@ export default function TeamAttendance() {
     },
     {
       id: '8',
-      employeeId: '8',
+      workerId: '8',
       employeeName: 'Jennifer Lee',
       role: 'Product Manager',
       department: 'Product',
@@ -1095,7 +1095,7 @@ export default function TeamAttendance() {
     },
     {
       id: '6',
-      employeeId: '6',
+      workerId: '6',
       employeeName: 'Lisa Thompson',
       role: 'HR Manager',
       department: 'Human Resources',
@@ -1112,7 +1112,7 @@ export default function TeamAttendance() {
     },
     {
       id: '19',
-      employeeId: '19',
+      workerId: '19',
       employeeName: 'Robert Garcia',
       role: 'Sales Director',
       department: 'Sales',
@@ -1130,7 +1130,7 @@ export default function TeamAttendance() {
     // EMPLOYEE CURRENTLY PRESENT (no clock out)
     {
       id: '17',
-      employeeId: '17',
+      workerId: '17',
       employeeName: 'Maria Garcia',
       role: 'Product Manager',
       department: 'Product',
@@ -1168,7 +1168,7 @@ export default function TeamAttendance() {
     // EMPLOYEE ON BREAK (no break end time)
     {
       id: '18',
-      employeeId: '18',
+      workerId: '18',
       employeeName: 'James Wilson',
       role: 'UX Designer',
       department: 'Design',
@@ -1213,7 +1213,7 @@ export default function TeamAttendance() {
     // EMPLOYEE IN TRANSFER (no transfer end time)
     {
       id: '7',
-      employeeId: '7',
+      workerId: '7',
       employeeName: 'Lisa Chen',
       role: 'Account Manager',
       department: 'Sales',
@@ -1261,7 +1261,7 @@ export default function TeamAttendance() {
     // More employees to test pagination
     {
       id: '9',
-      employeeId: '9',
+      workerId: '9',
       employeeName: 'David Brown',
       role: 'Software Engineer',
       department: 'Engineering',
@@ -1300,7 +1300,7 @@ export default function TeamAttendance() {
     },
     {
       id: '20',
-      employeeId: '20',
+      workerId: '20',
       employeeName: 'Amanda Taylor',
       role: 'Marketing Specialist',
       department: 'Marketing',
@@ -1342,7 +1342,7 @@ export default function TeamAttendance() {
     },
     {
       id: '10',
-      employeeId: '10',
+      workerId: '10',
       employeeName: 'Robert Miller',
       role: 'Data Analyst',
       department: 'Analytics',
@@ -1359,7 +1359,7 @@ export default function TeamAttendance() {
     },
     {
       id: '11',
-      employeeId: '11',
+      workerId: '11',
       employeeName: 'Jennifer Davis',
       role: 'HR Manager',
       department: 'Human Resources',
@@ -1395,7 +1395,7 @@ export default function TeamAttendance() {
     },
     {
       id: '12',
-      employeeId: '12',
+      workerId: '12',
       employeeName: 'Kevin Anderson',
       role: 'DevOps Engineer',
       department: 'Engineering',
@@ -1448,7 +1448,7 @@ export default function TeamAttendance() {
     },
     {
       id: '13',
-      employeeId: '13',
+      workerId: '13',
       employeeName: 'Michelle White',
       role: 'Quality Assurance',
       department: 'Engineering',
@@ -1496,7 +1496,7 @@ export default function TeamAttendance() {
     },
     {
       id: '14',
-      employeeId: '14',
+      workerId: '14',
       employeeName: 'Christopher Lee',
       role: 'Sales Representative',
       department: 'Sales',
@@ -1545,7 +1545,7 @@ export default function TeamAttendance() {
     },
     {
       id: '15',
-      employeeId: '15',
+      workerId: '15',
       employeeName: 'Sandra Martinez',
       role: 'Finance Manager',
       department: 'Finance',
@@ -1563,7 +1563,7 @@ export default function TeamAttendance() {
     // EMPLOYEE ABSENT (scheduled but didn't clock in)
     {
       id: '16',
-      employeeId: '16',
+      workerId: '16',
       employeeName: 'Carlos Rodriguez',
       role: 'Marketing Coordinator',
       department: 'Marketing',
@@ -3439,7 +3439,7 @@ export default function TeamAttendance() {
     // Store employee data in sessionStorage
     const employeeData = {
       id: record.id,
-      employeeId: record.employeeId,
+      workerId: record.workerId,
       employeeName: record.employeeName,
       role: record.role,
       department: record.department,

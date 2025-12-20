@@ -17,12 +17,6 @@ const ManagementDashboard = lazy(() => {
 
 
 
-const Inbox = lazy(() => {
-  logger.debug('Loading Inbox component');
-  return import('./pages/Inbox');
-});
-
-
 // Error pages
 const BadRequest = lazy(() => {
   logger.debug('Loading BadRequest component');
@@ -67,22 +61,17 @@ const GatewayTimeout = lazy(() => {
 
 const Directory = lazy(() => {
   logger.debug('Loading Directory component');
-  return import('./pages/employees/Directory');
+  return import('./pages/workers/Directory');
 });
 
-const EmployeeInfo = lazy(() => {
-  logger.debug('Loading EmployeeInfo component');
-  return import('./pages/employees/EmployeeInfo');
+const WorkerInfo = lazy(() => {
+  logger.debug('Loading WorkerInfo component');
+  return import('./pages/workers/WorkerInfo');
 });
 
-const OrganizationalChart = lazy(() => {
-  logger.debug('Loading OrganizationalChart component');
-  return import('./pages/employees/OrganizationalChart');
-});
-
-const Branches = lazy(() => {
-  logger.debug('Loading Branches component');
-  return import('./pages/branches/Branches');
+const Sites = lazy(() => {
+  logger.debug('Loading Sites component');
+  return import('./pages/sites/Sites');
 });
 
 const WhosWorking = lazy(() => {
@@ -106,9 +95,9 @@ const AttendanceFlags = lazy(() => {
 });
 
 
-const EmployeeTimesheet = lazy(() => {
-  logger.debug('Loading Employee Timesheet component');
-  return import('./pages/time-and-attendance/EmployeeTimesheet');
+const WorkerTimesheet = lazy(() => {
+  logger.debug('Loading Worker Timesheet component');
+  return import('./pages/time-and-attendance/WorkerTimesheet');
 });
 
 
@@ -286,29 +275,24 @@ function App() {
     
     // 404 route handler for unknown routes
     router.addRoute('*', () => setCurrentPage('not-found'));
-    // Inbox route
-    router.addRoute('/inbox', () => setCurrentPage('inbox'));
-    
     // Dashboard route
     router.addRoute('/dashboard', () => setCurrentPage('management-dashboard'));
     router.addRoute('/', () => setCurrentPage('management-dashboard'));
     
-    // Employees routes
-    router.addRoute('/employees/directory', () => setCurrentPage('directory'));
-    router.addRoute('/employees/employee-info/:slug', () => setCurrentPage('employee-info'));
-    router.addRoute('/employees/employee-info', () => setCurrentPage('employee-info'));
-    router.addRoute('/employees/organizational-chart', () => setCurrentPage('org-chart'));
-    
-    // Branches routes
-    router.addRoute('/branches', () => setCurrentPage('branches'));
+    // Workers routes
+    router.addRoute('/workers/directory', () => setCurrentPage('directory'));
+    router.addRoute('/workers/worker-info/:slug', () => setCurrentPage('worker-info'));
+    router.addRoute('/workers/worker-info', () => setCurrentPage('worker-info'));
+    // Sites routes
+    router.addRoute('/sites', () => setCurrentPage('sites'));
     
     // Time & Attendance routes
     router.addRoute('/time-and-attendance/whos-working', () => setCurrentPage('whos-working'));
     router.addRoute('/time-and-attendance/team-schedule', () => setCurrentPage('team-schedule'));
     router.addRoute('/time-and-attendance/team-attendance', () => setCurrentPage('team-attendance'));
     router.addRoute('/time-and-attendance/attendance-flags', () => setCurrentPage('attendance-flags'));
-    router.addRoute('/time-and-attendance/employee-timesheet/:slug', () => setCurrentPage('employee-timesheet'));
-    router.addRoute('/time-and-attendance/employee-timesheet', () => setCurrentPage('employee-timesheet'));
+    router.addRoute('/time-and-attendance/worker-timesheet/:slug', () => setCurrentPage('worker-timesheet'));
+    router.addRoute('/time-and-attendance/worker-timesheet', () => setCurrentPage('worker-timesheet'));
     
     // Reports routes
     router.addRoute('/reports', () => setCurrentPage('company-reports'));
@@ -323,7 +307,7 @@ function App() {
     router.addRoute('/organizations/manage', () => setCurrentPage('manage-organizations'));
     
     // Legacy routes (still supported)
-    router.addRoute('/employees', () => setCurrentPage('directory'));
+    router.addRoute('/workers', () => setCurrentPage('directory'));
     
     // Other routes - redirect to management dashboard
     router.addRoute('/time-tracking', () => setCurrentPage('management-dashboard'));
@@ -388,16 +372,12 @@ function App() {
       // Dashboard pages
       case 'management-dashboard':
         return <ManagementDashboard />;
-      case 'inbox':
-        return <Inbox />;
       case 'directory':
         return <Directory />;
-      case 'employee-info':
-        return <EmployeeInfo />;
-      case 'org-chart':
-        return <OrganizationalChart />;
-      case 'branches':
-        return <Branches />;
+      case 'worker-info':
+        return <WorkerInfo />;
+      case 'sites':
+        return <Sites />;
 
       case 'reports':
         return <CompanyReports />;
@@ -409,8 +389,8 @@ function App() {
         return <TeamAttendance />;
       case 'attendance-flags':
         return <AttendanceFlags />;
-      case 'employee-timesheet':
-        return <EmployeeTimesheet />;
+      case 'worker-timesheet':
+        return <WorkerTimesheet />;
       case 'company-reports':
         return <CompanyReports />;
       case 'company-settings':
