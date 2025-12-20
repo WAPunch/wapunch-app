@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
 import { router } from '../../lib/router';
+import { getCurrentStatusDotColor } from '../../hooks/useWorkers';
 import { 
   Clock, 
   Calendar, 
@@ -1956,24 +1957,28 @@ export default function TeamAttendance() {
     }
   }, [currentPage, validCurrentPage]);
 
-  // Function to get status dot color for avatars - Using brighter colors for better visibility
+  // Function to map calculated status to current_status format
+  const mapStatusToCurrentStatus = (status: string): 'out' | 'in' | 'on_break' | 'on_transfer' => {
+    switch (status) {
+      case 'present':
+        return 'in';
+      case 'on-break':
+        return 'on_break';
+      case 'on-transfer':
+        return 'on_transfer';
+      default:
+        return 'out';
+    }
+  };
+
+  // Function to get status dot color for avatars - Using current_status from database
   const getStatusDotColor = (record: AttendanceRecord) => {
     const currentStatus = getCurrentStatus(record);
-    
-    switch (currentStatus) {
-      case 'present':
-        return 'var(--avatar-status-green)'; // Green 600 - Brighter for avatar dots
-      case 'on-break':
-        return 'var(--avatar-status-yellow)'; // Yellow 500 - Brighter for avatar dots
-      case 'on-transfer':
-        return 'var(--avatar-status-blue)'; // Blue 600 - Brighter for avatar dots
-      case 'on-leave':
-        return 'var(--avatar-status-purple)'; // Purple 600 - Brighter for avatar dots
-      case 'absent':
-        return 'var(--avatar-status-red)'; // Red 600 - Brighter for avatar dots
-      default:
-        return 'var(--avatar-status-gray)'; // Gray 300 - Brighter for avatar dots
+    if (!currentStatus) {
+      return getCurrentStatusDotColor('out');
     }
+    const mappedStatus = mapStatusToCurrentStatus(currentStatus);
+    return getCurrentStatusDotColor(mappedStatus);
   };
 
   // Function to determine current status based on activity

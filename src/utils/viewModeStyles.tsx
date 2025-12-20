@@ -157,7 +157,7 @@ export const getNavigationButtonProps = (
       }
     },
     // Enhanced accessibility attributes
-    'aria-current': isActive ? 'page' : undefined,
+    'aria-current': (isActive ? 'page' : undefined) as 'page' | undefined,
     tabIndex: 0
   };
 };

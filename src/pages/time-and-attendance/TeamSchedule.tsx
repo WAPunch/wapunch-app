@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
+import { getCurrentStatusDotColor } from '../../hooks/useWorkers';
 import { 
   Clock, 
   Calendar, 
@@ -56,23 +57,6 @@ const getDotSize = (avatarSize: 'sm' | 'md' | 'lg') => {
   }
 };
 
-// Function to get status dot color for avatars - Using brighter colors for better visibility
-const getStatusDotColor = (status: string) => {
-  switch (status) {
-    case 'present':
-      return 'var(--avatar-status-green)'; // Green 600 - Brighter for avatar dots
-    case 'on-break':
-      return 'var(--avatar-status-yellow)'; // Yellow 500 - Brighter for avatar dots
-    case 'on-transfer':
-      return 'var(--avatar-status-blue)'; // Blue 600 - Brighter for avatar dots
-    case 'on-leave':
-      return 'var(--avatar-status-purple)'; // Purple 600 - Brighter for avatar dots
-    case 'absent':
-      return 'var(--avatar-status-red)'; // Red 600 - Brighter for avatar dots
-    default:
-      return 'var(--avatar-status-gray)'; // Gray 300 - Brighter for avatar dots
-  }
-};
 
 interface Employee {
   id: string;
@@ -81,6 +65,7 @@ interface Employee {
   department: string;
   avatar?: string;
   status: string;
+  current_status?: 'out' | 'in' | 'on_break' | 'on_transfer';
   availability: {
     monday: string[];
     tuesday: string[];
@@ -169,6 +154,20 @@ export default function TeamSchedule() {
     };
   }, []);
 
+  // Helper function to map status to current_status
+  const mapStatusToCurrentStatus = (status: string): 'out' | 'in' | 'on_break' | 'on_transfer' => {
+    switch (status) {
+      case 'present':
+        return 'in';
+      case 'on-break':
+        return 'on_break';
+      case 'on-transfer':
+        return 'on_transfer';
+      default:
+        return 'out';
+    }
+  };
+
   // Mock data
   const employees: Employee[] = [
     {
@@ -177,6 +176,7 @@ export default function TeamSchedule() {
       role: 'Senior Developer',
       department: 'Engineering',
       status: 'present',
+      current_status: 'in',
       availability: {
         monday: ['09:00', '18:00'],
         tuesday: ['09:00', '18:00'],
@@ -196,6 +196,7 @@ export default function TeamSchedule() {
       role: 'UX Designer',
       department: 'Design',
       status: 'on-break',
+      current_status: 'on_break',
       availability: {
         monday: ['08:00', '17:00'],
         tuesday: ['08:00', '17:00'],
@@ -215,6 +216,7 @@ export default function TeamSchedule() {
       role: 'Project Manager',
       department: 'Management',
       status: 'present',
+      current_status: 'in',
       availability: {
         monday: ['09:00', '18:00'],
         tuesday: ['09:00', '18:00'],
@@ -234,6 +236,7 @@ export default function TeamSchedule() {
       role: 'Frontend Developer',
       department: 'Engineering',
       status: 'on-transfer',
+      current_status: 'on_transfer',
       availability: {
         monday: ['10:00', '19:00'],
         tuesday: ['10:00', '19:00'],
@@ -253,6 +256,7 @@ export default function TeamSchedule() {
       role: 'Backend Developer',
       department: 'Engineering',
       status: 'present',
+      current_status: 'in',
       availability: {
         monday: ['09:00', '18:00'],
         tuesday: ['09:00', '18:00'],
@@ -2160,7 +2164,7 @@ export default function TeamSchedule() {
                     </div>
                     <div 
                       className={`absolute -bottom-0.5 -right-0.5 ${getDotSize('sm')} rounded-full border border-white`}
-                      style={{ backgroundColor: getStatusDotColor(employee.status) }}>
+                      style={{ backgroundColor: getCurrentStatusDotColor(employee.current_status || mapStatusToCurrentStatus(employee.status)) }}>
                     </div>
                   </div>
                   <div className="flex-1 min-w-0">

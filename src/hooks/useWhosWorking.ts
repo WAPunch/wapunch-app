@@ -11,6 +11,7 @@ export interface WhosWorkingEmployee {
   jobTitle: string;
   department: string;
   status: 'present' | 'on-break' | 'on-transfer' | 'on-leave' | 'absent';
+  current_status?: 'out' | 'in' | 'on_break' | 'on_transfer';
   location: string;
   lastActivityTime: string;
   lastActivity: 'clock-in' | 'break-start' | 'transfer-start' | 'clock-out' | 'break-end' | 'transfer-end';
@@ -211,6 +212,7 @@ export const useWhosWorking = (): UseWhosWorkingResult => {
           jobTitle: worker.position || 'Worker',
           department: '', // Department not in workers table
           status,
+          current_status: worker.current_status || 'out',
           location,
           lastActivityTime,
           lastActivity,

@@ -468,7 +468,6 @@ function Layout({ children }: LayoutProps) {
                     {...getNavigationButtonProps(viewMode, isActive, () => handleNavigation(settingsUrl))}
               title="Settings"
                     aria-label={`Settings${isActive ? ' (current page)' : ''}`}
-                    aria-current={isActive ? 'page' : undefined}
                   >
                     {createNavItemContent(Settings, 'Settings', isCollapsed)}
             </button>

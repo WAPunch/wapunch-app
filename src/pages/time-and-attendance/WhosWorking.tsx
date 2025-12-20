@@ -1,7 +1,8 @@
 import { useEffect, useState, useMemo } from 'react';
 import { router } from '../../lib/router';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
-import { useWhosWorking, WhosWorkingWorker } from '../../hooks/useWhosWorking';
+import { useWhosWorking, WhosWorkingEmployee } from '../../hooks/useWhosWorking';
+import { getCurrentStatusDotColor } from '../../hooks/useWorkers';
 import { 
   Users, 
   Search, 
@@ -31,8 +32,8 @@ import {
   Flag
 } from 'lucide-react';
 
-// Using WhosWorkingWorker from hook
-type Worker = WhosWorkingWorker;
+// Using WhosWorkingEmployee from hook
+type Worker = WhosWorkingEmployee;
 
 // Function to generate avatar initials (100% reliable, works everywhere)
 const generateAvatarInitials = (firstName: string, lastName: string) => {
@@ -59,23 +60,6 @@ const getDotSize = (avatarSize: 'sm' | 'md' | 'lg') => {
   }
 };
 
-// Function to get status dot color for avatars - Using brighter colors for better visibility
-const getStatusDotColor = (status: string) => {
-  switch (status) {
-    case 'present':
-      return 'var(--avatar-status-green)'; // Green 600 - Brighter for avatar dots
-    case 'on-break':
-      return 'var(--avatar-status-yellow)'; // Yellow 500 - Brighter for avatar dots
-    case 'on-transfer':
-      return 'var(--avatar-status-blue)'; // Blue 600 - Brighter for avatar dots
-    case 'on-leave':
-      return 'var(--avatar-status-purple)'; // Purple 600 - Brighter for avatar dots
-    case 'absent':
-      return 'var(--avatar-status-red)'; // Red 600 - Brighter for avatar dots
-    default:
-      return 'var(--avatar-status-gray)'; // Gray 300 - Brighter for avatar dots
-  }
-};
 
 export default function WhosWorking() {
   const { registerSubmodules } = useSubmoduleNav();
@@ -923,7 +907,7 @@ export default function WhosWorking() {
                           </div>
                           <div 
                             className={`absolute -bottom-0.5 -right-0.5 ${getDotSize('sm')} rounded-full border border-white`}
-                            style={{ backgroundColor: getStatusDotColor(worker.status) }}>
+                            style={{ backgroundColor: getCurrentStatusDotColor(worker.current_status) }}>
                           </div>
                         </div>
                         <div>
@@ -1006,7 +990,7 @@ export default function WhosWorking() {
                       </div>
                       <div 
                         className={`absolute -bottom-0.5 -right-0.5 ${getDotSize('sm')} rounded-full border border-white`}
-                        style={{ backgroundColor: getStatusDotColor(worker.status) }}>
+                        style={{ backgroundColor: getCurrentStatusDotColor(worker.current_status) }}>
                       </div>
                     </div>
                     <div className="flex-1 min-w-0">

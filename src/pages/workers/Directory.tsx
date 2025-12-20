@@ -1,7 +1,9 @@
 import { useEffect, useState, useMemo } from 'react';
 import { router } from '../../lib/router';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
-import { useWorkers } from '../../hooks/useWorkers';
+import { useWorkers, getCurrentStatusDotColor } from '../../hooks/useWorkers';
+import { supabase } from '../../lib/supabase';
+import { logger } from '../../lib/logger';
 import { 
   Users, 
   Search, 
@@ -21,7 +23,10 @@ import {
   Phone,
   MapPin,
   Calendar,
-  Edit
+  Edit,
+  Power,
+  PowerOff,
+  Trash2
 } from 'lucide-react';
 
 interface Worker {
@@ -37,6 +42,8 @@ interface Worker {
   avatar?: string;
   phone?: string;
   worker_type?: 'employee' | 'contractor';
+  current_status?: 'out' | 'in' | 'on_break' | 'on_transfer';
+  is_active?: boolean;
 }
 
 // Function to generate avatar initials (100% reliable, works everywhere)
@@ -74,18 +81,19 @@ export default function Directory() {
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
   const [sortBy, setSortBy] = useState<'firstName' | 'jobTitle' | 'department'>('firstName');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [selectedWorkerType, setSelectedWorkerType] = useState<string[]>([]);
   const [selectedDepartment, setSelectedDepartment] = useState<string[]>([]);
+  const [selectedJobTitle, setSelectedJobTitle] = useState<string[]>([]);
   const [selectedStatus, setSelectedStatus] = useState<string[]>([]);
-  const [selectedEmploymentType, setSelectedEmploymentType] = useState<string[]>([]);
-  const [selectedLocation, setSelectedLocation] = useState<string[]>([]);
+  const [showWorkerTypeDropdown, setShowWorkerTypeDropdown] = useState(false);
   const [showDepartmentDropdown, setShowDepartmentDropdown] = useState(false);
+  const [showJobTitleDropdown, setShowJobTitleDropdown] = useState(false);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
-  const [showEmploymentTypeDropdown, setShowEmploymentTypeDropdown] = useState(false);
-  const [showLocationDropdown, setShowLocationDropdown] = useState(false);
+  const [workerTypeSearchTerm, setWorkerTypeSearchTerm] = useState('');
   const [departmentSearchTerm, setDepartmentSearchTerm] = useState('');
+  const [jobTitleSearchTerm, setJobTitleSearchTerm] = useState('');
   const [statusSearchTerm, setStatusSearchTerm] = useState('');
-  const [employmentTypeSearchTerm, setEmploymentTypeSearchTerm] = useState('');
-  const [locationSearchTerm, setLocationSearchTerm] = useState('');
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   useEffect(() => {
     // Register submodule tabs for management workers section
@@ -94,28 +102,32 @@ export default function Directory() {
     ]);
   }, [registerSubmodules]);
 
-  // Close dropdowns when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Element;
-      if (!target.closest('.dropdown-container')) {
-        setShowDepartmentDropdown(false);
-        setShowStatusDropdown(false);
-        setShowEmploymentTypeDropdown(false);
-        setShowLocationDropdown(false);
-        // Clear search terms when closing dropdowns
-        setDepartmentSearchTerm('');
-        setStatusSearchTerm('');
-        setEmploymentTypeSearchTerm('');
-        setLocationSearchTerm('');
-      }
-    };
+      // Close dropdowns when clicking outside
+      useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+          const target = event.target as Element;
+          if (!target.closest('.dropdown-container')) {
+            setShowWorkerTypeDropdown(false);
+            setShowDepartmentDropdown(false);
+            setShowJobTitleDropdown(false);
+            setShowStatusDropdown(false);
+            // Clear search terms when closing dropdowns
+            setWorkerTypeSearchTerm('');
+            setDepartmentSearchTerm('');
+            setJobTitleSearchTerm('');
+            setStatusSearchTerm('');
+          }
+          // Close action menu when clicking outside
+          if (!target.closest('[data-menu-id]')) {
+            setOpenMenuId(null);
+          }
+        };
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+          document.removeEventListener('mousedown', handleClickOutside);
+        };
+      }, []);
 
   // Use workers from Supabase instead of mock data
   const workers: Worker[] = workersData;
@@ -132,16 +144,20 @@ export default function Directory() {
         worker.department.toLowerCase().includes(searchLower)
       );
 
+      // Worker Type filter
+      const matchesWorkerType = selectedWorkerType.length === 0 || selectedWorkerType.includes(worker.worker_type || 'employee');
+
       // Department filter
       const matchesDepartment = selectedDepartment.length === 0 || selectedDepartment.includes(worker.department);
 
-      // Status filter
-      const matchesStatus = selectedStatus.length === 0 || selectedStatus.includes(worker.status);
+      // Job Title filter
+      const matchesJobTitle = selectedJobTitle.length === 0 || selectedJobTitle.includes(worker.jobTitle);
 
-      // Employment type filter (assuming all workers are full-time for now)
-      const matchesEmploymentType = selectedEmploymentType.length === 0 || selectedEmploymentType.includes('Full-time');
+      // Status filter (active/inactive based on is_active)
+      const workerStatus = worker.is_active ? 'Active' : 'Inactive';
+      const matchesStatus = selectedStatus.length === 0 || selectedStatus.includes(workerStatus);
 
-      return matchesSearch && matchesDepartment && matchesStatus && matchesEmploymentType;
+      return matchesSearch && matchesWorkerType && matchesDepartment && matchesJobTitle && matchesStatus;
     });
 
     // Apply sorting
@@ -173,7 +189,7 @@ export default function Directory() {
       if (strA > strB) return sortOrder === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [searchTerm, workers, sortBy, sortOrder, selectedDepartment, selectedStatus, selectedEmploymentType]);
+  }, [searchTerm, workers, sortBy, sortOrder, selectedWorkerType, selectedDepartment, selectedJobTitle, selectedStatus]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredWorkers.length / itemsPerPage);
@@ -197,21 +213,39 @@ export default function Directory() {
 
   // Clear all filters
   const clearAllFilters = () => {
+    setSelectedWorkerType([]);
     setSelectedDepartment([]);
+    setSelectedJobTitle([]);
     setSelectedStatus([]);
-    setSelectedEmploymentType([]);
     setSearchTerm('');
+    setWorkerTypeSearchTerm('');
     setDepartmentSearchTerm('');
+    setJobTitleSearchTerm('');
     setStatusSearchTerm('');
-    setEmploymentTypeSearchTerm('');
   };
 
   // Helper functions for multi-select
+  const handleWorkerTypeToggle = (workerType: string) => {
+    setSelectedWorkerType(prev => 
+      prev.includes(workerType) 
+        ? prev.filter(w => w !== workerType)
+        : [...prev, workerType]
+    );
+  };
+
   const handleDepartmentToggle = (department: string) => {
     setSelectedDepartment(prev => 
       prev.includes(department) 
         ? prev.filter(d => d !== department)
         : [...prev, department]
+    );
+  };
+
+  const handleJobTitleToggle = (jobTitle: string) => {
+    setSelectedJobTitle(prev => 
+      prev.includes(jobTitle) 
+        ? prev.filter(j => j !== jobTitle)
+        : [...prev, jobTitle]
     );
   };
 
@@ -223,52 +257,38 @@ export default function Directory() {
     );
   };
 
-  const handleEmploymentTypeToggle = (employmentType: string) => {
-    setSelectedEmploymentType(prev => 
-      prev.includes(employmentType) 
-        ? prev.filter(e => e !== employmentType)
-        : [...prev, employmentType]
+  // Filter options based on search terms - get unique values from workers
+  const getFilteredWorkerTypeOptions = () => {
+    const workerTypeOptions = Array.from(new Set(workers.map(w => w.worker_type || 'employee')))
+      .map(type => type === 'contractor' ? 'Contractor' : 'Employee')
+      .sort();
+    if (!workerTypeSearchTerm) return workerTypeOptions;
+    return workerTypeOptions.filter(type => 
+      type.toLowerCase().includes(workerTypeSearchTerm.toLowerCase())
     );
   };
 
-  const handleLocationToggle = (location: string) => {
-    setSelectedLocation(prev => 
-      prev.includes(location) 
-        ? prev.filter(l => l !== location)
-        : [...prev, location]
-    );
-  };
-
-  // Filter options based on search terms
   const getFilteredDepartmentOptions = () => {
-    const departmentOptions = ['Executive', 'Engineering', 'Human Resources', 'Product', 'Marketing', 'Sales'];
+    const departmentOptions = Array.from(new Set(workers.map(w => w.department).filter(Boolean))).sort();
     if (!departmentSearchTerm) return departmentOptions;
     return departmentOptions.filter(dept => 
       dept.toLowerCase().includes(departmentSearchTerm.toLowerCase())
     );
   };
 
+  const getFilteredJobTitleOptions = () => {
+    const jobTitleOptions = Array.from(new Set(workers.map(w => w.jobTitle).filter(Boolean))).sort();
+    if (!jobTitleSearchTerm) return jobTitleOptions;
+    return jobTitleOptions.filter(title => 
+      title.toLowerCase().includes(jobTitleSearchTerm.toLowerCase())
+    );
+  };
+
   const getFilteredStatusOptions = () => {
-    const statusOptions = ['Active', 'Onboarding', 'On Leave', 'Suspended'];
+    const statusOptions = ['Active', 'Inactive'];
     if (!statusSearchTerm) return statusOptions;
     return statusOptions.filter(status => 
       status.toLowerCase().includes(statusSearchTerm.toLowerCase())
-    );
-  };
-
-  const getFilteredEmploymentTypeOptions = () => {
-    const employmentTypeOptions = ['Full-time', 'Part-time', 'Contract', 'Intern'];
-    if (!employmentTypeSearchTerm) return employmentTypeOptions;
-    return employmentTypeOptions.filter(type => 
-      type.toLowerCase().includes(employmentTypeSearchTerm.toLowerCase())
-    );
-  };
-
-  const getFilteredLocationOptions = () => {
-    const locationOptions = ['San Francisco, CA', 'Seattle, WA', 'Portland, OR', 'Austin, TX', 'New York, NY'];
-    if (!locationSearchTerm) return locationOptions;
-    return locationOptions.filter(location => 
-      location.toLowerCase().includes(locationSearchTerm.toLowerCase())
     );
   };
 
@@ -281,6 +301,67 @@ export default function Directory() {
     const slug = `${worker.firstName.toLowerCase()}-${worker.lastName.toLowerCase()}`;
     
     router.navigate(`/workers/worker-info/${slug}`);
+  };
+
+  // Navigate to add new worker page
+  const handleAddWorker = () => {
+    // Clear any previously selected worker
+    sessionStorage.removeItem('selectedWorker');
+    // Navigate to worker info page without a slug to create a new worker
+    router.navigate('/workers/worker-info');
+  };
+
+  // Toggle action menu
+  const toggleMenu = (workerId: string) => {
+    setOpenMenuId(openMenuId === workerId ? null : workerId);
+  };
+
+  // Handle activate/inactivate worker
+  const handleToggleActive = async (worker: Worker) => {
+    try {
+      const newIsActive = !worker.is_active;
+      
+      const { error } = await supabase
+        .from('workers')
+        .update({ is_active: newIsActive, updated_at: new Date().toISOString() })
+        .eq('id', worker.id);
+
+      if (error) {
+        throw error;
+      }
+
+      logger.info('Worker status updated', { workerId: worker.id, is_active: newIsActive });
+      setOpenMenuId(null);
+      await refetch();
+    } catch (err: any) {
+      logger.error('Error updating worker status', err instanceof Error ? err : new Error(String(err)));
+      alert(`Failed to ${worker.is_active ? 'deactivate' : 'activate'} worker: ${err?.message || 'Unknown error'}`);
+    }
+  };
+
+  // Handle delete worker
+  const handleDeleteWorker = async (worker: Worker) => {
+    if (!confirm(`Are you sure you want to delete ${worker.firstName} ${worker.lastName}? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('workers')
+        .update({ is_deleted: true, updated_at: new Date().toISOString() })
+        .eq('id', worker.id);
+
+      if (error) {
+        throw error;
+      }
+
+      logger.info('Worker deleted', { workerId: worker.id });
+      setOpenMenuId(null);
+      await refetch();
+    } catch (err: any) {
+      logger.error('Error deleting worker', err instanceof Error ? err : new Error(String(err)));
+      alert(`Failed to delete worker: ${err?.message || 'Unknown error'}`);
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -337,9 +418,13 @@ export default function Directory() {
             <Upload style={{ width: '14px', height: '14px' }} />
             Import
           </button>
-          <button className="flex items-center gap-2 px-2 py-1 rounded text-white transition-colors text-sm" style={{ backgroundColor: 'var(--primary-brand-hex)' }}>
+          <button 
+            onClick={handleAddWorker}
+            className="flex items-center gap-2 px-2 py-1 rounded text-white transition-colors text-sm" 
+            style={{ backgroundColor: 'var(--primary-brand-hex)' }}
+          >
             <Plus style={{ width: '14px', height: '14px' }} />
-            Add Person
+            Add Worker
           </button>
         </div>
       </div>
@@ -412,6 +497,60 @@ export default function Directory() {
         {showFilters && (
           <div className="bg-white border-l border-r border-b border-gray-200 rounded-b-lg py-6 px-6">
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+              {/* Worker Type Multi-Select */}
+              <div className="relative dropdown-container">
+                <div className="px-3 py-1 border border-gray-200 rounded text-sm bg-white min-h-[32px] flex items-center justify-between cursor-pointer hover:bg-gray-50" 
+                     onClick={() => setShowWorkerTypeDropdown(!showWorkerTypeDropdown)}>
+                  <span className="text-gray-700">
+                    {selectedWorkerType.length === 0 ? 'All Worker Types' : 
+                     selectedWorkerType.length === 1 ? selectedWorkerType[0] :
+                     `${selectedWorkerType.length} selected`}
+                  </span>
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+                {showWorkerTypeDropdown && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded shadow-lg z-10 max-h-48 overflow-y-auto">
+                    <div className="p-2 border-b border-gray-100">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          placeholder="Search worker types..."
+                          value={workerTypeSearchTerm}
+                          onChange={(e) => setWorkerTypeSearchTerm(e.target.value)}
+                          className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        {selectedWorkerType.length > 0 && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedWorkerType([]);
+                            }}
+                            className="text-xs text-gray-500 hover:text-gray-700 whitespace-nowrap"
+                          >
+                            Clear ({selectedWorkerType.length})
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {getFilteredWorkerTypeOptions().map((workerType) => (
+                      <div key={workerType} className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center gap-2"
+                           onClick={() => handleWorkerTypeToggle(workerType === 'Contractor' ? 'contractor' : 'employee')}>
+                        <input type="checkbox" checked={selectedWorkerType.includes(workerType === 'Contractor' ? 'contractor' : 'employee')} readOnly className="w-4 h-4" />
+                        <span className="text-sm text-gray-700">{workerType}</span>
+                      </div>
+                    ))}
+                    {getFilteredWorkerTypeOptions().length === 0 && (
+                      <div className="px-3 py-2 text-sm text-gray-500 text-center">
+                        No worker types found
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Department Multi-Select */}
               <div className="relative dropdown-container">
                 <div className="px-3 py-1 border border-gray-200 rounded text-sm bg-white min-h-[32px] flex items-center justify-between cursor-pointer hover:bg-gray-50" 
@@ -460,6 +599,60 @@ export default function Directory() {
                     {getFilteredDepartmentOptions().length === 0 && (
                       <div className="px-3 py-2 text-sm text-gray-500 text-center">
                         No departments found
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Job Title Multi-Select */}
+              <div className="relative dropdown-container">
+                <div className="px-3 py-1 border border-gray-200 rounded text-sm bg-white min-h-[32px] flex items-center justify-between cursor-pointer hover:bg-gray-50" 
+                     onClick={() => setShowJobTitleDropdown(!showJobTitleDropdown)}>
+                  <span className="text-gray-700">
+                    {selectedJobTitle.length === 0 ? 'All Job Titles' : 
+                     selectedJobTitle.length === 1 ? selectedJobTitle[0] :
+                     `${selectedJobTitle.length} selected`}
+                  </span>
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+                {showJobTitleDropdown && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded shadow-lg z-10 max-h-48 overflow-y-auto">
+                    <div className="p-2 border-b border-gray-100">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          placeholder="Search job titles..."
+                          value={jobTitleSearchTerm}
+                          onChange={(e) => setJobTitleSearchTerm(e.target.value)}
+                          className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        {selectedJobTitle.length > 0 && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedJobTitle([]);
+                            }}
+                            className="text-xs text-gray-500 hover:text-gray-700 whitespace-nowrap"
+                          >
+                            Clear ({selectedJobTitle.length})
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {getFilteredJobTitleOptions().map((jobTitle) => (
+                      <div key={jobTitle} className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center gap-2"
+                           onClick={() => handleJobTitleToggle(jobTitle)}>
+                        <input type="checkbox" checked={selectedJobTitle.includes(jobTitle)} readOnly className="w-4 h-4" />
+                        <span className="text-sm text-gray-700">{jobTitle}</span>
+                      </div>
+                    ))}
+                    {getFilteredJobTitleOptions().length === 0 && (
+                      <div className="px-3 py-2 text-sm text-gray-500 text-center">
+                        No job titles found
                       </div>
                     )}
                   </div>
@@ -519,114 +712,6 @@ export default function Directory() {
                   </div>
                 )}
               </div>
-
-              {/* Employment Type Multi-Select */}
-              <div className="relative dropdown-container">
-                <div className="px-3 py-1 border border-gray-200 rounded text-sm bg-white min-h-[32px] flex items-center justify-between cursor-pointer hover:bg-gray-50" 
-                     onClick={() => setShowEmploymentTypeDropdown(!showEmploymentTypeDropdown)}>
-                  <span className="text-gray-700">
-                    {selectedEmploymentType.length === 0 ? 'All Employment Types' : 
-                     selectedEmploymentType.length === 1 ? selectedEmploymentType[0] :
-                     `${selectedEmploymentType.length} selected`}
-                  </span>
-                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
-                {showEmploymentTypeDropdown && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded shadow-lg z-10 max-h-48 overflow-y-auto">
-                    <div className="p-2 border-b border-gray-100">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          placeholder="Search employment types..."
-                          value={employmentTypeSearchTerm}
-                          onChange={(e) => setEmploymentTypeSearchTerm(e.target.value)}
-                          className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                        {selectedEmploymentType.length > 0 && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedEmploymentType([]);
-                            }}
-                            className="text-xs text-gray-500 hover:text-gray-700 whitespace-nowrap"
-                          >
-                            Clear ({selectedEmploymentType.length})
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {getFilteredEmploymentTypeOptions().map((employmentType) => (
-                      <div key={employmentType} className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center gap-2"
-                           onClick={() => handleEmploymentTypeToggle(employmentType)}>
-                        <input type="checkbox" checked={selectedEmploymentType.includes(employmentType)} readOnly className="w-4 h-4" />
-                        <span className="text-sm text-gray-700">{employmentType}</span>
-                      </div>
-                    ))}
-                    {getFilteredEmploymentTypeOptions().length === 0 && (
-                      <div className="px-3 py-2 text-sm text-gray-500 text-center">
-                        No employment types found
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Location Multi-Select */}
-              <div className="relative dropdown-container">
-                <div className="px-3 py-1 border border-gray-200 rounded text-sm bg-white min-h-[32px] flex items-center justify-between cursor-pointer hover:bg-gray-50" 
-                     onClick={() => setShowLocationDropdown(!showLocationDropdown)}>
-                  <span className="text-gray-700">
-                    {selectedLocation.length === 0 ? 'All Locations' : 
-                     selectedLocation.length === 1 ? selectedLocation[0] :
-                     `${selectedLocation.length} selected`}
-                  </span>
-                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
-                {showLocationDropdown && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded shadow-lg z-10 max-h-48 overflow-y-auto">
-                    <div className="p-2 border-b border-gray-100">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          placeholder="Search locations..."
-                          value={locationSearchTerm}
-                          onChange={(e) => setLocationSearchTerm(e.target.value)}
-                          className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                        {selectedLocation.length > 0 && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedLocation([]);
-                            }}
-                            className="text-xs text-gray-500 hover:text-gray-700 whitespace-nowrap"
-                          >
-                            Clear ({selectedLocation.length})
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {getFilteredLocationOptions().map((location) => (
-                      <div key={location} className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center gap-2"
-                           onClick={() => handleLocationToggle(location)}>
-                        <input type="checkbox" checked={selectedLocation.includes(location)} readOnly className="w-4 h-4" />
-                        <span className="text-sm text-gray-700">{location}</span>
-                      </div>
-                    ))}
-                    {getFilteredLocationOptions().length === 0 && (
-                      <div className="px-3 py-2 text-sm text-gray-500 text-center">
-                        No locations found
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
       </div>
 
             <div className="flex justify-between items-center">
@@ -656,6 +741,15 @@ export default function Directory() {
                   Department
                   {sortBy === 'department' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                 </button>
+                <button 
+                  onClick={() => handleSort('jobTitle')}
+                  className={`text-xs hover:text-gray-900 flex items-center gap-1 ${
+                    sortBy === 'jobTitle' ? 'text-gray-900 font-medium' : 'text-gray-600'
+                  }`}
+                >
+                  Job Title
+                  {sortBy === 'jobTitle' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
+                </button>
               </div>
             </div>
           </div>
@@ -684,12 +778,12 @@ export default function Directory() {
 
       {/* Table View */}
       {!workersError && !workersLoading && viewMode === 'table' && (
-        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-4">
+        <div className="bg-white border border-gray-200 rounded-lg overflow-y-visible mb-4">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="text-left py-3 px-6 font-medium text-gray-900 text-xs">
+                <th className="text-left py-3 px-6 font-medium text-gray-900 text-xs w-64">
                   <button
                     onClick={() => handleSort('firstName')}
                     className="flex items-center gap-1 hover:text-gray-700"
@@ -698,7 +792,7 @@ export default function Directory() {
                     {sortBy === 'firstName' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                   </button>
                 </th>
-                <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs">
+                <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs w-32">
                   Worker Type
                 </th>
                 <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs">
@@ -719,7 +813,7 @@ export default function Directory() {
                     {sortBy === 'jobTitle' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                   </button>
                 </th>
-                <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs">Status</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs w-32">Status</th>
                 <th className="text-left py-3 px-2 font-medium text-gray-900 text-xs w-24">Actions</th>
               </tr>
             </thead>
@@ -737,9 +831,9 @@ export default function Directory() {
                   </td>
                 </tr>
               ) : (
-                paginatedWorkers.map((worker, _index) => (
+                paginatedWorkers.map((worker, index) => (
                 <tr key={worker.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                                    <td className="py-4 px-6">
+                                    <td className="py-4 px-6 w-64">
                     <div className="flex items-center gap-3">
                       <div className="relative">
                         <div 
@@ -750,25 +844,18 @@ export default function Directory() {
                         </div>
                         <div 
                           className={`absolute -bottom-0.5 -right-0.5 ${getDotSize('sm')} rounded-full border border-white`}
-                          style={{
-                            backgroundColor: 
-                              worker.status === 'Active' ? 'var(--avatar-status-green)' :
-                              worker.status === 'On Leave' ? 'var(--avatar-status-orange)' :
-                              worker.status === 'Onboarding' ? 'var(--avatar-status-blue)' :
-                              worker.status === 'Suspended' ? 'var(--avatar-status-red)' :
-                              'var(--avatar-status-gray)'
-                          }}>
+                          style={{ backgroundColor: getCurrentStatusDotColor(worker.current_status) }}>
                         </div>
                       </div>
-                      <div>
-                        <div className="font-medium text-gray-900 text-sm">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-gray-900 text-sm truncate">
                           {worker.firstName} {worker.lastName}
                         </div>
-                        <div className="text-xs" style={{ color: 'var(--gray-500)' }}>{worker.email}</div>
+                        <div className="text-xs truncate" style={{ color: 'var(--gray-500)' }}>{worker.email}</div>
                       </div>
                   </div>
                   </td>
-                  <td className="py-4 px-4">
+                  <td className="py-4 px-4 w-32">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                       worker.worker_type === 'contractor' 
                         ? 'bg-purple-50 text-purple-700' 
@@ -779,9 +866,9 @@ export default function Directory() {
                   </td>
                   <td className="py-4 px-4 text-gray-900 text-sm">{worker.department}</td>
                   <td className="py-4 px-4 text-gray-900 text-sm">{worker.jobTitle}</td>
-                  <td className="py-4 px-4">{getStatusBadge(worker.status)}</td>
+                  <td className="py-4 px-4 w-32">{getStatusBadge(worker.status)}</td>
                   <td className="py-2 px-2 w-24">
-                    <div className="flex items-center">
+                    <div className="flex items-center gap-1">
                       <button 
                         onClick={() => handleEditWorker(worker)}
                         className="p-1 hover:bg-gray-100 rounded transition-colors"
@@ -790,13 +877,56 @@ export default function Directory() {
                       >
                         <Eye className="w-4 h-4" />
                       </button>
-                      <button 
-                        className="p-1 hover:bg-gray-100 rounded transition-colors"
-                        aria-label={`More options for ${worker.firstName} ${worker.lastName}`}
-                        title={`More options for ${worker.firstName} ${worker.lastName}`}
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
+                      <div className="relative" data-menu-id={worker.id}>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleMenu(worker.id);
+                          }}
+                          className="p-1 hover:bg-gray-100 rounded transition-colors"
+                          aria-label={`More options for ${worker.firstName} ${worker.lastName}`}
+                          title={`More options for ${worker.firstName} ${worker.lastName}`}
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
+                        {openMenuId === worker.id && (
+                          <div className={`absolute right-0 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-[100] ${
+                            index === paginatedWorkers.length - 1 ? 'bottom-full mb-1' : 'top-full mt-1'
+                          }`}>
+                            <div className="py-1">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleToggleActive(worker);
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                              >
+                                {worker.is_active ? (
+                                  <>
+                                    <PowerOff className="w-4 h-4" />
+                                    Deactivate
+                                  </>
+                                ) : (
+                                  <>
+                                    <Power className="w-4 h-4" />
+                                    Activate
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteWorker(worker);
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                   </div>
                   </td>
                 </tr>
@@ -839,14 +969,7 @@ export default function Directory() {
                   </div>
                   <div 
                     className={`absolute -bottom-1 -right-1 ${getDotSize('lg')} rounded-full border-2 border-white`}
-                    style={{
-                      backgroundColor: 
-                        worker.status === 'Active' ? 'var(--avatar-status-green)' :
-                        worker.status === 'On Leave' ? 'var(--avatar-status-orange)' :
-                        worker.status === 'Onboarding' ? 'var(--avatar-status-blue)' :
-                        worker.status === 'Suspended' ? 'var(--avatar-status-red)' :
-                        'var(--avatar-status-gray)'
-                    }}>
+                    style={{ backgroundColor: getCurrentStatusDotColor(worker.current_status) }}>
                   </div>
                 </div>
                 <div className="flex-1 min-w-0">
@@ -858,14 +981,64 @@ export default function Directory() {
                     {getStatusBadge(worker.status)}
                   </div>
                 </div>
-                <button 
-                  onClick={() => handleEditWorker(worker)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-primary"
-                  aria-label={`Edit ${worker.firstName} ${worker.lastName}`}
-                  title={`Edit ${worker.firstName} ${worker.lastName}`}
-                >
-                  <Edit className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button 
+                    onClick={() => handleEditWorker(worker)}
+                    className="text-gray-400 hover:text-primary"
+                    aria-label={`View ${worker.firstName} ${worker.lastName}`}
+                    title={`View ${worker.firstName} ${worker.lastName}`}
+                  >
+                    <Eye className="w-4 h-4" />
+                  </button>
+                  <div className="relative" data-menu-id={worker.id}>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleMenu(worker.id);
+                      }}
+                      className="text-gray-400 hover:text-primary"
+                      aria-label={`More options for ${worker.firstName} ${worker.lastName}`}
+                      title={`More options for ${worker.firstName} ${worker.lastName}`}
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
+                    {openMenuId === worker.id && (
+                      <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-50">
+                        <div className="py-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleActive(worker);
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                          >
+                            {worker.is_active ? (
+                              <>
+                                <PowerOff className="w-4 h-4" />
+                                Deactivate
+                              </>
+                            ) : (
+                              <>
+                                <Power className="w-4 h-4" />
+                                Activate
+                              </>
+                            )}
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteWorker(worker);
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Contact Info */}
@@ -880,11 +1053,11 @@ export default function Directory() {
                 </div>
               </div>
 
-              {/* Department and Manager */}
+              {/* Department and Job Title */}
               <div className="mt-4 pt-4 border-t border-gray-100">
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-medium text-gray-900">{worker.department}</span>
-                  <span className="text-xs text-gray-500">Reports to Manager</span>
+                  <span className="text-xs text-gray-500">{worker.jobTitle}</span>
                 </div>
               </div>
             </div>

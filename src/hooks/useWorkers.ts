@@ -22,7 +22,24 @@ export interface Worker {
   job_title_id?: string;
   whatsapp_number?: string;
   current_status?: 'out' | 'in' | 'on_break' | 'on_transfer';
+  is_active?: boolean;
 }
+
+// Helper function to get status dot color based on current_status from database
+export const getCurrentStatusDotColor = (currentStatus: string | undefined): string => {
+  switch (currentStatus) {
+    case 'in':
+      return 'var(--avatar-status-green)'; // Green - Worker is clocked in
+    case 'out':
+      return 'var(--avatar-status-gray)'; // Gray - Worker is clocked out
+    case 'on_break':
+      return 'var(--avatar-status-yellow)'; // Yellow - Worker is on break
+    case 'on_transfer':
+      return 'var(--avatar-status-blue)'; // Blue - Worker is on transfer
+    default:
+      return 'var(--avatar-status-gray)'; // Default to gray if status is unknown
+  }
+};
 
 interface UseWorkersResult {
   workers: Worker[];
@@ -118,6 +135,7 @@ export const useWorkers = (): UseWorkersResult => {
           job_title_id: worker.job_title_id || undefined,
           whatsapp_number: worker.whatsapp_number,
           current_status: worker.current_status,
+          is_active: worker.is_active,
         };
       });
 
