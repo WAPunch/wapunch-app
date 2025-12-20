@@ -4,6 +4,7 @@ import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
 import { useWorkers, getCurrentStatusDotColor } from '../../hooks/useWorkers';
 import { supabase } from '../../lib/supabase';
 import { logger } from '../../lib/logger';
+import ImportWorkersWizard from '../../components/ImportWorkersWizard';
 import { 
   Users, 
   Search, 
@@ -97,6 +98,7 @@ export default function Directory() {
   const [statusSearchTerm, setStatusSearchTerm] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [workerToDelete, setWorkerToDelete] = useState<Worker | null>(null);
+  const [showImportWizard, setShowImportWizard] = useState(false);
 
   useEffect(() => {
     // Register submodule tabs for management workers section
@@ -426,7 +428,10 @@ export default function Directory() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-2 py-1 border border-gray-300 rounded bg-white text-gray-700 hover:bg-gray-50 transition-colors text-sm">
+          <button 
+            onClick={() => setShowImportWizard(true)}
+            className="flex items-center gap-2 px-2 py-1 border border-gray-300 rounded bg-white text-gray-700 hover:bg-gray-50 transition-colors text-sm"
+          >
             <Upload style={{ width: '14px', height: '14px' }} />
             Import
           </button>
@@ -1166,6 +1171,16 @@ export default function Directory() {
           </div>
       </div>
       )}
+
+      {/* Import Workers Wizard */}
+      <ImportWorkersWizard
+        isOpen={showImportWizard}
+        onClose={() => setShowImportWizard(false)}
+        onSuccess={() => {
+          refetch();
+          setShowImportWizard(false);
+        }}
+      />
 
       {/* Delete Confirmation Modal */}
       {workerToDelete && (
