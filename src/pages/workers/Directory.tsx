@@ -26,7 +26,9 @@ import {
   Edit,
   Power,
   PowerOff,
-  Trash2
+  Trash2,
+  X,
+  AlertTriangle
 } from 'lucide-react';
 
 interface Worker {
@@ -94,6 +96,7 @@ export default function Directory() {
   const [jobTitleSearchTerm, setJobTitleSearchTerm] = useState('');
   const [statusSearchTerm, setStatusSearchTerm] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [workerToDelete, setWorkerToDelete] = useState<Worker | null>(null);
 
   useEffect(() => {
     // Register submodule tabs for management workers section
@@ -102,32 +105,32 @@ export default function Directory() {
     ]);
   }, [registerSubmodules]);
 
-      // Close dropdowns when clicking outside
-      useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-          const target = event.target as Element;
-          if (!target.closest('.dropdown-container')) {
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (!target.closest('.dropdown-container')) {
             setShowWorkerTypeDropdown(false);
-            setShowDepartmentDropdown(false);
+        setShowDepartmentDropdown(false);
             setShowJobTitleDropdown(false);
-            setShowStatusDropdown(false);
-            // Clear search terms when closing dropdowns
+        setShowStatusDropdown(false);
+        // Clear search terms when closing dropdowns
             setWorkerTypeSearchTerm('');
-            setDepartmentSearchTerm('');
+        setDepartmentSearchTerm('');
             setJobTitleSearchTerm('');
-            setStatusSearchTerm('');
+        setStatusSearchTerm('');
           }
           // Close action menu when clicking outside
           if (!target.closest('[data-menu-id]')) {
             setOpenMenuId(null);
-          }
-        };
+      }
+    };
 
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => {
-          document.removeEventListener('mousedown', handleClickOutside);
-        };
-      }, []);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   // Use workers from Supabase instead of mock data
   const workers: Worker[] = workersData;
@@ -183,11 +186,11 @@ export default function Directory() {
           bValue = b.firstName.toLowerCase();
       }
 
-      const strA = aValue as string;
-      const strB = bValue as string;
-      if (strA < strB) return sortOrder === 'asc' ? -1 : 1;
-      if (strA > strB) return sortOrder === 'asc' ? 1 : -1;
-      return 0;
+        const strA = aValue as string;
+        const strB = bValue as string;
+        if (strA < strB) return sortOrder === 'asc' ? -1 : 1;
+        if (strA > strB) return sortOrder === 'asc' ? 1 : -1;
+        return 0;
     });
   }, [searchTerm, workers, sortBy, sortOrder, selectedWorkerType, selectedDepartment, selectedJobTitle, selectedStatus]);
 
@@ -339,29 +342,38 @@ export default function Directory() {
     }
   };
 
-  // Handle delete worker
-  const handleDeleteWorker = async (worker: Worker) => {
-    if (!confirm(`Are you sure you want to delete ${worker.firstName} ${worker.lastName}? This action cannot be undone.`)) {
-      return;
-    }
+  // Handle delete worker - show confirmation modal
+  const handleDeleteWorker = (worker: Worker) => {
+    setOpenMenuId(null);
+    setWorkerToDelete(worker);
+  };
+
+  // Confirm and execute delete
+  const confirmDeleteWorker = async () => {
+    if (!workerToDelete) return;
 
     try {
       const { error } = await supabase
         .from('workers')
         .update({ is_deleted: true, updated_at: new Date().toISOString() })
-        .eq('id', worker.id);
+        .eq('id', workerToDelete.id);
 
       if (error) {
         throw error;
       }
 
-      logger.info('Worker deleted', { workerId: worker.id });
-      setOpenMenuId(null);
+      logger.info('Worker deleted', { workerId: workerToDelete.id });
+      setWorkerToDelete(null);
       await refetch();
     } catch (err: any) {
       logger.error('Error deleting worker', err instanceof Error ? err : new Error(String(err)));
       alert(`Failed to delete worker: ${err?.message || 'Unknown error'}`);
     }
+  };
+
+  // Cancel delete
+  const cancelDeleteWorker = () => {
+    setWorkerToDelete(null);
   };
 
   const getStatusBadge = (status: string) => {
@@ -878,16 +890,16 @@ export default function Directory() {
                         <Eye className="w-4 h-4" />
                       </button>
                       <div className="relative" data-menu-id={worker.id}>
-                        <button 
+                      <button 
                           onClick={(e) => {
                             e.stopPropagation();
                             toggleMenu(worker.id);
                           }}
-                          className="p-1 hover:bg-gray-100 rounded transition-colors"
+                        className="p-1 hover:bg-gray-100 rounded transition-colors"
                           aria-label={`More options for ${worker.firstName} ${worker.lastName}`}
                           title={`More options for ${worker.firstName} ${worker.lastName}`}
-                        >
-                          <MoreVertical className="w-4 h-4" />
+                      >
+                        <MoreVertical className="w-4 h-4" />
                         </button>
                         {openMenuId === worker.id && (
                           <div className={`absolute right-0 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-[100] ${
@@ -922,7 +934,7 @@ export default function Directory() {
                               >
                                 <Trash2 className="w-4 h-4" />
                                 Delete
-                              </button>
+                      </button>
                             </div>
                           </div>
                         )}
@@ -982,7 +994,7 @@ export default function Directory() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button 
+                <button 
                     onClick={() => handleEditWorker(worker)}
                     className="text-gray-400 hover:text-primary"
                     aria-label={`View ${worker.firstName} ${worker.lastName}`}
@@ -1033,7 +1045,7 @@ export default function Directory() {
                           >
                             <Trash2 className="w-4 h-4" />
                             Delete
-                          </button>
+                </button>
                         </div>
                       </div>
                     )}
@@ -1153,6 +1165,58 @@ export default function Directory() {
           )}
           </div>
       </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {workerToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Delete Worker</h3>
+                  <p className="text-sm text-gray-500">This action cannot be undone</p>
+                </div>
+              </div>
+              <button
+                onClick={cancelDeleteWorker}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Close modal"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6">
+              <p className="text-sm text-gray-700">
+                Are you sure you want to delete <span className="font-semibold text-gray-900">{workerToDelete.firstName} {workerToDelete.lastName}</span>? 
+                This will permanently remove the worker from your directory.
+              </p>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200 bg-gray-50 rounded-b-lg">
+              <button
+                onClick={cancelDeleteWorker}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteWorker}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-red-600 rounded-md hover:bg-red-700 transition-colors flex items-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete Worker
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
