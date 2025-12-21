@@ -181,6 +181,11 @@ export default function Sites() {
     return { lat: avgLat, lng: avgLng };
   }, [sitesWithCoords]);
 
+  // Clear site selection when search term or filters change
+  useEffect(() => {
+    setSelectedSiteId(null);
+  }, [searchTerm, selectedState, selectedCity]);
+
   // Fit map bounds to all sites with coordinates (unless user has selected a specific site)
   useEffect(() => {
     if (!map || !isLoaded) return;
@@ -204,6 +209,21 @@ export default function Sites() {
       setSelectedSiteId(site.id);
       map.panTo({ lat: site.latitude, lng: site.longitude });
       map.setZoom(15);
+    }
+  };
+
+  // Handle "View All" button to show all sites
+  const handleViewAll = () => {
+    setSelectedSiteId(null);
+    if (map) {
+      const sitesWithCoords = filteredSites.filter(s => s.latitude && s.longitude && s.latitude !== 0 && s.longitude !== 0);
+      if (sitesWithCoords.length > 0) {
+        const bounds = new google.maps.LatLngBounds();
+        sitesWithCoords.forEach(site => {
+          bounds.extend({ lat: site.latitude!, lng: site.longitude! });
+        });
+        map.fitBounds(bounds);
+      }
     }
   };
 
@@ -234,6 +254,8 @@ export default function Sites() {
     setSearchTerm('');
     setStateSearchTerm('');
     setCitySearchTerm('');
+    // Clear site selection to show all sites
+    setSelectedSiteId(null);
   };
 
   // Helper functions for multi-select
@@ -688,8 +710,16 @@ export default function Sites() {
         <div className="flex gap-4 mb-4">
           {/* Site List - 30% width */}
           <div className="w-[30%] bg-white border border-gray-200 rounded-lg overflow-hidden">
-            <div className="bg-gray-50 border-b border-gray-200 px-4 py-3">
+            <div className="bg-gray-50 border-b border-gray-200 px-4 py-3 flex items-center justify-between">
               <h3 className="text-sm font-medium text-gray-900">Sites ({filteredSites.length})</h3>
+              {selectedSiteId && (
+                <button
+                  onClick={handleViewAll}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  View All
+                </button>
+              )}
             </div>
             <div className="h-[432px] overflow-y-auto">
               {paginatedSites.map((site) => (
@@ -745,20 +775,22 @@ export default function Sites() {
                   }}
                 >
                   {isLoaded &&
-                    sitesWithCoords.map((site) => (
-                      <MarkerF
-                        key={`site-marker-${site.id}`}
-                        position={{ lat: site.latitude!, lng: site.longitude! }}
-                        icon={getMarkerIcon()}
-                        onClick={() => {
-                          setSelectedSiteId(site.id);
-                          if (map) {
-                            map.panTo({ lat: site.latitude!, lng: site.longitude! });
-                            map.setZoom(15);
-                          }
-                        }}
-                      />
-                    ))}
+                    sitesWithCoords
+                      .filter(site => !selectedSiteId || site.id === selectedSiteId)
+                      .map((site) => (
+                        <MarkerF
+                          key={`site-marker-${site.id}`}
+                          position={{ lat: site.latitude!, lng: site.longitude! }}
+                          icon={getMarkerIcon()}
+                          onClick={() => {
+                            setSelectedSiteId(site.id);
+                            if (map) {
+                              map.panTo({ lat: site.latitude!, lng: site.longitude! });
+                              map.setZoom(15);
+                            }
+                          }}
+                        />
+                      ))}
                 </GoogleMap>
               </div>
             ) : loadError ? (
