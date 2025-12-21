@@ -900,7 +900,13 @@ export default function Sites() {
           <div className="w-[70%] bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div className="bg-gray-50 border-b border-gray-200 px-4 py-3">
               <h3 className="text-sm font-medium text-gray-900">
-                Site Locations ({sitesWithCoords.length} with coordinates)
+                {selectedSiteId 
+                  ? (() => {
+                      const selectedSite = filteredSites.find(s => s.id === selectedSiteId);
+                      return selectedSite ? selectedSite.name : `Site Locations (${sitesWithCoords.length} with coordinates)`;
+                    })()
+                  : `Site Locations (${sitesWithCoords.length} with coordinates)`
+                }
               </h3>
             </div>
             {isLoaded ? (
