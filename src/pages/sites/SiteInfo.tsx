@@ -138,53 +138,68 @@ export default function SiteInfo() {
     setHasChanges(hasChanged);
   }, [site, originalSite]);
 
-  // Initialize Autocomplete
+  // Initialize Autocomplete - simplified and more reliable
   useEffect(() => {
-    if (isLoaded && autocompleteRef.current && !autocomplete) {
-      // Create Autocomplete with no types restriction for maximum results like Google Maps
-      const autocompleteInstance = new google.maps.places.Autocomplete(autocompleteRef.current, {
-        fields: ['formatted_address', 'geometry', 'address_components', 'name', 'place_id', 'types'],
-      });
+    if (!isLoaded || !autocompleteRef.current || autocomplete) return;
 
-      autocompleteInstance.addListener('place_changed', () => {
-        const place = autocompleteInstance.getPlace();
-        if (place.geometry && place.geometry.location) {
-          const lat = place.geometry.location.lat();
-          const lng = place.geometry.location.lng();
-          // Use formatted_address if available, otherwise use name
-          const address = place.formatted_address || place.name || '';
+    const autocompleteInstance = new google.maps.places.Autocomplete(autocompleteRef.current, {
+      fields: ['formatted_address', 'geometry', 'name'],
+    });
 
-          setSite(prev => ({
-            ...prev,
-            address,
-            latitude: lat,
-            longitude: lng,
-          }));
+    const handlePlaceSelect = () => {
+      const place = autocompleteInstance.getPlace();
+      
+      if (!place || !place.geometry || !place.geometry.location) {
+        return;
+      }
 
-          // Update map center and marker
-          if (map) {
-            map.setCenter({ lat, lng });
-            map.setZoom(15);
-          }
-        }
-      });
+      const lat = place.geometry.location.lat();
+      const lng = place.geometry.location.lng();
+      const address = place.formatted_address || place.name || '';
 
-      setAutocomplete(autocompleteInstance);
+      // Mark timestamp to prevent geocoding conflict
+      if (!window.lastAutocompleteUpdate) {
+        window.lastAutocompleteUpdate = 0;
+      }
+      window.lastAutocompleteUpdate = Date.now();
 
-      // Cleanup function to remove listeners when component unmounts
-      return () => {
-        if (autocompleteInstance) {
-          google.maps.event.clearInstanceListeners(autocompleteInstance);
-        }
-      };
-    }
-  }, [isLoaded, autocomplete, map]);
+      // Update state
+      setSite(prev => ({
+        ...prev,
+        address,
+        latitude: lat,
+        longitude: lng,
+      }));
 
-  // Update map when site coordinates change
+      // Update map immediately
+      if (map) {
+        map.panTo({ lat, lng });
+        map.setZoom(15);
+      }
+    };
+
+    autocompleteInstance.addListener('place_changed', handlePlaceSelect);
+    setAutocomplete(autocompleteInstance);
+
+  }, [isLoaded, autocompleteRef.current, autocomplete, map]);
+
+  // Update map center when coordinates change (for marker drag and map click)
   useEffect(() => {
-    if (map && site.latitude !== 0 && site.longitude !== 0) {
-      map.setCenter({ lat: site.latitude, lng: site.longitude });
-      if (map.getZoom() === 0 || map.getZoom() === undefined) {
+    if (!map || site.latitude === 0 || site.longitude === 0) return;
+    
+    const currentCenter = map.getCenter();
+    if (!currentCenter) return;
+    
+    const centerLat = currentCenter.lat();
+    const centerLng = currentCenter.lng();
+    
+    // Only update if significantly different (avoid fighting with user panning)
+    const threshold = 0.001;
+    if (Math.abs(centerLat - site.latitude) > threshold || 
+        Math.abs(centerLng - site.longitude) > threshold) {
+      map.panTo({ lat: site.latitude, lng: site.longitude });
+      
+      if (map.getZoom() && map.getZoom() < 10) {
         map.setZoom(15);
       }
     }
@@ -208,6 +223,12 @@ export default function SiteInfo() {
   const handleAddressGeocode = async () => {
     if (!isLoaded || !site.address.trim() || !map) return;
     
+    // Prevent geocoding if we just selected from autocomplete
+    const recentUpdate = Date.now();
+    if (window.lastAutocompleteUpdate && recentUpdate - window.lastAutocompleteUpdate < 1000) {
+      return;
+    }
+    
     const geocoder = new google.maps.Geocoder();
     geocoder.geocode({ address: site.address }, (results, status) => {
       if (status === 'OK' && results && results.length > 0 && results[0].geometry) {
@@ -223,11 +244,8 @@ export default function SiteInfo() {
           longitude: lng,
         }));
 
-        // Update map center and marker
-        map.setCenter({ lat, lng });
+        map.panTo({ lat, lng });
         map.setZoom(15);
-      } else {
-        console.warn('Geocoding failed:', status);
       }
     });
   };
