@@ -21,6 +21,7 @@ export interface Worker {
   department_id?: string;
   job_title_id?: string;
   whatsapp_number?: string;
+  custom_worker_id?: string;
   current_status?: 'out' | 'in' | 'on_break' | 'on_transfer';
   is_active?: boolean;
 }
@@ -134,6 +135,7 @@ export const useWorkers = (): UseWorkersResult => {
           department_id: worker.department_id || undefined,
           job_title_id: worker.job_title_id || undefined,
           whatsapp_number: worker.whatsapp_number,
+          custom_worker_id: worker.custom_worker_id,
           current_status: worker.current_status,
           is_active: worker.is_active,
         };

@@ -21,6 +21,7 @@ interface CSVRow {
   workerType: 'employee' | 'contractor';
   department: string;
   jobTitle: string;
+  customWorkerId?: string;
 }
 
 interface ValidationError {
@@ -44,15 +45,15 @@ export default function ImportWorkersWizard({ isOpen, onClose, onSuccess }: Impo
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // CSV Template
-  const csvTemplate = `First Name,Last Name,Email,Phone,Worker Type,Department,Job Title
-John,Smith,john.smith@company.com,+13055550101,employee,Construction,Project Manager
-Maria,Garcia,maria.garcia@company.com,+12125550125,employee,Construction,Foreman
-David,Johnson,david.johnson@company.com,+13105550148,contractor,Construction,Heavy Equipment Operator
-Sarah,Williams,sarah.williams@company.com,+14155550162,employee,Safety,Safety Coordinator
-Michael,Brown,michael.brown@company.com,+13125550177,employee,Construction,Construction Worker
-Emily,Davis,emily.davis@company.com,+17135550193,employee,Engineering,Civil Engineer
-James,Wilson,james.wilson@company.com,+12025550114,contractor,Construction,Concrete Finisher
-Lisa,Moore,lisa.moore@company.com,+14045550139,employee,Construction,Equipment Operator`;
+  const csvTemplate = `First Name,Last Name,Email,Phone,Worker Type,Department,Job Title,Custom Worker ID
+John,Smith,john.smith@company.com,+13055550101,employee,Construction,Project Manager,EMP-001
+Maria,Garcia,maria.garcia@company.com,+12125550125,employee,Construction,Foreman,EMP-002
+David,Johnson,david.johnson@company.com,+13105550148,contractor,Construction,Heavy Equipment Operator,CON-001
+Sarah,Williams,sarah.williams@company.com,+14155550162,employee,Safety,Safety Coordinator,EMP-003
+Michael,Brown,michael.brown@company.com,+13125550177,employee,Construction,Construction Worker,EMP-004
+Emily,Davis,emily.davis@company.com,+17135550193,employee,Engineering,Civil Engineer,EMP-005
+James,Wilson,james.wilson@company.com,+12025550114,contractor,Construction,Concrete Finisher,CON-002
+Lisa,Moore,lisa.moore@company.com,+14045550139,employee,Construction,Equipment Operator,EMP-006`;
 
   // Download CSV template
   const downloadTemplate = () => {
@@ -181,6 +182,7 @@ Lisa,Moore,lisa.moore@company.com,+14045550139,employee,Construction,Equipment O
       const workerTypeIdx = headers.findIndex(h => (h.includes('worker') && h.includes('type')) || (h.includes('type') && !h.includes('job')));
       const departmentIdx = headers.findIndex(h => h.includes('department'));
       const jobTitleIdx = headers.findIndex(h => (h.includes('job') && h.includes('title')) || h.includes('position') || h.includes('role'));
+      const customWorkerIdIdx = headers.findIndex(h => h.includes('custom') && h.includes('worker') && h.includes('id'));
 
       // Validate required columns
       if (firstNameIdx === -1 || lastNameIdx === -1) {
@@ -205,6 +207,7 @@ Lisa,Moore,lisa.moore@company.com,+14045550139,employee,Construction,Equipment O
         const workerType = workerTypeIdx >= 0 ? (row[workerTypeIdx]?.trim().toLowerCase() || 'employee') : 'employee';
         const department = departmentIdx >= 0 ? (row[departmentIdx]?.trim() || '') : '';
         const jobTitle = jobTitleIdx >= 0 ? (row[jobTitleIdx]?.trim() || '') : '';
+        const customWorkerId = customWorkerIdIdx >= 0 ? (row[customWorkerIdIdx]?.trim() || '') : '';
 
         // Validation
         if (!firstName) {
@@ -232,6 +235,7 @@ Lisa,Moore,lisa.moore@company.com,+14045550139,employee,Construction,Equipment O
             workerType: (workerType === 'contractor' ? 'contractor' : 'employee') as 'employee' | 'contractor',
             department: department || '',
             jobTitle: jobTitle || '',
+            customWorkerId: customWorkerId || undefined,
           });
         }
       });
@@ -386,6 +390,7 @@ Lisa,Moore,lisa.moore@company.com,+14045550139,employee,Construction,Equipment O
             worker_type: row.workerType,
             department_id: departmentId,
             job_title_id: jobTitleId,
+            custom_worker_id: row.customWorkerId?.trim() || null,
             company_id: currentCompany.id,
             is_active: true,
             is_deleted: false,
@@ -576,6 +581,11 @@ Lisa,Moore,lisa.moore@company.com,+14045550139,employee,Construction,Equipment O
                           <span className="text-sm text-gray-700">Job Title</span>
                           <span className="text-xs text-gray-500">(will be created if it doesn't exist)</span>
                         </div>
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className="w-4 h-4 text-blue-600" />
+                          <span className="text-sm text-gray-700">Custom Worker ID</span>
+                          <span className="text-xs text-gray-500">(Optional - for client integration)</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -711,6 +721,7 @@ Lisa,Moore,lisa.moore@company.com,+14045550139,employee,Construction,Equipment O
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Type</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Department</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Job Title</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Custom ID</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -723,11 +734,12 @@ Lisa,Moore,lisa.moore@company.com,+14045550139,employee,Construction,Equipment O
                           <td className="px-3 py-2 text-gray-700">{row.workerType}</td>
                           <td className="px-3 py-2 text-gray-700">{row.department || '—'}</td>
                           <td className="px-3 py-2 text-gray-700">{row.jobTitle || '—'}</td>
+                          <td className="px-3 py-2 text-gray-700">{row.customWorkerId || '—'}</td>
                         </tr>
                       ))}
                       {csvData.length > 10 && (
                         <tr>
-                          <td colSpan={7} className="px-3 py-2 text-center text-xs text-gray-500">
+                          <td colSpan={8} className="px-3 py-2 text-center text-xs text-gray-500">
                             ... and {csvData.length - 10} more rows
                           </td>
                         </tr>

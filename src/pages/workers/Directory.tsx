@@ -45,6 +45,7 @@ interface Worker {
   avatar?: string;
   phone?: string;
   worker_type?: 'employee' | 'contractor';
+  custom_worker_id?: string;
   current_status?: 'out' | 'in' | 'on_break' | 'on_transfer';
   is_active?: boolean;
 }
@@ -82,7 +83,7 @@ export default function Directory() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
-  const [sortBy, setSortBy] = useState<'firstName' | 'jobTitle' | 'department'>('firstName');
+  const [sortBy, setSortBy] = useState<'firstName' | 'custom_id' | 'jobTitle' | 'department'>('firstName');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [selectedWorkerType, setSelectedWorkerType] = useState<string[]>([]);
   const [selectedDepartment, setSelectedDepartment] = useState<string[]>([]);
@@ -146,7 +147,8 @@ export default function Directory() {
         worker.lastName.toLowerCase().includes(searchLower) ||
         worker.email.toLowerCase().includes(searchLower) ||
         worker.jobTitle.toLowerCase().includes(searchLower) ||
-        worker.department.toLowerCase().includes(searchLower)
+        worker.department.toLowerCase().includes(searchLower) ||
+        (worker.custom_worker_id && worker.custom_worker_id.toLowerCase().includes(searchLower))
       );
 
       // Worker Type filter
@@ -174,6 +176,10 @@ export default function Directory() {
         case 'firstName':
           aValue = a.firstName.toLowerCase();
           bValue = b.firstName.toLowerCase();
+          break;
+        case 'custom_id':
+          aValue = (a.custom_worker_id || '').toLowerCase();
+          bValue = (b.custom_worker_id || '').toLowerCase();
           break;
         case 'jobTitle':
           aValue = a.jobTitle.toLowerCase();
@@ -207,7 +213,7 @@ export default function Directory() {
   }, [searchTerm]);
 
   // Handle sorting
-  const handleSort = (field: typeof sortBy) => {
+  const handleSort = (field: 'firstName' | 'custom_id' | 'jobTitle' | 'department') => {
     if (sortBy === field) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
@@ -750,6 +756,15 @@ export default function Directory() {
                   {sortBy === 'firstName' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                 </button>
                 <button 
+                  onClick={() => handleSort('custom_id')}
+                  className={`text-xs hover:text-gray-900 flex items-center gap-1 ${
+                    sortBy === 'custom_id' ? 'text-gray-900 font-medium' : 'text-gray-600'
+                  }`}
+                >
+                  Custom ID
+                  {sortBy === 'custom_id' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
+                </button>
+                <button 
                   onClick={() => handleSort('department')}
                   className={`text-xs hover:text-gray-900 flex items-center gap-1 ${
                     sortBy === 'department' ? 'text-gray-900 font-medium' : 'text-gray-600'
@@ -758,7 +773,7 @@ export default function Directory() {
                   Department
                   {sortBy === 'department' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                 </button>
-                <button 
+                <button
                   onClick={() => handleSort('jobTitle')}
                   className={`text-xs hover:text-gray-900 flex items-center gap-1 ${
                     sortBy === 'jobTitle' ? 'text-gray-900 font-medium' : 'text-gray-600'
@@ -810,7 +825,16 @@ export default function Directory() {
                   </button>
                 </th>
                 <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs w-32">
-                  Worker Type
+                  Type
+                </th>
+                <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs w-32">
+                  <button
+                    onClick={() => handleSort('custom_id')}
+                    className="flex items-center gap-1 hover:text-gray-700"
+                  >
+                    Custom ID
+                    {sortBy === 'custom_id' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
+                  </button>
                 </th>
                 <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs">
                   <button
@@ -837,7 +861,7 @@ export default function Directory() {
             <tbody>
               {filteredWorkers.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center">
+                  <td colSpan={7} className="py-12 text-center">
                     <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                     <p className="text-gray-600 mb-2">No workers found</p>
                     <p className="text-sm text-gray-500">
@@ -879,6 +903,11 @@ export default function Directory() {
                         : 'bg-blue-50 text-blue-700'
                     }`}>
                       {worker.worker_type === 'contractor' ? 'Contractor' : 'Employee'}
+                    </span>
+                  </td>
+                  <td className="py-4 px-4 w-32">
+                    <span className="text-sm text-gray-700 truncate">
+                      {worker.custom_worker_id || '—'}
                     </span>
                   </td>
                   <td className="py-4 px-4 text-gray-900 text-sm">{worker.department}</td>

@@ -33,6 +33,7 @@ interface Site {
   longitude?: number;
   country?: string;
   type?: string;
+  custom_site_id?: string;
 }
 
 export default function Sites() {
@@ -43,14 +44,17 @@ export default function Sites() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
-  const [sortBy, setSortBy] = useState<'name' | 'address'>('name');
+  const [sortBy, setSortBy] = useState<'name' | 'custom_id' | 'country'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [selectedState, setSelectedState] = useState<string[]>([]);
-  const [selectedCity, setSelectedCity] = useState<string[]>([]);
-  const [showStateDropdown, setShowStateDropdown] = useState(false);
-  const [showCityDropdown, setShowCityDropdown] = useState(false);
-  const [stateSearchTerm, setStateSearchTerm] = useState('');
-  const [citySearchTerm, setCitySearchTerm] = useState('');
+  const [selectedSiteType, setSelectedSiteType] = useState<string[]>([]);
+  const [selectedCustomId, setSelectedCustomId] = useState<string[]>([]);
+  const [selectedCountry, setSelectedCountry] = useState<string[]>([]);
+  const [showSiteTypeDropdown, setShowSiteTypeDropdown] = useState(false);
+  const [showCustomIdDropdown, setShowCustomIdDropdown] = useState(false);
+  const [showCountryDropdown, setShowCountryDropdown] = useState(false);
+  const [siteTypeSearchTerm, setSiteTypeSearchTerm] = useState('');
+  const [customIdSearchTerm, setCustomIdSearchTerm] = useState('');
+  const [countrySearchTerm, setCountrySearchTerm] = useState('');
   const [map, setMap] = useState<google.maps.Map | null>(null);
   const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
   const [showImportWizard, setShowImportWizard] = useState(false);
@@ -73,11 +77,13 @@ export default function Sites() {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       if (!target.closest('.dropdown-container')) {
-        setShowStateDropdown(false);
-        setShowCityDropdown(false);
+        setShowSiteTypeDropdown(false);
+        setShowCustomIdDropdown(false);
+        setShowCountryDropdown(false);
         // Clear search terms when closing dropdowns
-        setStateSearchTerm('');
-        setCitySearchTerm('');
+        setSiteTypeSearchTerm('');
+        setCustomIdSearchTerm('');
+        setCountrySearchTerm('');
       }
     };
 
@@ -101,16 +107,20 @@ export default function Sites() {
         site.address.toLowerCase().includes(searchLower) ||
         site.city.toLowerCase().includes(searchLower) ||
         site.state.toLowerCase().includes(searchLower) ||
+        (site.custom_site_id && site.custom_site_id.toLowerCase().includes(searchLower)) ||
         `${site.address}, ${site.city}, ${site.state} ${site.zipCode}`.toLowerCase().includes(searchLower)
       );
 
-      // State filter
-      const matchesState = selectedState.length === 0 || selectedState.includes(site.state);
+      // Site Type filter
+      const matchesSiteType = selectedSiteType.length === 0 || selectedSiteType.includes(site.type || '');
 
-      // City filter
-      const matchesCity = selectedCity.length === 0 || selectedCity.includes(site.city);
+      // Custom ID filter
+      const matchesCustomId = selectedCustomId.length === 0 || (site.custom_site_id && selectedCustomId.includes(site.custom_site_id));
 
-      return matchesSearch && matchesState && matchesCity;
+      // Country filter
+      const matchesCountry = selectedCountry.length === 0 || selectedCountry.includes(site.country || '');
+
+      return matchesSearch && matchesSiteType && matchesCustomId && matchesCountry;
     });
 
     // Apply sorting
@@ -123,9 +133,13 @@ export default function Sites() {
           aValue = a.name.toLowerCase();
           bValue = b.name.toLowerCase();
           break;
-        case 'address':
-          aValue = `${a.address}, ${a.city}, ${a.state}`.toLowerCase();
-          bValue = `${b.address}, ${b.city}, ${b.state}`.toLowerCase();
+        case 'custom_id':
+          aValue = (a.custom_site_id || '').toLowerCase();
+          bValue = (b.custom_site_id || '').toLowerCase();
+          break;
+        case 'country':
+          aValue = (a.country || '').toLowerCase();
+          bValue = (b.country || '').toLowerCase();
           break;
         default:
           aValue = a.name.toLowerCase();
@@ -136,7 +150,7 @@ export default function Sites() {
       if (aValue > bValue) return sortOrder === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [searchTerm, sites, sortBy, sortOrder, selectedState, selectedCity]);
+  }, [searchTerm, sites, sortBy, sortOrder, selectedSiteType, selectedCustomId, selectedCountry]);
 
   const sitesWithCoords = useMemo(
     () =>
@@ -186,7 +200,7 @@ export default function Sites() {
   // Clear site selection when search term or filters change
   useEffect(() => {
     setSelectedSiteId(null);
-  }, [searchTerm, selectedState, selectedCity]);
+  }, [searchTerm, selectedSiteType, selectedCustomId, selectedCountry]);
 
   // Fit map bounds to all sites with coordinates (unless user has selected a specific site)
   useEffect(() => {
@@ -240,7 +254,7 @@ export default function Sites() {
   }, [searchTerm]);
 
   // Handle sorting
-  const handleSort = (field: typeof sortBy) => {
+  const handleSort = (field: 'name' | 'custom_id' | 'country') => {
     if (sortBy === field) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
@@ -251,57 +265,85 @@ export default function Sites() {
 
   // Clear all filters
   const clearAllFilters = () => {
-    setSelectedState([]);
-    setSelectedCity([]);
+    setSelectedSiteType([]);
+    setSelectedCustomId([]);
+    setSelectedCountry([]);
     setSearchTerm('');
-    setStateSearchTerm('');
-    setCitySearchTerm('');
+    setSiteTypeSearchTerm('');
+    setCustomIdSearchTerm('');
+    setCountrySearchTerm('');
     // Clear site selection to show all sites
     setSelectedSiteId(null);
   };
 
   // Helper functions for multi-select
-  const handleStateToggle = (state: string) => {
-    setSelectedState(prev => 
-      prev.includes(state) 
-        ? prev.filter(s => s !== state)
-        : [...prev, state]
+  const handleSiteTypeToggle = (type: string) => {
+    setSelectedSiteType(prev => 
+      prev.includes(type) 
+        ? prev.filter(t => t !== type)
+        : [...prev, type]
     );
   };
 
-  const handleCityToggle = (city: string) => {
-    setSelectedCity(prev => 
-      prev.includes(city) 
-        ? prev.filter(c => c !== city)
-        : [...prev, city]
+  const handleCustomIdToggle = (customId: string) => {
+    setSelectedCustomId(prev => 
+      prev.includes(customId) 
+        ? prev.filter(c => c !== customId)
+        : [...prev, customId]
+    );
+  };
+
+  const handleCountryToggle = (country: string) => {
+    setSelectedCountry(prev => 
+      prev.includes(country) 
+        ? prev.filter(c => c !== country)
+        : [...prev, country]
     );
   };
 
   // Select All functions for each filter
-  const handleStateSelectAll = () => {
-    const allStates = getFilteredStateOptions();
-    setSelectedState(allStates);
+  const handleSiteTypeSelectAll = () => {
+    const allTypes = getFilteredSiteTypeOptions();
+    setSelectedSiteType(allTypes);
   };
 
-  const handleCitySelectAll = () => {
-    const allCities = getFilteredCityOptions();
-    setSelectedCity(allCities);
+  const handleCustomIdSelectAll = () => {
+    const allCustomIds = getFilteredCustomIdOptions();
+    setSelectedCustomId(allCustomIds);
+  };
+
+  const handleCountrySelectAll = () => {
+    const allCountries = getFilteredCountryOptions();
+    setSelectedCountry(allCountries);
   };
 
   // Filter options based on search terms
-  const getFilteredStateOptions = () => {
-    const stateOptions = Array.from(new Set(sitesData.map(s => s.state))).sort();
-    if (!stateSearchTerm) return stateOptions;
-    return stateOptions.filter(state => 
-      state.toLowerCase().includes(stateSearchTerm.toLowerCase())
+  const getFilteredSiteTypeOptions = () => {
+    // Exclude manual entry types (always hidden)
+    const typeOptions = Array.from(new Set(sitesData
+      .map(s => s.type)
+      .filter(Boolean)
+      .filter(type => type !== 'manual' && type !== 'manual_entry' && type !== 'manual-entry')
+    )).sort();
+    if (!siteTypeSearchTerm) return typeOptions;
+    return typeOptions.filter(type => 
+      type.toLowerCase().includes(siteTypeSearchTerm.toLowerCase())
     );
   };
 
-  const getFilteredCityOptions = () => {
-    const cityOptions = Array.from(new Set(sitesData.map(s => s.city))).sort();
-    if (!citySearchTerm) return cityOptions;
-    return cityOptions.filter(city => 
-      city.toLowerCase().includes(citySearchTerm.toLowerCase())
+  const getFilteredCustomIdOptions = () => {
+    const customIdOptions = Array.from(new Set(sitesData.map(s => s.custom_site_id).filter(Boolean))).sort();
+    if (!customIdSearchTerm) return customIdOptions;
+    return customIdOptions.filter(customId => 
+      customId.toLowerCase().includes(customIdSearchTerm.toLowerCase())
+    );
+  };
+
+  const getFilteredCountryOptions = () => {
+    const countryOptions = Array.from(new Set(sitesData.map(s => s.country).filter(Boolean))).sort();
+    if (!countrySearchTerm) return countryOptions;
+    return countryOptions.filter(country => 
+      country.toLowerCase().includes(countrySearchTerm.toLowerCase())
     );
   };
 
@@ -381,7 +423,7 @@ export default function Sites() {
             
             <div className="flex items-center gap-2">
               {/* Clear Filters Button - Only show when filters are active */}
-              {(selectedState.length > 0 || selectedCity.length > 0 || searchTerm) && (
+              {(selectedSiteType.length > 0 || selectedCustomId.length > 0 || selectedCountry.length > 0 || searchTerm) && (
                 <button
                   onClick={clearAllFilters}
                   className="flex items-center gap-2 px-2 py-1 border border-gray-300 rounded transition-colors text-sm bg-white text-gray-700 hover:bg-gray-50"
@@ -440,28 +482,28 @@ export default function Sites() {
         {showFilters && (
           <div className="bg-white border-l border-r border-b border-gray-200 rounded-b-lg py-6 px-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
-              {/* State Multi-Select */}
+              {/* Site Type Multi-Select */}
               <div className="relative dropdown-container">
                 <div className="px-3 py-1 border border-gray-200 rounded text-sm bg-white min-h-[32px] flex items-center justify-between cursor-pointer hover:bg-gray-50" 
-                     onClick={() => setShowStateDropdown(!showStateDropdown)}>
+                     onClick={() => setShowSiteTypeDropdown(!showSiteTypeDropdown)}>
                   <span className="text-gray-700">
-                    {selectedState.length === 0 ? 'All States' : 
-                     selectedState.length === 1 ? selectedState[0] :
-                     `${selectedState.length} selected`}
+                    {selectedSiteType.length === 0 ? 'All Site Types' : 
+                     selectedSiteType.length === 1 ? selectedSiteType[0] :
+                     `${selectedSiteType.length} selected`}
                   </span>
                   <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
-                {showStateDropdown && (
+                {showSiteTypeDropdown && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded shadow-lg z-10 max-h-48 overflow-y-auto">
                     <div className="p-2 border-b border-gray-100">
                       <div className="flex items-center gap-2">
                         <input
                           type="text"
-                          placeholder="Search states..."
-                          value={stateSearchTerm}
-                          onChange={(e) => setStateSearchTerm(e.target.value)}
+                          placeholder="Search site types..."
+                          value={siteTypeSearchTerm}
+                          onChange={(e) => setSiteTypeSearchTerm(e.target.value)}
                           className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
                           onClick={(e) => e.stopPropagation()}
                         />
@@ -469,64 +511,64 @@ export default function Sites() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleStateSelectAll();
+                              handleSiteTypeSelectAll();
                             }}
                             className="text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap"
                           >
                             Select All
                           </button>
-                          {selectedState.length > 0 && (
+                          {selectedSiteType.length > 0 && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setSelectedState([]);
+                                setSelectedSiteType([]);
                               }}
                               className="text-xs text-gray-500 hover:text-gray-700 whitespace-nowrap"
                             >
-                              Clear ({selectedState.length})
+                              Clear ({selectedSiteType.length})
                             </button>
                           )}
                         </div>
                       </div>
                     </div>
-                    {getFilteredStateOptions().map((state) => (
-                      <div key={state} className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center gap-2"
-                           onClick={() => handleStateToggle(state)}>
-                        <input type="checkbox" checked={selectedState.includes(state)} readOnly className="w-4 h-4" />
-                        <span className="text-sm text-gray-700">{state}</span>
+                    {getFilteredSiteTypeOptions().map((type) => (
+                      <div key={type} className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center gap-2"
+                           onClick={() => handleSiteTypeToggle(type)}>
+                        <input type="checkbox" checked={selectedSiteType.includes(type)} readOnly className="w-4 h-4" />
+                        <span className="text-sm text-gray-700">{type === 'company_branch' ? 'Company Branch' : type === 'customer_site' ? 'Customer Site' : type}</span>
                       </div>
                     ))}
-                    {getFilteredStateOptions().length === 0 && (
+                    {getFilteredSiteTypeOptions().length === 0 && (
                       <div className="px-3 py-2 text-sm text-gray-500 text-center">
-                        No states found
+                        No site types found
                       </div>
                     )}
                   </div>
                 )}
               </div>
 
-              {/* City Multi-Select */}
+              {/* Custom ID Multi-Select */}
               <div className="relative dropdown-container">
                 <div className="px-3 py-1 border border-gray-200 rounded text-sm bg-white min-h-[32px] flex items-center justify-between cursor-pointer hover:bg-gray-50" 
-                     onClick={() => setShowCityDropdown(!showCityDropdown)}>
+                     onClick={() => setShowCustomIdDropdown(!showCustomIdDropdown)}>
                   <span className="text-gray-700">
-                    {selectedCity.length === 0 ? 'All Cities' : 
-                     selectedCity.length === 1 ? selectedCity[0] :
-                     `${selectedCity.length} selected`}
+                    {selectedCustomId.length === 0 ? 'All Custom IDs' : 
+                     selectedCustomId.length === 1 ? selectedCustomId[0] :
+                     `${selectedCustomId.length} selected`}
                   </span>
                   <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
-                {showCityDropdown && (
+                {showCustomIdDropdown && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded shadow-lg z-10 max-h-48 overflow-y-auto">
                     <div className="p-2 border-b border-gray-100">
                       <div className="flex items-center gap-2">
                         <input
                           type="text"
-                          placeholder="Search cities..."
-                          value={citySearchTerm}
-                          onChange={(e) => setCitySearchTerm(e.target.value)}
+                          placeholder="Search custom IDs..."
+                          value={customIdSearchTerm}
+                          onChange={(e) => setCustomIdSearchTerm(e.target.value)}
                           className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
                           onClick={(e) => e.stopPropagation()}
                         />
@@ -534,36 +576,101 @@ export default function Sites() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleCitySelectAll();
+                              handleCustomIdSelectAll();
                             }}
                             className="text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap"
                           >
                             Select All
                           </button>
-                          {selectedCity.length > 0 && (
+                          {selectedCustomId.length > 0 && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setSelectedCity([]);
+                                setSelectedCustomId([]);
                               }}
                               className="text-xs text-gray-500 hover:text-gray-700 whitespace-nowrap"
                             >
-                              Clear ({selectedCity.length})
+                              Clear ({selectedCustomId.length})
                             </button>
                           )}
                         </div>
                       </div>
                     </div>
-                    {getFilteredCityOptions().map((city) => (
-                      <div key={city} className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center gap-2"
-                           onClick={() => handleCityToggle(city)}>
-                        <input type="checkbox" checked={selectedCity.includes(city)} readOnly className="w-4 h-4" />
-                        <span className="text-sm text-gray-700">{city}</span>
+                    {getFilteredCustomIdOptions().map((customId) => (
+                      <div key={customId} className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center gap-2"
+                           onClick={() => handleCustomIdToggle(customId)}>
+                        <input type="checkbox" checked={selectedCustomId.includes(customId)} readOnly className="w-4 h-4" />
+                        <span className="text-sm text-gray-700">{customId}</span>
                       </div>
                     ))}
-                    {getFilteredCityOptions().length === 0 && (
+                    {getFilteredCustomIdOptions().length === 0 && (
                       <div className="px-3 py-2 text-sm text-gray-500 text-center">
-                        No cities found
+                        No custom IDs found
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Country Multi-Select */}
+              <div className="relative dropdown-container">
+                <div className="px-3 py-1 border border-gray-200 rounded text-sm bg-white min-h-[32px] flex items-center justify-between cursor-pointer hover:bg-gray-50" 
+                     onClick={() => setShowCountryDropdown(!showCountryDropdown)}>
+                  <span className="text-gray-700">
+                    {selectedCountry.length === 0 ? 'All Countries' : 
+                     selectedCountry.length === 1 ? selectedCountry[0] :
+                     `${selectedCountry.length} selected`}
+                  </span>
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+                {showCountryDropdown && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded shadow-lg z-10 max-h-48 overflow-y-auto">
+                    <div className="p-2 border-b border-gray-100">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          placeholder="Search countries..."
+                          value={countrySearchTerm}
+                          onChange={(e) => setCountrySearchTerm(e.target.value)}
+                          className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCountrySelectAll();
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap"
+                          >
+                            Select All
+                          </button>
+                          {selectedCountry.length > 0 && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedCountry([]);
+                              }}
+                              className="text-xs text-gray-500 hover:text-gray-700 whitespace-nowrap"
+                            >
+                              Clear ({selectedCountry.length})
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    {getFilteredCountryOptions().map((country) => (
+                      <div key={country} className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center gap-2"
+                           onClick={() => handleCountryToggle(country)}>
+                        <input type="checkbox" checked={selectedCountry.includes(country)} readOnly className="w-4 h-4" />
+                        <span className="text-sm text-gray-700">{country}</span>
+                      </div>
+                    ))}
+                    {getFilteredCountryOptions().length === 0 && (
+                      <div className="px-3 py-2 text-sm text-gray-500 text-center">
+                        No countries found
                       </div>
                     )}
                   </div>
@@ -590,13 +697,22 @@ export default function Sites() {
                   {sortBy === 'name' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                 </button>
                 <button 
-                  onClick={() => handleSort('address')}
+                  onClick={() => handleSort('custom_id')}
                   className={`text-xs hover:text-gray-900 flex items-center gap-1 ${
-                    sortBy === 'address' ? 'text-gray-900 font-medium' : 'text-gray-600'
+                    sortBy === 'custom_id' ? 'text-gray-900 font-medium' : 'text-gray-600'
                   }`}
                 >
-                  Address
-                  {sortBy === 'address' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
+                  Custom ID
+                  {sortBy === 'custom_id' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
+                </button>
+                <button 
+                  onClick={() => handleSort('country')}
+                  className={`text-xs hover:text-gray-900 flex items-center gap-1 ${
+                    sortBy === 'country' ? 'text-gray-900 font-medium' : 'text-gray-600'
+                  }`}
+                >
+                  Country
+                  {sortBy === 'country' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                 </button>
               </div>
             </div>
@@ -612,7 +728,7 @@ export default function Sites() {
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left py-3 px-6 font-medium text-gray-900 text-xs w-1/3 min-w-[200px]">
+                  <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs w-48">
                     <button
                       onClick={() => handleSort('name')}
                       className="flex items-center gap-1 hover:text-gray-700"
@@ -621,22 +737,33 @@ export default function Sites() {
                       {sortBy === 'name' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                     </button>
                   </th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs">
+                  <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs w-36">Type</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs w-32">
                     <button
-                      onClick={() => handleSort('address')}
+                      onClick={() => handleSort('custom_id')}
                       className="flex items-center gap-1 hover:text-gray-700"
                     >
-                      Address
-                      {sortBy === 'address' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
+                      Custom ID
+                      {sortBy === 'custom_id' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                     </button>
                   </th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs w-28">
+                    <button
+                      onClick={() => handleSort('country')}
+                      className="flex items-center gap-1 hover:text-gray-700"
+                    >
+                      Country
+                      {sortBy === 'country' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
+                    </button>
+                  </th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs">Address</th>
                   <th className="text-left py-3 px-2 font-medium text-gray-900 text-xs w-24">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredSites.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="py-12 text-center">
+                    <td colSpan={6} className="py-12 text-center">
                       <Building2 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                       <p className="text-gray-600 mb-2">No sites found</p>
                       <p className="text-sm text-gray-500">
@@ -649,15 +776,30 @@ export default function Sites() {
                 ) : (
                   paginatedSites.map((site) => (
                   <tr key={site.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                    <td className="py-4 px-6">
+                    <td className="py-4 px-4 w-48">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium bg-primary" style={{ backgroundColor: 'var(--primary-brand-hex)' }}>
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium bg-primary shrink-0" style={{ backgroundColor: 'var(--primary-brand-hex)' }}>
                           <Building2 className="w-4 h-4" />
                         </div>
-                        <div className="font-medium text-gray-900 text-sm">
+                        <div className="font-medium text-gray-900 text-sm truncate">
                           {site.name}
                         </div>
                       </div>
+                    </td>
+                    <td className="py-4 px-4 w-36">
+                      <span className="text-sm text-gray-700">
+                        {site.type === 'company_branch' ? 'Company Branch' : site.type === 'customer_site' ? 'Customer Site' : site.type || '—'}
+                      </span>
+                    </td>
+                    <td className="py-4 px-4 w-32">
+                      <span className="text-sm text-gray-700 truncate">
+                        {site.custom_site_id || '—'}
+                      </span>
+                    </td>
+                    <td className="py-4 px-4 w-28">
+                      <span className="text-sm text-gray-700">
+                        {site.country || '—'}
+                      </span>
                     </td>
                     <td className="py-4 px-4">
                       <div className="flex items-start gap-2 text-gray-600 text-sm">
@@ -678,6 +820,8 @@ export default function Sites() {
                               site_address: site.address,
                               latitude: site.latitude || 0,
                               longitude: site.longitude || 0,
+                              type: site.type,
+                              custom_site_id: site.custom_site_id,
                             }));
                             router.navigate('/sites/site-info');
                           }}
@@ -794,12 +938,12 @@ export default function Sites() {
                 </GoogleMap>
               </div>
             ) : loadError ? (
-              <div className="h-[432px] bg-gray-100 flex items-center justify-center">
-                <div className="text-center">
-                  <Map className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+            <div className="h-[432px] bg-gray-100 flex items-center justify-center">
+              <div className="text-center">
+                <Map className="w-12 h-12 text-gray-400 mx-auto mb-3" />
                   <p className="text-sm text-red-600">Error loading Google Maps</p>
-                </div>
               </div>
+            </div>
             ) : (
               <div className="h-[432px] bg-gray-100 flex items-center justify-center">
                 <div className="text-center">

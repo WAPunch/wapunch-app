@@ -45,15 +45,15 @@ export default function ImportSitesWizard({ isOpen, onClose, onSuccess }: Import
 
   // CSV Template with famous USA locations
   const csvTemplate = `Name,Address,City,State,Zip Code,Country,Latitude,Longitude,Custom Site ID,Type
-Statue of Liberty,New York Harbor,New York,NY,10004,USA,40.6892,-74.0445,STATUE-001,company_branch
+Statue of Liberty,New York Harbor,New York,NY,10004,USA,40.6892,-74.0445,STATUE-001,customer_site
 Golden Gate Bridge,Golden Gate Bridge,San Francisco,CA,94129,USA,37.8199,-122.4783,GG-BRIDGE-001,company_branch
-Space Needle,400 Broad St,Seattle,WA,98109,USA,47.6205,-122.3493,SPACE-001,company_branch
+Space Needle,400 Broad St,Seattle,WA,98109,USA,47.6205,-122.3493,SPACE-001,customer_site
 Mount Rushmore,13000 SD-244,Keystone,SD,57751,USA,43.8791,-103.4591,MOUNT-001,company_branch
-Grand Canyon,Grand Canyon National Park,Grand Canyon,AZ,86023,USA,36.1069,-112.1129,GRAND-001,company_branch
+Grand Canyon,Grand Canyon National Park,Grand Canyon,AZ,86023,USA,36.1069,-112.1129,GRAND-001,customer_site
 White House,1600 Pennsylvania Avenue NW,Washington,DC,20500,USA,38.8977,-77.0365,WHITE-001,company_branch
-Empire State Building,350 5th Ave,New York,NY,10118,USA,40.7484,-73.9857,EMPIRE-001,company_branch
+Empire State Building,350 5th Ave,New York,NY,10118,USA,40.7484,-73.9857,EMPIRE-001,customer_site
 Hollywood Sign,2800 E Observatory Rd,Los Angeles,CA,90027,USA,34.1341,-118.3216,HOLYWOOD-001,company_branch
-Times Square,Manhattan,New York,NY,10036,USA,40.7580,-73.9855,TIMES-001,company_branch
+Times Square,Manhattan,New York,NY,10036,USA,40.7580,-73.9855,TIMES-001,customer_site
 Walt Disney World,1375 E Buena Vista Dr,Lake Buena Vista,FL,32830,USA,28.3852,-81.5639,DISNEY-001,company_branch`;
 
   // Download CSV template
@@ -182,7 +182,7 @@ Walt Disney World,1375 E Buena Vista Dr,Lake Buena Vista,FL,32830,USA,28.3852,-8
       const latitude = row[latitudeIdx]?.trim() || '';
       const longitude = row[longitudeIdx]?.trim() || '';
       const customSiteId = row[customSiteIdIdx]?.trim() || '';
-      const type = row[typeIdx]?.trim() || 'company_branch';
+      const type = row[typeIdx]?.trim() || 'customer_site';
 
       // Validate required fields
       if (!name) {
@@ -238,7 +238,7 @@ Walt Disney World,1375 E Buena Vista Dr,Lake Buena Vista,FL,32830,USA,28.3852,-8
         latitude: latitude || undefined,
         longitude: longitude || undefined,
         customSiteId: customSiteId || undefined,
-        type: type || 'company_branch',
+        type: type || 'customer_site',
       });
     }
 
@@ -374,8 +374,8 @@ Walt Disney World,1375 E Buena Vista Dr,Lake Buena Vista,FL,32830,USA,28.3852,-8
             radiusMeters = Number(row.radiusMeters);
           }
 
-          // Validate and set type
-          const siteType = row.type === 'customer_site' ? 'customer_site' : 'company_branch';
+          // Validate and set type (default to customer_site if not specified)
+          const siteType = row.type === 'company_branch' ? 'company_branch' : 'customer_site';
 
           sitesToCreate.push({
             site_name: row.name.trim(),
@@ -589,7 +589,7 @@ Walt Disney World,1375 E Buena Vista Dr,Lake Buena Vista,FL,32830,USA,28.3852,-8
                         <div className="flex items-center gap-2">
                           <CheckCircle className="w-4 h-4 text-blue-600" />
                           <span className="text-sm text-gray-700">Type</span>
-                          <span className="text-xs text-gray-500">(company_branch or customer_site, default: company_branch)</span>
+                          <span className="text-xs text-gray-500">(company_branch or customer_site, default: customer_site)</span>
                         </div>
                       </div>
                     </div>
