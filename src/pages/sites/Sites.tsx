@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { router } from '../../lib/router';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
 import { useSites } from '../../hooks/useSites';
+import { GoogleMap, Marker, useJsApiLoader } from '@react-google-maps/api';
 import { 
   Search, 
   Filter,
@@ -17,6 +18,9 @@ import {
   Upload
 } from 'lucide-react';
 
+// Google Maps libraries
+const libraries: ("places" | "drawing" | "geometry" | "visualization")[] = [];
+
 interface Site {
   id: string;
   name: string;
@@ -27,6 +31,7 @@ interface Site {
   latitude?: number;
   longitude?: number;
   country?: string;
+  type?: string;
 }
 
 export default function Sites() {
@@ -45,6 +50,18 @@ export default function Sites() {
   const [showCityDropdown, setShowCityDropdown] = useState(false);
   const [stateSearchTerm, setStateSearchTerm] = useState('');
   const [citySearchTerm, setCitySearchTerm] = useState('');
+  const [map, setMap] = useState<google.maps.Map | null>(null);
+  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
+
+  // Google Maps API Key
+  const googleMapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
+
+  // Load Google Maps - use different ID to avoid conflicts
+  const { isLoaded, loadError } = useJsApiLoader({
+    id: 'google-map-script-sites-view',
+    googleMapsApiKey: googleMapsApiKey,
+    libraries: libraries,
+  });
 
   useEffect(() => {
     // Register submodule tabs for sites section
@@ -76,6 +93,12 @@ export default function Sites() {
 
   const filteredSites = useMemo(() => {
     const filtered = sitesData.filter(site => {
+      // Exclude "manual entry" site by type (internal use only)
+      // Each company has only one site with this type
+      if (site.type === 'manual_entry' || site.type === 'manual-entry' || site.type === 'manual') {
+        return false;
+      }
+
       // Search filter
       const searchLower = searchTerm.toLowerCase();
       const matchesSearch = !searchTerm || (
@@ -119,6 +142,49 @@ export default function Sites() {
       return 0;
     });
   }, [searchTerm, sites, sortBy, sortOrder, selectedState, selectedCity]);
+
+  // Create red pin icon for markers (same as SiteInfo)
+  const getMarkerIcon = () => {
+    if (!isLoaded || typeof google === 'undefined' || !google.maps) return undefined;
+    
+    try {
+      const svgIcon = `<svg width="24" height="32" viewBox="0 0 24 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 0C7.58172 0 4 3.58172 4 8C4 14 12 32 12 32C12 32 20 14 20 8C20 3.58172 16.4183 0 12 0Z" fill="#ef4444"/>
+        <circle cx="12" cy="8" r="3" fill="white"/>
+      </svg>`;
+      
+      return {
+        url: 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgIcon))),
+        scaledSize: new google.maps.Size(32, 42),
+        anchor: new google.maps.Point(16, 42),
+      };
+    } catch (error) {
+      console.error('Error creating marker icon:', error);
+      return undefined;
+    }
+  };
+
+  // Calculate map center based on all sites with coordinates
+  const mapCenter = useMemo(() => {
+    const sitesWithCoords = filteredSites.filter(s => s.latitude && s.longitude);
+    if (sitesWithCoords.length === 0) {
+      return { lat: 40.7128, lng: -74.0060 }; // Default to NYC
+    }
+    
+    const avgLat = sitesWithCoords.reduce((sum, s) => sum + (s.latitude || 0), 0) / sitesWithCoords.length;
+    const avgLng = sitesWithCoords.reduce((sum, s) => sum + (s.longitude || 0), 0) / sitesWithCoords.length;
+    
+    return { lat: avgLat, lng: avgLng };
+  }, [filteredSites]);
+
+  // Handle site click in list to center map on that site
+  const handleSiteClick = (site: Site) => {
+    if (site.latitude && site.longitude && map) {
+      setSelectedSiteId(site.id);
+      map.panTo({ lat: site.latitude, lng: site.longitude });
+      map.setZoom(15);
+    }
+  };
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredSites.length / itemsPerPage);
@@ -608,7 +674,10 @@ export default function Sites() {
               {paginatedSites.map((site) => (
                 <div
                   key={site.id}
-                  className="border-b border-gray-100 hover:bg-gray-50 transition-colors p-3 cursor-pointer"
+                  onClick={() => handleSiteClick(site)}
+                  className={`border-b border-gray-100 hover:bg-gray-50 transition-colors p-3 cursor-pointer ${
+                    selectedSiteId === site.id ? 'bg-blue-50 border-blue-200' : ''
+                  }`}
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium" style={{ backgroundColor: 'var(--primary-brand-hex)' }}>
@@ -622,6 +691,9 @@ export default function Sites() {
                         <MapPin className="w-3 h-3" />
                         <span className="truncate">{site.address}, {site.city}, {site.state}</span>
                       </div>
+                      {!site.latitude || !site.longitude ? (
+                        <div className="text-xs text-amber-600 mt-1">⚠️ No coordinates</div>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -632,18 +704,57 @@ export default function Sites() {
           {/* Map - 70% width */}
           <div className="w-[70%] bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div className="bg-gray-50 border-b border-gray-200 px-4 py-3">
-              <h3 className="text-sm font-medium text-gray-900">Site Locations</h3>
+              <h3 className="text-sm font-medium text-gray-900">
+                Site Locations ({filteredSites.filter(s => s.latitude && s.longitude).length} with coordinates)
+              </h3>
             </div>
-            <div className="h-[432px] bg-gray-100 flex items-center justify-center">
-              <div className="text-center">
-                <Map className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                <h3 className="text-sm font-semibold text-gray-900 mb-1">Map View</h3>
-                <p className="text-xs text-gray-600">Interactive map will be implemented here</p>
-                <p className="text-xs text-gray-500 mt-2">
-                  Showing {filteredSites.length} sites with location data
-                </p>
+            {isLoaded ? (
+              <div className="h-[432px]">
+                <GoogleMap
+                  mapContainerStyle={{ width: '100%', height: '100%' }}
+                  center={mapCenter}
+                  zoom={filteredSites.filter(s => s.latitude && s.longitude).length > 1 ? 10 : 15}
+                  onLoad={(map) => setMap(map)}
+                  options={{
+                    disableDefaultUI: false,
+                    zoomControl: true,
+                    streetViewControl: false,
+                    mapTypeControl: false,
+                    fullscreenControl: true,
+                  }}
+                >
+                  {isLoaded && filteredSites
+                    .filter(site => site.latitude && site.longitude && site.latitude !== 0 && site.longitude !== 0)
+                    .map((site) => (
+                      <Marker
+                        key={`site-marker-${site.id}`}
+                        position={{ lat: site.latitude!, lng: site.longitude! }}
+                        onClick={() => {
+                          setSelectedSiteId(site.id);
+                          if (map) {
+                            map.panTo({ lat: site.latitude!, lng: site.longitude! });
+                            map.setZoom(15);
+                          }
+                        }}
+                      />
+                    ))}
+                </GoogleMap>
               </div>
-            </div>
+            ) : loadError ? (
+              <div className="h-[432px] bg-gray-100 flex items-center justify-center">
+                <div className="text-center">
+                  <Map className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-sm text-red-600">Error loading Google Maps</p>
+                </div>
+              </div>
+            ) : (
+              <div className="h-[432px] bg-gray-100 flex items-center justify-center">
+                <div className="text-center">
+                  <Map className="w-12 h-12 text-gray-400 mx-auto mb-3 animate-pulse" />
+                  <p className="text-sm text-gray-600">Loading map...</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
