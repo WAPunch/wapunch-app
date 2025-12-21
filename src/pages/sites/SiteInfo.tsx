@@ -141,9 +141,9 @@ export default function SiteInfo() {
   // Initialize Autocomplete
   useEffect(() => {
     if (isLoaded && autocompleteRef.current && !autocomplete) {
+      // Create Autocomplete with no types restriction for maximum results like Google Maps
       const autocompleteInstance = new google.maps.places.Autocomplete(autocompleteRef.current, {
-        types: ['address'],
-        fields: ['formatted_address', 'geometry', 'address_components'],
+        fields: ['formatted_address', 'geometry', 'address_components', 'name', 'place_id', 'types'],
       });
 
       autocompleteInstance.addListener('place_changed', () => {
@@ -151,7 +151,8 @@ export default function SiteInfo() {
         if (place.geometry && place.geometry.location) {
           const lat = place.geometry.location.lat();
           const lng = place.geometry.location.lng();
-          const address = place.formatted_address || '';
+          // Use formatted_address if available, otherwise use name
+          const address = place.formatted_address || place.name || '';
 
           setSite(prev => ({
             ...prev,
@@ -169,6 +170,13 @@ export default function SiteInfo() {
       });
 
       setAutocomplete(autocompleteInstance);
+
+      // Cleanup function to remove listeners when component unmounts
+      return () => {
+        if (autocompleteInstance) {
+          google.maps.event.clearInstanceListeners(autocompleteInstance);
+        }
+      };
     }
   }, [isLoaded, autocomplete, map]);
 
@@ -193,6 +201,41 @@ export default function SiteInfo() {
         delete newErrors[name];
         return newErrors;
       });
+    }
+  };
+
+  // Geocode address when user types manually and presses Enter or loses focus
+  const handleAddressGeocode = async () => {
+    if (!isLoaded || !site.address.trim() || !map) return;
+    
+    const geocoder = new google.maps.Geocoder();
+    geocoder.geocode({ address: site.address }, (results, status) => {
+      if (status === 'OK' && results && results.length > 0 && results[0].geometry) {
+        const location = results[0].geometry.location;
+        const lat = location.lat();
+        const lng = location.lng();
+        const formattedAddress = results[0].formatted_address || site.address;
+
+        setSite(prev => ({
+          ...prev,
+          address: formattedAddress,
+          latitude: lat,
+          longitude: lng,
+        }));
+
+        // Update map center and marker
+        map.setCenter({ lat, lng });
+        map.setZoom(15);
+      } else {
+        console.warn('Geocoding failed:', status);
+      }
+    });
+  };
+
+  const handleAddressKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddressGeocode();
     }
   };
 
@@ -389,6 +432,28 @@ export default function SiteInfo() {
     lng: site.longitude !== 0 ? site.longitude : -74.0060,
   };
 
+  // Create red pin icon for marker (similar to lucide-react MapPin style)
+  const getMarkerIcon = () => {
+    if (!isLoaded || typeof google === 'undefined') return undefined;
+    
+    // Red pin icon SVG - inspired by lucide-react MapPin style
+    const svgIcon = `<svg width="24" height="32" viewBox="0 0 24 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 0C7.58172 0 4 3.58172 4 8C4 14 12 32 12 32C12 32 20 14 20 8C20 3.58172 16.4183 0 12 0Z" fill="#ef4444"/>
+      <circle cx="12" cy="8" r="3" fill="white"/>
+    </svg>`;
+    
+    try {
+      return {
+        url: 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgIcon))),
+        scaledSize: new google.maps.Size(32, 42),
+        anchor: new google.maps.Point(16, 42),
+      };
+    } catch (error) {
+      console.error('Error creating marker icon:', error);
+      return undefined;
+    }
+  };
+
 
   if (loadError) {
     console.error('Google Maps load error:', loadError);
@@ -481,6 +546,8 @@ export default function SiteInfo() {
                 name="address"
                 value={site.address}
                 onChange={handleInputChange}
+                onKeyDown={handleAddressKeyDown}
+                onBlur={handleAddressGeocode}
                 className={`w-full pl-10 pr-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 ${
                   errors.address ? 'border-red-300' : 'border-gray-300'
                 }`}
@@ -546,8 +613,9 @@ export default function SiteInfo() {
                 >
                   {isLoaded && site.latitude !== 0 && site.longitude !== 0 && (
                     <Marker
-                      key={`marker-${site.latitude}-${site.longitude}`}
+                      key={`marker-${site.id || 'new'}`}
                       position={{ lat: site.latitude, lng: site.longitude }}
+                      icon={getMarkerIcon()}
                       draggable={true}
                       onDragEnd={(e) => {
                         if (e.latLng) {
