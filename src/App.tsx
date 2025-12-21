@@ -73,6 +73,10 @@ const Sites = lazy(() => {
   logger.debug('Loading Sites component');
   return import('./pages/sites/Sites');
 });
+const SiteInfo = lazy(() => {
+  logger.debug('Loading SiteInfo component');
+  return import('./pages/sites/SiteInfo');
+});
 
 const WhosWorking = lazy(() => {
   logger.debug('Loading Whos Working component');
@@ -285,6 +289,8 @@ function App() {
     router.addRoute('/workers/worker-info', () => setCurrentPage('worker-info'));
     // Sites routes
     router.addRoute('/sites', () => setCurrentPage('sites'));
+    router.addRoute('/sites/site-info/:slug', () => setCurrentPage('site-info'));
+    router.addRoute('/sites/site-info', () => setCurrentPage('site-info'));
     
     // Time & Attendance routes
     router.addRoute('/time-and-attendance/whos-working', () => setCurrentPage('whos-working'));
@@ -378,6 +384,8 @@ function App() {
         return <WorkerInfo />;
       case 'sites':
         return <Sites />;
+      case 'site-info':
+        return <SiteInfo />;
 
       case 'reports':
         return <CompanyReports />;

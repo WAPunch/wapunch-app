@@ -12,7 +12,9 @@ import {
   MapPin,
   Building2,
   Eye,
-  MoreVertical
+  MoreVertical,
+  Plus,
+  Upload
 } from 'lucide-react';
 
 interface Site {
@@ -196,11 +198,35 @@ export default function Sites() {
     <div className="p-6">
       {/* Header */}
       <div className="mb-6">
-        <div className="mb-6">
-          <h1 className="text-xl font-semibold text-foreground mb-1">Sites</h1>
-          <p className="text-xs" style={{ color: 'var(--gray-500)' }}>
-            {`View and manage all company sites${filteredSites.length > itemsPerPage ? ` (Page ${currentPage} of ${totalPages})` : ''}`}
-          </p>
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-xl font-semibold text-foreground mb-1">Sites</h1>
+            <p className="text-xs" style={{ color: 'var(--gray-500)' }}>
+              {`View and manage all company sites${filteredSites.length > itemsPerPage ? ` (Page ${currentPage} of ${totalPages})` : ''}`}
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => {
+                // TODO: Implement import functionality
+              }}
+              className="flex items-center gap-2 px-2 py-1 border border-gray-300 rounded bg-white text-gray-700 hover:bg-gray-50 transition-colors text-sm"
+            >
+              <Upload style={{ width: '14px', height: '14px' }} />
+              Import
+            </button>
+            <button 
+              onClick={() => {
+                sessionStorage.removeItem('selectedSite');
+                router.navigate('/sites/site-info');
+              }}
+              className="flex items-center gap-2 px-2 py-1 rounded text-white transition-colors text-sm" 
+              style={{ backgroundColor: 'var(--primary-brand-hex)' }}
+            >
+              <Plus style={{ width: '14px', height: '14px' }} />
+              Add Site
+            </button>
+          </div>
         </div>
       </div>
 
@@ -533,6 +559,19 @@ export default function Sites() {
                     <td className="py-2 px-2 w-24">
                       <div className="flex items-center">
                         <button 
+                          onClick={() => {
+                            // Save site data to sessionStorage for SiteInfo to load
+                            sessionStorage.setItem('selectedSite', JSON.stringify({
+                              id: site.id,
+                              siteName: site.name,
+                              name: site.name,
+                              address: site.address,
+                              site_address: site.address,
+                              latitude: site.latitude || 0,
+                              longitude: site.longitude || 0,
+                            }));
+                            router.navigate('/sites/site-info');
+                          }}
                           className="p-1 hover:bg-gray-100 rounded transition-colors"
                           aria-label={`View ${site.name}`}
                           title={`View ${site.name}`}

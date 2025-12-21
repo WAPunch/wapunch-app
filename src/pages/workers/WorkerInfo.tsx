@@ -652,6 +652,40 @@ export default function WorkerInfo() {
       const countryCodeDigits = worker.phoneCountryCode.replace(/\D/g, ''); // Remove + from country code
       const whatsappNumber = countryCodeDigits + cleanedPhoneNumber; // Combine: country code + number (all digits, no +)
 
+      // Check for duplicate email within the same company (if email is provided)
+      if (worker.email.trim() && currentCompany?.id) {
+        const { data: existingEmailWorker } = await supabase
+          .from('workers')
+          .select('id, first_name, last_name')
+          .eq('company_id', currentCompany.id)
+          .eq('email', worker.email.trim())
+          .eq('is_deleted', false)
+          .maybeSingle();
+
+        if (existingEmailWorker && existingEmailWorker.id !== worker.id) {
+          setErrors({ email: `Email already exists for ${existingEmailWorker.first_name} ${existingEmailWorker.last_name} in this company` });
+          setIsSaving(false);
+          return;
+        }
+      }
+
+      // Check for duplicate phone number within the same company
+      if (currentCompany?.id) {
+        const { data: existingPhoneWorker } = await supabase
+          .from('workers')
+          .select('id, first_name, last_name')
+          .eq('company_id', currentCompany.id)
+          .eq('whatsapp_number', whatsappNumber)
+          .eq('is_deleted', false)
+          .maybeSingle();
+
+        if (existingPhoneWorker && existingPhoneWorker.id !== worker.id) {
+          setErrors({ phoneNumber: `Phone number already exists for ${existingPhoneWorker.first_name} ${existingPhoneWorker.last_name} in this company` });
+          setIsSaving(false);
+          return;
+        }
+      }
+
       // Prepare worker data for database
       // Note: Workers are NOT users. Only Super Admin, Admin, and Manager are users (in company_users table).
       const workerData: any = {

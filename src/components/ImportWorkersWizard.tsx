@@ -262,6 +262,33 @@ Lisa,Moore,lisa.moore@company.com,+14045550139,employee,Construction,Equipment O
       const errors: Array<{ row: number; error: string }> = [];
       const workersToCreate: any[] = [];
 
+      // First, fetch all existing workers for this company to check for duplicates
+      const { data: existingWorkers, error: fetchError } = await supabase
+        .from('workers')
+        .select('email, whatsapp_number')
+        .eq('company_id', currentCompany.id)
+        .eq('is_deleted', false);
+
+      if (fetchError) {
+        throw fetchError;
+      }
+
+      // Create sets for quick lookup
+      const existingEmails = new Set(
+        (existingWorkers || [])
+          .filter(w => w.email)
+          .map(w => w.email?.toLowerCase().trim())
+      );
+      const existingPhones = new Set(
+        (existingWorkers || [])
+          .filter(w => w.whatsapp_number)
+          .map(w => w.whatsapp_number)
+      );
+
+      // Track emails and phones in the current import batch to detect duplicates within the CSV
+      const batchEmails = new Set<string>();
+      const batchPhones = new Set<string>();
+
       for (let i = 0; i < csvData.length; i++) {
         const row = csvData[i];
         if (!row) continue; // Skip if row is undefined
@@ -325,6 +352,31 @@ Lisa,Moore,lisa.moore@company.com,+14045550139,employee,Construction,Equipment O
           const cleanedPhoneNumber = cleanPhoneNumber(phoneNumber);
           const countryCodeDigits = phoneCountryCode.replace(/\D/g, '');
           const whatsappNumber = countryCodeDigits + cleanedPhoneNumber;
+
+          // Check for duplicate email within company (if email is provided)
+          if (row.email.trim()) {
+            const emailLower = row.email.trim().toLowerCase();
+            if (existingEmails.has(emailLower)) {
+              errors.push({ row: rowNum, error: `Email "${row.email.trim()}" already exists in this company` });
+              continue;
+            }
+            if (batchEmails.has(emailLower)) {
+              errors.push({ row: rowNum, error: `Email "${row.email.trim()}" is duplicated in this CSV file` });
+              continue;
+            }
+            batchEmails.add(emailLower);
+          }
+
+          // Check for duplicate phone number within company
+          if (existingPhones.has(whatsappNumber)) {
+            errors.push({ row: rowNum, error: `Phone number already exists in this company` });
+            continue;
+          }
+          if (batchPhones.has(whatsappNumber)) {
+            errors.push({ row: rowNum, error: `Phone number is duplicated in this CSV file` });
+            continue;
+          }
+          batchPhones.add(whatsappNumber);
 
           workersToCreate.push({
             first_name: row.firstName.trim(),

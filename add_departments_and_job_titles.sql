@@ -203,4 +203,3 @@ USING (
       AND cu.is_deleted = false
   )
 );
-

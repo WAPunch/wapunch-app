@@ -122,4 +122,3 @@ export const useDepartments = (): UseDepartmentsResult => {
     addDepartment,
   };
 };
-
