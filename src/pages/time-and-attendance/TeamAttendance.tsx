@@ -650,8 +650,8 @@ export default function TeamAttendance() {
     // Register submodule tabs for time and attendance
     registerSubmodules('Time & Attendance', [
       { id: 'whos-working', label: "Who's Working", href: '/time-and-attendance/whos-working', icon: Users },
-      { id: 'team-schedule', label: 'Team Schedule', href: '/time-and-attendance/team-schedule', icon: Calendar },
-      { id: 'team-attendance', label: 'Team Attendance', href: '/time-and-attendance/team-attendance', icon: Clock },
+      { id: 'schedule', label: 'Schedule', href: '/time-and-attendance/schedule', icon: Calendar },
+      { id: 'attendance', label: 'Attendance', href: '/time-and-attendance/attendance', icon: Clock },
       { id: 'attendance-flags', label: 'Attendance Flags', href: '/time-and-attendance/attendance-flags', icon: Flag }
     ]);
   }, [registerSubmodules]);
@@ -726,7 +726,7 @@ export default function TeamAttendance() {
           sessionEnd: '12:00',
           location: 'Main Office',
           punches: [
-            { id: 'p1', timestamp: '09:30', type: 'in', location: 'Main Office', activity: 'Team meeting' },
+            { id: 'p1', timestamp: '09:30', type: 'in', location: 'Main Office', activity: 'Workers meeting' },
             { id: 'p2', timestamp: '12:00', type: 'out', location: 'Main Office', activity: 'Transfer to client' }
           ],
           breaks: [],
@@ -812,7 +812,7 @@ export default function TeamAttendance() {
           project: 'Project Beta',
           activity: 'Code Review',
           hours: 4.5,
-          notes: 'Reviewing team code',
+          notes: 'Reviewing workers code',
           type: 'work' as const
         }
       ],
@@ -920,7 +920,7 @@ export default function TeamAttendance() {
           clockIn: '09:30',
           clockOut: '12:00',
           project: 'Main Office',
-          activity: 'Team Meeting',
+          activity: 'Workers Meeting',
           hours: 2.5,
           notes: 'Sprint planning',
           type: 'work' as const
@@ -3465,8 +3465,8 @@ export default function TeamAttendance() {
       <div className="mb-6">
         <div className="flex items-center justify-between">
           <div>
-        <h1 className="text-xl font-semibold text-foreground mb-1">Team Attendance</h1>
-        <p className="text-xs text-muted-foreground">Track and manage team attendance records</p>
+        <h1 className="text-xl font-semibold text-foreground mb-1">Attendance</h1>
+        <p className="text-xs text-muted-foreground">Track and manage workers attendance records</p>
           </div>
           
           {/* Date Navigation */}

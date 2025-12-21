@@ -83,13 +83,13 @@ const WhosWorking = lazy(() => {
   return import('./pages/time-and-attendance/WhosWorking');
 });
 
-const TeamSchedule = lazy(() => {
-  logger.debug('Loading Team Schedule component');
+const Schedule = lazy(() => {
+  logger.debug('Loading Schedule component');
   return import('./pages/time-and-attendance/TeamSchedule');
 });
 
-const TeamAttendance = lazy(() => {
-  logger.debug('Loading Team Attendance component');
+const Attendance = lazy(() => {
+  logger.debug('Loading Attendance component');
   return import('./pages/time-and-attendance/TeamAttendance');
 });
 
@@ -294,8 +294,8 @@ function App() {
     
     // Time & Attendance routes
     router.addRoute('/time-and-attendance/whos-working', () => setCurrentPage('whos-working'));
-    router.addRoute('/time-and-attendance/team-schedule', () => setCurrentPage('team-schedule'));
-    router.addRoute('/time-and-attendance/team-attendance', () => setCurrentPage('team-attendance'));
+    router.addRoute('/time-and-attendance/schedule', () => setCurrentPage('schedule'));
+    router.addRoute('/time-and-attendance/attendance', () => setCurrentPage('attendance'));
     router.addRoute('/time-and-attendance/attendance-flags', () => setCurrentPage('attendance-flags'));
     router.addRoute('/time-and-attendance/worker-timesheet/:slug', () => setCurrentPage('worker-timesheet'));
     router.addRoute('/time-and-attendance/worker-timesheet', () => setCurrentPage('worker-timesheet'));
@@ -391,10 +391,10 @@ function App() {
         return <CompanyReports />;
       case 'whos-working':
         return <WhosWorking />;
-      case 'team-schedule':
-        return <TeamSchedule />;
-      case 'team-attendance':
-        return <TeamAttendance />;
+      case 'schedule':
+        return <Schedule />;
+      case 'attendance':
+        return <Attendance />;
       case 'attendance-flags':
         return <AttendanceFlags />;
       case 'worker-timesheet':

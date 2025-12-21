@@ -128,7 +128,11 @@ export const useWhosWorking = (): UseWhosWorkingResult => {
           is_active,
           archived,
           whatsapp_number,
-          email
+          email,
+          department_id,
+          department:departments(name),
+          job_title_id,
+          job_title:job_titles(name)
         `)
         .eq('company_id', currentCompany.id)
         .eq('is_deleted', false)
@@ -200,23 +204,25 @@ export const useWhosWorking = (): UseWhosWorkingResult => {
         // Get last activity info
         const lastActivity = latestLog ? mapLastActivity(latestLog.log_type) : 'clock-out';
         const lastActivityTime = latestLog ? formatTime(latestLog.log_time) : 'N/A';
-        const activityDetails = latestLog 
-          ? `${lastActivity.replace('-', ' ')} - ${latestLog.source || 'Unknown'}`
-          : 'No recent activity';
+
+        // Get department name
+        const departmentName = (worker.department as any)?.name || '';
+        // Get job title name - same logic as useWorkers
+        const jobTitleName = (worker.job_title as any)?.name || worker.position || '';
 
         return {
           id: worker.id,
           firstName: worker.first_name || '',
           lastName: worker.last_name || '',
           email: worker.email || '', // Email is stored directly in workers table
-          jobTitle: worker.position || 'Worker',
-          department: '', // Department not in workers table
+          jobTitle: jobTitleName,
+          department: departmentName,
           status,
           current_status: worker.current_status || 'out',
           location,
           lastActivityTime,
           lastActivity,
-          activityDetails,
+          activityDetails: '', // No longer used, but keeping for interface compatibility
           phone: worker.whatsapp_number || undefined,
           latitude,
           longitude,

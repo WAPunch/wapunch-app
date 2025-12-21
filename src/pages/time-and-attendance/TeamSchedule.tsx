@@ -132,8 +132,8 @@ export default function TeamSchedule() {
     // Register submodule tabs for time and attendance
     registerSubmodules('Time & Attendance', [
       { id: 'whos-working', label: "Who's Working", href: '/time-and-attendance/whos-working', icon: Users },
-      { id: 'team-schedule', label: 'Team Schedule', href: '/time-and-attendance/team-schedule', icon: Calendar },
-      { id: 'team-attendance', label: 'Team Attendance', href: '/time-and-attendance/team-attendance', icon: Clock },
+      { id: 'schedule', label: 'Schedule', href: '/time-and-attendance/schedule', icon: Calendar },
+      { id: 'attendance', label: 'Attendance', href: '/time-and-attendance/attendance', icon: Clock },
       { id: 'attendance-flags', label: 'Attendance Flags', href: '/time-and-attendance/attendance-flags', icon: Flag }
     ]);
   }, [registerSubmodules]);
@@ -1615,8 +1615,8 @@ export default function TeamSchedule() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold text-foreground mb-1">Team Schedule</h1>
-          <p className="text-xs text-muted-foreground">Schedule and manage team shifts efficiently</p>
+          <h1 className="text-xl font-semibold text-foreground mb-1">Schedule</h1>
+          <p className="text-xs text-muted-foreground">Schedule and manage workers shifts efficiently</p>
         </div>
       </div>
 

@@ -230,10 +230,10 @@ export default function ManagementDashboard() {
             </button>
 
             <button
-              onClick={() => router.navigate('/time-and-attendance/team-attendance')}
+              onClick={() => router.navigate('/time-and-attendance/attendance')}
               className="w-full p-4 text-left hover:bg-gray-50 rounded-lg transition-colors border border-gray-200"
             >
-              <div className="font-medium mb-1">Team Attendance</div>
+              <div className="font-medium mb-1">Attendance</div>
               <div className="text-sm text-muted-foreground">Review attendance logs and reports</div>
             </button>
 

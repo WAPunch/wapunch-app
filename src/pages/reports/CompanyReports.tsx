@@ -4,13 +4,7 @@ import {
   Printer, 
   Users, 
   Clock, 
-  Calendar, 
-  BookOpen, 
-  TrendingUp, 
-  Heart, 
-  Receipt, 
-  CreditCard, 
-  Monitor,
+  Building2,
   FileText,
   Download,
   Filter,
@@ -26,64 +20,28 @@ interface ReportModule {
 
 const reportModules: ReportModule[] = [
   {
-    id: 'recruitment',
-    label: 'Recruitment',
-    icon: Users,
-    description: 'Hiring reports, candidate analytics, and recruitment metrics'
-  },
-  {
     id: 'time-attendance',
     label: 'Time & Attendance',
     icon: Clock,
     description: 'Attendance reports, time tracking, and workforce analytics'
   },
   {
-    id: 'pto-leaves',
-    label: 'PTO & Leaves',
-    icon: Calendar,
-    description: 'Leave reports, PTO balances, and absence analytics'
+    id: 'workers',
+    label: 'Workers',
+    icon: Users,
+    description: 'Worker reports, employee analytics, and workforce metrics'
   },
   {
-    id: 'company-knowledge',
-    label: 'Company Knowledge',
-    icon: BookOpen,
-    description: 'Knowledge base reports, training progress, and documentation analytics'
-  },
-  {
-    id: 'performance',
-    label: 'Performance',
-    icon: TrendingUp,
-    description: 'Performance reviews, goals tracking, and employee development reports'
-  },
-  {
-    id: 'benefits',
-    label: 'Benefits',
-    icon: Heart,
-    description: 'Benefits enrollment, usage reports, and cost analytics'
-  },
-  {
-    id: 'expenses',
-    label: 'Expenses',
-    icon: Receipt,
-    description: 'Expense reports, reimbursement tracking, and cost management'
-  },
-  {
-    id: 'payroll',
-    label: 'Payroll',
-    icon: CreditCard,
-    description: 'Payroll reports, salary analytics, and compensation tracking'
-  },
-  {
-    id: 'it-management',
-    label: 'IT Management',
-    icon: Monitor,
-    description: 'IT asset reports, system usage, and technology analytics'
+    id: 'sites',
+    label: 'Sites',
+    icon: Building2,
+    description: 'Site reports, location analytics, and facility metrics'
   }
 ];
 
 export default function CompanyReports() {
   const { registerSubmodules } = useSubmoduleNav();
-  const [activeModule, setActiveModule] = useState<string>('recruitment');
+  const [activeModule, setActiveModule] = useState<string>('time-attendance');
 
   useEffect(() => {
     // Clear any existing submodules to hide the secondary navbar

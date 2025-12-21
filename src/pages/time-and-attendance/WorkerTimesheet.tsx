@@ -191,7 +191,7 @@ export default function WorkerTimesheet() {
         const slug = mappedWorker.workerName.toLowerCase().replace(/\s+/g, '-');
         setBreadcrumbs([
           { label: 'Time & Attendance' },
-          { label: 'Team Attendance', href: '/time-and-attendance/team-attendance' },
+          { label: 'Attendance', href: '/time-and-attendance/attendance' },
           { label: mappedWorker.workerName }
         ]);
       } catch (error) {
@@ -210,7 +210,7 @@ export default function WorkerTimesheet() {
         setCurrentWorkerIndex(0);
         setBreadcrumbs([
           { label: 'Time & Attendance' },
-          { label: 'Team Attendance', href: '/time-and-attendance/team-attendance' },
+          { label: 'Attendance', href: '/time-and-attendance/attendance' },
           { label: 'John Doe' }
         ]);
       }
@@ -222,7 +222,7 @@ export default function WorkerTimesheet() {
         setCurrentWorkerIndex(0);
         setBreadcrumbs([
           { label: 'Time & Attendance' },
-          { label: 'Team Attendance', href: '/time-and-attendance/team-attendance' },
+          { label: 'Attendance', href: '/time-and-attendance/attendance' },
           { label: firstWorker.workerName }
         ]);
       }
@@ -268,7 +268,7 @@ export default function WorkerTimesheet() {
         // Randomly generate 1-3 time entries per day
         const numEntries = Math.floor(Math.random() * 3) + 1;
         const projects = ['Project Alpha', 'Project Beta', 'Project Gamma', 'Project Delta'];
-        const activities = ['Development', 'Code Review', 'Team Meeting', 'Client Call', 'Documentation', 'Testing'];
+        const activities = ['Development', 'Code Review', 'Workers Meeting', 'Client Call', 'Documentation', 'Testing'];
 
         for (let i = 0; i < numEntries; i++) {
           const clockIn = `${8 + Math.floor(Math.random() * 2)}:${Math.floor(Math.random() * 60).toString().padStart(2, '0')}`;
@@ -295,7 +295,7 @@ export default function WorkerTimesheet() {
         // Generate sessions grouped by type: work, custom, transfer, break, leave
         const sessionTypes: Session['type'][] = ['work', 'custom', 'transfer', 'break', 'leave'];
         const descriptions = {
-          work: ['Development work', 'Code review', 'Team collaboration', 'Client meeting'],
+          work: ['Development work', 'Code review', 'Workers collaboration', 'Client meeting'],
           transfer: ['Location transfer', 'Department transfer', 'Site visit'],
           break: ['Lunch break', 'Coffee break', 'Rest break'],
           leave: ['Sick leave', 'Personal leave', 'Vacation day'],
@@ -523,7 +523,7 @@ export default function WorkerTimesheet() {
   };
 
   const handleBackToTeamAttendance = () => {
-    router.navigate('/time-and-attendance/team-attendance');
+    router.navigate('/time-and-attendance/attendance');
   };
 
   if (!worker) {

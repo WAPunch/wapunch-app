@@ -69,7 +69,7 @@ export default function WhosWorking() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [viewMode, setViewMode] = useState<'table' | 'map'>('table');
-  const [sortBy, setSortBy] = useState<'firstName' | 'department' | 'lastActivityTime'>('firstName');
+  const [sortBy, setSortBy] = useState<'firstName' | 'jobTitle' | 'lastActivityTime'>('firstName');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [selectedDepartment, setSelectedDepartment] = useState<string[]>([]);
   const [selectedStatus, setSelectedStatus] = useState<string[]>([]);
@@ -85,8 +85,8 @@ export default function WhosWorking() {
     // Register submodule tabs for time and attendance section
     registerSubmodules('Time & Attendance', [
       { id: 'whos-working', label: "Who's Working", href: '/time-and-attendance/whos-working', icon: Users },
-      { id: 'team-schedule', label: 'Team Schedule', href: '/time-and-attendance/team-schedule', icon: Calendar },
-      { id: 'team-attendance', label: 'Team Attendance', href: '/time-and-attendance/team-attendance', icon: Clock },
+      { id: 'schedule', label: 'Schedule', href: '/time-and-attendance/schedule', icon: Calendar },
+      { id: 'attendance', label: 'Attendance', href: '/time-and-attendance/attendance', icon: Clock },
       { id: 'attendance-flags', label: 'Attendance Flags', href: '/time-and-attendance/attendance-flags', icon: Flag }
     ]);
   }, [registerSubmodules]);
@@ -129,7 +129,13 @@ export default function WhosWorking() {
       const matchesDepartment = selectedDepartment.length === 0 || selectedDepartment.includes(worker.department);
 
       // Status filter
-      const matchesStatus = selectedStatus.length === 0 || selectedStatus.includes(worker.status);
+      const matchesStatus = selectedStatus.length === 0 || 
+        selectedStatus.some(status => {
+          if (status === 'out') {
+            return worker.status === 'absent' || worker.status === 'on-leave';
+          }
+          return worker.status === status;
+        });
 
       // Location filter
       const matchesLocation = selectedLocation.length === 0 || selectedLocation.includes(worker.location);
@@ -147,9 +153,9 @@ export default function WhosWorking() {
           aValue = a.firstName.toLowerCase();
           bValue = b.firstName.toLowerCase();
           break;
-        case 'department':
-          aValue = a.department.toLowerCase();
-          bValue = b.department.toLowerCase();
+        case 'jobTitle':
+          aValue = a.jobTitle.toLowerCase();
+          bValue = b.jobTitle.toLowerCase();
           break;
         case 'lastActivityTime':
           aValue = a.lastActivityTime.toLowerCase();
@@ -272,7 +278,7 @@ export default function WhosWorking() {
 
   // Filter options based on search terms
   const getFilteredStatusOptions = () => {
-    const statusOptions = ['present', 'on-break', 'on-transfer', 'on-leave', 'absent'];
+    const statusOptions = ['present', 'on-break', 'on-transfer', 'out'];
     if (!statusSearchTerm) return statusOptions;
     return statusOptions.filter(status => 
       status.replace('-', ' ').toLowerCase().includes(statusSearchTerm.toLowerCase())
@@ -305,9 +311,8 @@ export default function WhosWorking() {
       case 'on-transfer':
         return <MapPinIcon className="w-4 h-4 text-status-blue" />;
       case 'on-leave':
-        return <CalendarCheck className="w-4 h-4 text-status-purple" />;
       case 'absent':
-        return <XCircle className="w-4 h-4 text-status-red" />;
+        return <XCircle className="w-4 h-4 text-status-gray" />;
       default:
         return <Activity className="w-4 h-4 text-status-gray" />;
     }
@@ -318,7 +323,7 @@ export default function WhosWorking() {
       case 'present':
         return (
           <span className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-50 text-status-green">
-            Present
+            In
           </span>
         );
       case 'on-break':
@@ -334,15 +339,10 @@ export default function WhosWorking() {
           </span>
         );
       case 'on-leave':
-        return (
-          <span className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-status-purple">
-            On Leave
-          </span>
-        );
       case 'absent':
         return (
-          <span className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-status-red">
-            Absent
+          <span className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-status-gray">
+            Out
           </span>
         );
       default:
@@ -410,7 +410,7 @@ export default function WhosWorking() {
           <p className="text-xs" style={{ color: 'var(--gray-500)' }}>
             {workersLoading 
               ? 'Loading worker status...' 
-              : `Track your team's current status and location${filteredWorkers.length > itemsPerPage ? ` (Page ${currentPage} of ${totalPages})` : ''}`
+              : `Track your workers' current status and location${filteredWorkers.length > itemsPerPage ? ` (Page ${currentPage} of ${totalPages})` : ''}`
             }
           </p>
         </div>
@@ -437,7 +437,7 @@ export default function WhosWorking() {
 
       {/* Stats Cards */}
       {!workersLoading && !workersError && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <button 
             onClick={() => handleSummaryCardClick('present')}
             className={`bg-white border rounded-lg p-4 transition-all duration-200 hover:shadow-md cursor-pointer ${
@@ -445,31 +445,14 @@ export default function WhosWorking() {
                 ? 'border-primary shadow-md' 
                 : 'border-gray-200 hover:border-gray-300'
             }`}
-            title="Filter by Present status"
+            title="Filter by In status"
           >
             <div className="flex items-center gap-3">
               <CheckCircle className="h-5 w-5 text-status-green" />
               <div className="text-2xl font-bold text-gray-900">
                 {workers.filter(e => e.status === 'present').length}
               </div>
-              <div className="text-sm text-muted-foreground">Present</div>
-            </div>
-          </button>
-          <button 
-            onClick={() => handleSummaryCardClick('absent')}
-            className={`bg-white border rounded-lg p-4 transition-all duration-200 hover:shadow-md cursor-pointer ${
-              isSummaryCardActive('absent') 
-                ? 'border-primary shadow-md' 
-                : 'border-gray-200 hover:border-gray-300'
-            }`}
-            title="Filter by Absent status"
-          >
-            <div className="flex items-center gap-3">
-              <XCircle className="h-5 w-5 text-status-red" />
-              <div className="text-2xl font-bold text-gray-900">
-                {workers.filter(e => e.status === 'absent').length}
-              </div>
-              <div className="text-sm text-muted-foreground">Absent</div>
+              <div className="text-sm text-muted-foreground">In</div>
             </div>
           </button>
           <button 
@@ -507,20 +490,20 @@ export default function WhosWorking() {
             </div>
           </button>
           <button 
-            onClick={() => handleSummaryCardClick('on-leave')}
+            onClick={() => handleSummaryCardClick('out')}
             className={`bg-white border rounded-lg p-4 transition-all duration-200 hover:shadow-md cursor-pointer ${
-              isSummaryCardActive('on-leave') 
+              isSummaryCardActive('out') 
                 ? 'border-primary shadow-md' 
                 : 'border-gray-200 hover:border-gray-300'
             }`}
-            title="Filter by On Leave status"
+            title="Filter by Out status"
           >
             <div className="flex items-center gap-3">
-              <CalendarCheck className="h-5 w-5 text-status-purple" />
+              <XCircle className="h-5 w-5 text-status-gray" />
               <div className="text-2xl font-bold text-gray-900">
-                {workers.filter(e => e.status === 'on-leave').length}
+                {workers.filter(e => e.status === 'absent' || e.status === 'on-leave').length}
               </div>
-              <div className="text-sm text-muted-foreground">On Leave</div>
+              <div className="text-sm text-muted-foreground">Out</div>
             </div>
           </button>
         </div>
@@ -662,11 +645,10 @@ export default function WhosWorking() {
                            onClick={() => handleStatusToggle(status)}>
                         <input type="checkbox" checked={selectedStatus.includes(status)} readOnly className="w-4 h-4" />
                         <span className="text-sm text-gray-700">
-                          {status === 'present' ? 'Present' :
+                          {status === 'present' ? 'In' :
                            status === 'on-break' ? 'On Break' :
                            status === 'on-transfer' ? 'On Transfer' :
-                           status === 'on-leave' ? 'On Leave' :
-                           'Absent'}
+                           'Out'}
                         </span>
                       </div>
                     ))}
@@ -829,13 +811,13 @@ export default function WhosWorking() {
                   {sortBy === 'firstName' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                 </button>
                 <button 
-                  onClick={() => handleSort('department')}
+                  onClick={() => handleSort('jobTitle')}
                   className={`text-xs hover:text-gray-900 flex items-center gap-1 ${
-                    sortBy === 'department' ? 'text-gray-900 font-medium' : 'text-gray-600'
+                    sortBy === 'jobTitle' ? 'text-gray-900 font-medium' : 'text-gray-600'
                   }`}
                 >
-                  Department
-                  {sortBy === 'department' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
+                  Job Title
+                  {sortBy === 'jobTitle' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                 </button>
                 <button 
                   onClick={() => handleSort('lastActivityTime')}
@@ -860,7 +842,7 @@ export default function WhosWorking() {
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left py-3 px-6 font-medium text-gray-900 text-xs">
+                  <th className="text-left py-3 px-6 font-medium text-gray-900 text-xs w-64">
                     <button
                       onClick={() => handleSort('firstName')}
                       className="flex items-center gap-1 hover:text-gray-700"
@@ -869,17 +851,17 @@ export default function WhosWorking() {
                       {sortBy === 'firstName' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                     </button>
                   </th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs">
+                  <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs w-48">
                     <button
-                      onClick={() => handleSort('department')}
+                      onClick={() => handleSort('jobTitle')}
                       className="flex items-center gap-1 hover:text-gray-700"
                     >
-                      Department
-                      {sortBy === 'department' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
+                      Job Title
+                      {sortBy === 'jobTitle' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                     </button>
                   </th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs">Status</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs">
+                  <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs w-32">Status</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs w-36">
                     <button
                       onClick={() => handleSort('lastActivityTime')}
                       className="flex items-center gap-1 hover:text-gray-700"
@@ -889,14 +871,13 @@ export default function WhosWorking() {
                     </button>
                   </th>
                   <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs">Location</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs">Activity Details</th>
                   <th className="text-left py-3 px-2 font-medium text-gray-900 text-xs w-24">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {paginatedWorkers.map((worker, _index) => (
                   <tr key={worker.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                    <td className="py-4 px-6">
+                    <td className="py-4 px-6 w-64">
                       <div className="flex items-center gap-3">
                         <div className="relative">
                           <div 
@@ -910,35 +891,32 @@ export default function WhosWorking() {
                             style={{ backgroundColor: getCurrentStatusDotColor(worker.current_status) }}>
                           </div>
                         </div>
-                        <div>
-                          <div className="font-medium text-gray-900 text-sm">
+                        <div className="min-w-0">
+                          <div className="font-medium text-gray-900 text-sm truncate">
                             {worker.firstName} {worker.lastName}
                           </div>
-                          <div className="text-xs" style={{ color: 'var(--gray-500)' }}>{worker.jobTitle}</div>
+                          {worker.department && (
+                            <div className="text-xs truncate" style={{ color: 'var(--gray-500)' }}>
+                              {worker.department}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
-                    <td className="py-4 px-4 text-gray-900 text-sm">{worker.department}</td>
-                    <td className="py-4 px-4">
+                    <td className="py-4 px-4 w-48 text-gray-900 text-sm">
+                      <span className="truncate block">{worker.jobTitle || '—'}</span>
+                    </td>
+                    <td className="py-4 px-4 w-32">
                       <div className="flex items-center gap-2">
                         {getStatusIcon(worker.status)}
                         {getStatusBadge(worker.status)}
                       </div>
                     </td>
-                    <td className="py-4 px-4 text-gray-600 text-sm">
+                    <td className="py-4 px-4 w-36 text-gray-600 text-sm">
                       {(worker.status === 'absent' || worker.status === 'on-leave') ? '--' : worker.lastActivityTime}
                     </td>
                     <td className="py-4 px-4 text-gray-600 text-sm">
                       {(worker.status === 'absent' || worker.status === 'on-leave') ? '--' : worker.location}
-                    </td>
-                    <td className="py-4 px-4 text-gray-600 text-sm max-w-xs">
-                      {(worker.status === 'absent' || worker.status === 'on-leave') ? (
-                        <div className="truncate">--</div>
-                      ) : (
-                        <div className="truncate" title={worker.activityDetails}>
-                          {worker.activityDetails}
-                        </div>
-                      )}
                     </td>
                     <td className="py-2 px-2 w-24">
                       <div className="flex items-center">
@@ -1123,3 +1101,4 @@ export default function WhosWorking() {
     </div>
   );
 }
+
