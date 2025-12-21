@@ -13,9 +13,9 @@ import {
 } from 'lucide-react';
 import { GoogleMap, LoadScript, Marker, useJsApiLoader } from '@react-google-maps/api';
 import { Autocomplete } from '@react-google-maps/api';
+import { useGoogleMapsLoader } from '../../lib/google-maps';
 
-// Google Maps libraries
-const libraries: ("places" | "drawing" | "geometry" | "visualization")[] = ['places'];
+// Google Maps libraries are centralized in `useGoogleMapsLoader`
 
 // Default site data
 const defaultSite = {
@@ -47,24 +47,8 @@ export default function SiteInfo() {
   const autocompleteRef = useRef<HTMLInputElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
 
-  // Google Maps API Key - should be in environment variables
-  const googleMapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
-
-  // Debug logging
-  useEffect(() => {
-    console.log('🗺️ Google Maps API Key check:', {
-      hasKey: !!googleMapsApiKey,
-      keyLength: googleMapsApiKey?.length || 0,
-      keyPreview: googleMapsApiKey ? `${googleMapsApiKey.substring(0, 20)}...` : 'MISSING',
-    });
-  }, [googleMapsApiKey]);
-
-  // Load Google Maps
-  const { isLoaded, loadError } = useJsApiLoader({
-    id: 'google-map-script',
-    googleMapsApiKey: googleMapsApiKey,
-    libraries: libraries,
-  });
+  // Load Google Maps (must be called with identical options app-wide)
+  const { isLoaded, loadError } = useGoogleMapsLoader();
 
   useEffect(() => {
     setBreadcrumbs([
@@ -483,11 +467,11 @@ export default function SiteInfo() {
             <span className="font-medium">Error loading Google Maps</span>
           </div>
           <p className="text-sm text-red-700 mt-2">
-            {googleMapsApiKey 
+            {import.meta.env.VITE_GOOGLE_MAPS_API_KEY 
               ? `Failed to load Google Maps. Error: ${loadError?.message || 'Unknown error'}. Please check your API key has the following APIs enabled: Maps JavaScript API, Places API, and Geocoding API.`
               : 'Google Maps API key is not configured. Please set VITE_GOOGLE_MAPS_API_KEY in your environment variables.'}
           </p>
-          {googleMapsApiKey && (
+          {import.meta.env.VITE_GOOGLE_MAPS_API_KEY && (
             <div className="mt-3 text-xs text-red-600">
               <p className="font-medium">Troubleshooting steps:</p>
               <ul className="list-disc list-inside mt-1 space-y-1">

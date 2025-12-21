@@ -2,7 +2,8 @@ import { useEffect, useState, useMemo } from 'react';
 import { router } from '../../lib/router';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
 import { useSites } from '../../hooks/useSites';
-import { GoogleMap, Marker, useJsApiLoader } from '@react-google-maps/api';
+import { GoogleMap, MarkerF } from '@react-google-maps/api';
+import { useGoogleMapsLoader } from '../../lib/google-maps';
 import { 
   Search, 
   Filter,
@@ -18,8 +19,7 @@ import {
   Upload
 } from 'lucide-react';
 
-// Google Maps libraries
-const libraries: ("places" | "drawing" | "geometry" | "visualization")[] = [];
+// Google Maps libraries are centralized in `useGoogleMapsLoader`
 
 interface Site {
   id: string;
@@ -53,15 +53,8 @@ export default function Sites() {
   const [map, setMap] = useState<google.maps.Map | null>(null);
   const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
 
-  // Google Maps API Key
-  const googleMapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
-
-  // Load Google Maps - use different ID to avoid conflicts
-  const { isLoaded, loadError } = useJsApiLoader({
-    id: 'google-map-script-sites-view',
-    googleMapsApiKey: googleMapsApiKey,
-    libraries: libraries,
-  });
+  // Load Google Maps (must be called with identical options app-wide)
+  const { isLoaded, loadError } = useGoogleMapsLoader();
 
   useEffect(() => {
     // Register submodule tabs for sites section
@@ -143,6 +136,18 @@ export default function Sites() {
     });
   }, [searchTerm, sites, sortBy, sortOrder, selectedState, selectedCity]);
 
+  const sitesWithCoords = useMemo(
+    () =>
+      filteredSites.filter(
+        (s) =>
+          typeof s.latitude === 'number' &&
+          typeof s.longitude === 'number' &&
+          s.latitude !== 0 &&
+          s.longitude !== 0
+      ),
+    [filteredSites]
+  );
+
   // Create red pin icon for markers (same as SiteInfo)
   const getMarkerIcon = () => {
     if (!isLoaded || typeof google === 'undefined' || !google.maps) return undefined;
@@ -166,7 +171,6 @@ export default function Sites() {
 
   // Calculate map center based on all sites with coordinates
   const mapCenter = useMemo(() => {
-    const sitesWithCoords = filteredSites.filter(s => s.latitude && s.longitude);
     if (sitesWithCoords.length === 0) {
       return { lat: 40.7128, lng: -74.0060 }; // Default to NYC
     }
@@ -175,7 +179,24 @@ export default function Sites() {
     const avgLng = sitesWithCoords.reduce((sum, s) => sum + (s.longitude || 0), 0) / sitesWithCoords.length;
     
     return { lat: avgLat, lng: avgLng };
-  }, [filteredSites]);
+  }, [sitesWithCoords]);
+
+  // Fit map bounds to all sites with coordinates (unless user has selected a specific site)
+  useEffect(() => {
+    if (!map || !isLoaded) return;
+    if (sitesWithCoords.length === 0) return;
+
+    // If a site is selected, we let selection handler control centering/zoom.
+    if (selectedSiteId) return;
+
+    try {
+      const bounds = new google.maps.LatLngBounds();
+      sitesWithCoords.forEach((s) => bounds.extend({ lat: s.latitude!, lng: s.longitude! }));
+      map.fitBounds(bounds);
+    } catch (e) {
+      // noop - map can still render
+    }
+  }, [map, isLoaded, sitesWithCoords, selectedSiteId]);
 
   // Handle site click in list to center map on that site
   const handleSiteClick = (site: Site) => {
@@ -569,7 +590,7 @@ export default function Sites() {
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left py-3 px-6 font-medium text-gray-900 text-xs">
+                  <th className="text-left py-3 px-6 font-medium text-gray-900 text-xs w-1/3 min-w-[200px]">
                     <button
                       onClick={() => handleSort('name')}
                       className="flex items-center gap-1 hover:text-gray-700"
@@ -617,8 +638,8 @@ export default function Sites() {
                       </div>
                     </td>
                     <td className="py-4 px-4">
-                      <div className="flex items-center gap-2 text-gray-600 text-sm">
-                        <MapPin className="w-4 h-4 text-gray-400" />
+                      <div className="flex items-start gap-2 text-gray-600 text-sm">
+                        <MapPin className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
                         <span>{site.address}, {site.city}, {site.state} {site.zipCode}</span>
                       </div>
                     </td>
@@ -687,9 +708,9 @@ export default function Sites() {
                       <div className="font-medium text-gray-900 text-sm">
                         {site.name}
                       </div>
-                      <div className="text-xs text-gray-500 flex items-center gap-1 mt-1">
-                        <MapPin className="w-3 h-3" />
-                        <span className="truncate">{site.address}, {site.city}, {site.state}</span>
+                      <div className="text-xs text-gray-500 flex items-start gap-1 mt-1">
+                        <MapPin className="w-3 h-3 shrink-0 mt-[1px]" />
+                        <span className="whitespace-normal break-words">{site.address}, {site.city}, {site.state}</span>
                       </div>
                       {!site.latitude || !site.longitude ? (
                         <div className="text-xs text-amber-600 mt-1">⚠️ No coordinates</div>
@@ -705,7 +726,7 @@ export default function Sites() {
           <div className="w-[70%] bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div className="bg-gray-50 border-b border-gray-200 px-4 py-3">
               <h3 className="text-sm font-medium text-gray-900">
-                Site Locations ({filteredSites.filter(s => s.latitude && s.longitude).length} with coordinates)
+                Site Locations ({sitesWithCoords.length} with coordinates)
               </h3>
             </div>
             {isLoaded ? (
@@ -713,7 +734,7 @@ export default function Sites() {
                 <GoogleMap
                   mapContainerStyle={{ width: '100%', height: '100%' }}
                   center={mapCenter}
-                  zoom={filteredSites.filter(s => s.latitude && s.longitude).length > 1 ? 10 : 15}
+                  zoom={sitesWithCoords.length > 1 ? 10 : 15}
                   onLoad={(map) => setMap(map)}
                   options={{
                     disableDefaultUI: false,
@@ -723,12 +744,12 @@ export default function Sites() {
                     fullscreenControl: true,
                   }}
                 >
-                  {isLoaded && filteredSites
-                    .filter(site => site.latitude && site.longitude && site.latitude !== 0 && site.longitude !== 0)
-                    .map((site) => (
-                      <Marker
+                  {isLoaded &&
+                    sitesWithCoords.map((site) => (
+                      <MarkerF
                         key={`site-marker-${site.id}`}
                         position={{ lat: site.latitude!, lng: site.longitude! }}
+                        icon={getMarkerIcon()}
                         onClick={() => {
                           setSelectedSiteId(site.id);
                           if (map) {
