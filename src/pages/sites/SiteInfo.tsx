@@ -24,6 +24,8 @@ const defaultSite = {
   address: '',
   latitude: 0,
   longitude: 0,
+  type: 'company_branch' as 'company_branch' | 'customer_site',
+  customSiteId: '',
 };
 
 interface SiteData {
@@ -32,6 +34,8 @@ interface SiteData {
   address: string;
   latitude: number;
   longitude: number;
+  type: 'company_branch' | 'customer_site';
+  customSiteId: string;
 }
 
 export default function SiteInfo() {
@@ -86,6 +90,8 @@ export default function SiteInfo() {
                   address: siteData.site_address || '',
                   latitude: siteData.latitude ? Number(siteData.latitude) : 0,
                   longitude: siteData.longitude ? Number(siteData.longitude) : 0,
+                  type: (siteData.type === 'customer_site' ? 'customer_site' : 'company_branch') as 'company_branch' | 'customer_site',
+                  customSiteId: siteData.custom_site_id || '',
                 };
                 setSite(mappedSite);
                 setOriginalSite(mappedSite);
@@ -103,6 +109,8 @@ export default function SiteInfo() {
             address: parsedSite.address || parsedSite.site_address || '',
             latitude: parsedSite.latitude ? Number(parsedSite.latitude) : 0,
             longitude: parsedSite.longitude ? Number(parsedSite.longitude) : 0,
+            type: (parsedSite.type === 'customer_site' ? 'customer_site' : 'company_branch') as 'company_branch' | 'customer_site',
+            customSiteId: parsedSite.customSiteId || parsedSite.custom_site_id || '',
           };
           setSite(mappedSite);
           setOriginalSite(mappedSite);
@@ -189,7 +197,7 @@ export default function SiteInfo() {
     }
   }, [map, site.latitude, site.longitude]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setSite(prev => ({ ...prev, [name]: value }));
     
@@ -304,6 +312,10 @@ export default function SiteInfo() {
       newErrors.address = 'Address is required';
     }
 
+    if (!site.type || (site.type !== 'company_branch' && site.type !== 'customer_site')) {
+      newErrors.type = 'Site type is required and must be either company_branch or customer_site';
+    }
+
     if (site.latitude === 0 || site.longitude === 0) {
       newErrors.coordinates = 'Please select a location on the map or search for an address';
     }
@@ -345,8 +357,8 @@ export default function SiteInfo() {
         latitude: site.latitude,
         longitude: site.longitude,
         country: country || currentCompany?.country || 'USA',
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-        type: 'branch',
+        type: site.type,
+        custom_site_id: site.customSiteId.trim() || null,
         is_active: true,
       };
 
@@ -401,6 +413,8 @@ export default function SiteInfo() {
         address: savedSite.site_address || site.address,
         latitude: savedSite.latitude ? Number(savedSite.latitude) : site.latitude,
         longitude: savedSite.longitude ? Number(savedSite.longitude) : site.longitude,
+        type: (savedSite.type === 'customer_site' ? 'customer_site' : 'company_branch') as 'company_branch' | 'customer_site',
+        customSiteId: savedSite.custom_site_id || '',
       };
 
       setSite(updatedSite);
@@ -558,6 +572,52 @@ export default function SiteInfo() {
             </div>
             {errors.address && (
               <p className="mt-1 text-sm text-red-600">{errors.address}</p>
+            )}
+          </div>
+
+          {/* Site Type */}
+          <div>
+            <label htmlFor="type" className="block text-sm font-medium text-gray-700 mb-2">
+              Site Type <span className="text-red-500">*</span>
+            </label>
+            <select
+              id="type"
+              name="type"
+              value={site.type}
+              onChange={handleInputChange}
+              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 ${
+                errors.type ? 'border-red-300' : 'border-gray-300'
+              }`}
+            >
+              <option value="company_branch">Company Branch</option>
+              <option value="customer_site">Customer Site</option>
+            </select>
+            {errors.type && (
+              <p className="mt-1 text-sm text-red-600">{errors.type}</p>
+            )}
+          </div>
+
+          {/* Custom Site ID */}
+          <div>
+            <label htmlFor="customSiteId" className="block text-sm font-medium text-gray-700 mb-2">
+              Custom Site ID
+            </label>
+            <input
+              type="text"
+              id="customSiteId"
+              name="customSiteId"
+              value={site.customSiteId}
+              onChange={handleInputChange}
+              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 ${
+                errors.customSiteId ? 'border-red-300' : 'border-gray-300'
+              }`}
+              placeholder="Optional - for client integration"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Use this field to store your own site identifier for integration with other platforms
+            </p>
+            {errors.customSiteId && (
+              <p className="mt-1 text-sm text-red-600">{errors.customSiteId}</p>
             )}
           </div>
 

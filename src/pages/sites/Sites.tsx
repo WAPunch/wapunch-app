@@ -4,6 +4,7 @@ import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
 import { useSites } from '../../hooks/useSites';
 import { GoogleMap, MarkerF } from '@react-google-maps/api';
 import { useGoogleMapsLoader } from '../../lib/google-maps';
+import ImportSitesWizard from '../../components/ImportSitesWizard';
 import { 
   Search, 
   Filter,
@@ -52,6 +53,7 @@ export default function Sites() {
   const [citySearchTerm, setCitySearchTerm] = useState('');
   const [map, setMap] = useState<google.maps.Map | null>(null);
   const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
+  const [showImportWizard, setShowImportWizard] = useState(false);
 
   // Load Google Maps (must be called with identical options app-wide)
   const { isLoaded, loadError } = useGoogleMapsLoader();
@@ -316,9 +318,7 @@ export default function Sites() {
           </div>
           <div className="flex items-center gap-3">
             <button 
-              onClick={() => {
-                // TODO: Implement import functionality
-              }}
+              onClick={() => setShowImportWizard(true)}
               className="flex items-center gap-2 px-2 py-1 border border-gray-300 rounded bg-white text-gray-700 hover:bg-gray-50 transition-colors text-sm"
             >
               <Upload style={{ width: '14px', height: '14px' }} />
@@ -904,6 +904,15 @@ export default function Sites() {
       </div>
       )}
 
+      {/* Import Sites Wizard */}
+      <ImportSitesWizard
+        isOpen={showImportWizard}
+        onClose={() => setShowImportWizard(false)}
+        onSuccess={() => {
+          refetch();
+          setShowImportWizard(false);
+        }}
+      />
     </div>
   );
 }

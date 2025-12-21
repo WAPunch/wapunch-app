@@ -16,8 +16,7 @@ export interface Site {
   // Additional fields from database
   site_name: string;
   site_address: string;
-  timezone: string;
-  radius_meters?: number;
+  custom_site_id?: string;
   type: string;
   is_active: boolean;
 }
@@ -106,9 +105,8 @@ export const useSites = (): UseSitesResult => {
           country: site.country || '',
           site_name: site.site_name,
           site_address: site.site_address,
-          timezone: site.timezone || 'UTC',
-          radius_meters: site.radius_meters,
-          type: site.type || 'branch',
+          custom_site_id: site.custom_site_id,
+          type: site.type || 'company_branch',
           is_active: site.is_active ?? true,
         };
       });

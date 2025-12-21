@@ -30,6 +30,7 @@ const defaultWorker = {
   workerType: 'employee' as 'employee' | 'contractor',
   departmentId: '',
   jobTitleId: '',
+  customWorkerId: '',
 };
 
 export default function WorkerInfo() {
@@ -407,6 +408,7 @@ export default function WorkerInfo() {
                   workerType: (workerData.worker_type || 'employee') as 'employee' | 'contractor',
                   departmentId: workerData.department_id || '',
                   jobTitleId: workerData.job_title_id || '',
+                  customWorkerId: workerData.custom_worker_id || '',
                 };
 
                 // Debug logging
@@ -465,6 +467,7 @@ export default function WorkerInfo() {
             workerType: parsedWorker.worker_type || 'employee' as 'employee' | 'contractor',
             departmentId: parsedWorker.department_id || parsedWorker.departmentId || '',
             jobTitleId: parsedWorker.job_title_id || parsedWorker.jobTitleId || '',
+            customWorkerId: parsedWorker.customWorkerId || parsedWorker.custom_worker_id || '',
           };
           setWorker(mappedWorker);
           setOriginalWorker(mappedWorker);
@@ -694,6 +697,7 @@ export default function WorkerInfo() {
         whatsapp_number: whatsappNumber,
         worker_type: worker.workerType,
         email: worker.email.trim() || null, // Store email in workers table (null if empty)
+        custom_worker_id: worker.customWorkerId.trim() || null,
       };
 
       // Debug logging
@@ -1165,6 +1169,33 @@ export default function WorkerInfo() {
               <p className="mt-1 text-xs text-red-600 flex items-center gap-1">
                 <AlertCircle className="w-3 h-3" />
                 {errors.department}
+              </p>
+            )}
+          </div>
+
+          {/* Custom Worker ID */}
+          <div>
+            <label htmlFor="customWorkerId" className="block text-sm font-medium text-gray-700 mb-2">
+              Custom Worker ID
+            </label>
+            <input
+              type="text"
+              id="customWorkerId"
+              name="customWorkerId"
+              value={worker.customWorkerId}
+              onChange={handleInputChange}
+              className={`w-full px-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent ${
+                errors.customWorkerId ? 'border-red-300 focus:ring-red-500' : ''
+              }`}
+              placeholder="Optional - for client integration"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Use this field to store your own worker identifier for integration with other platforms
+            </p>
+            {errors.customWorkerId && (
+              <p className="mt-1 text-xs text-red-600 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />
+                {errors.customWorkerId}
               </p>
             )}
           </div>
