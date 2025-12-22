@@ -16,8 +16,11 @@ import {
   Phone as PhoneIcon,
   Mail,
   Globe,
-  Building2
+  Building2,
+  Zap
 } from 'lucide-react';
+import { countries } from '../../lib/countries';
+import phoneRules from '../../../phone_number_rules_global_full.json';
 
 interface CompanyFormData {
   companyName: string;
@@ -25,7 +28,8 @@ interface CompanyFormData {
   address: string;
   city: string;
   country: string;
-  phone: string;
+  phoneCountryCode: string;
+  phoneNumber: string;
   email: string;
   website: string;
   logo: string | null;
@@ -42,7 +46,8 @@ export default function CompanySettings() {
     address: '123 Business Avenue',
     city: 'San Francisco',
     country: 'United States',
-    phone: '+1 (555) 123-4567',
+    phoneCountryCode: '+1',
+    phoneNumber: '(555) 123-4567',
     email: 'contact@arquiluz.com',
     website: 'https://www.arquiluz.com',
     logo: null
@@ -50,6 +55,313 @@ export default function CompanySettings() {
   
   const [originalCompanyData, setOriginalCompanyData] = useState<CompanyFormData>(companyData);
   const [hasChanges, setHasChanges] = useState(false);
+  const [phoneErrors, setPhoneErrors] = useState<{ phoneNumber?: string }>({});
+
+  // Phone country codes list (same as CompanyRegistration)
+  const phoneCountryCodes = [
+    { code: '+1', flag: '🇺🇸', country: 'United States', iso: 'USA' },
+    { code: '+1', flag: '🇨🇦', country: 'Canada', iso: 'CAN' },
+    { code: '+7', flag: '🇷🇺', country: 'Russia', iso: 'RUS' },
+    { code: '+7', flag: '🇰🇿', country: 'Kazakhstan', iso: 'KAZ' },
+    { code: '+20', flag: '🇪🇬', country: 'Egypt', iso: 'EGY' },
+    { code: '+27', flag: '🇿🇦', country: 'South Africa', iso: 'ZAF' },
+    { code: '+30', flag: '🇬🇷', country: 'Greece', iso: 'GRC' },
+    { code: '+31', flag: '🇳🇱', country: 'Netherlands', iso: 'NLD' },
+    { code: '+32', flag: '🇧🇪', country: 'Belgium', iso: 'BEL' },
+    { code: '+33', flag: '🇫🇷', country: 'France', iso: 'FRA' },
+    { code: '+34', flag: '🇪🇸', country: 'Spain', iso: 'ESP' },
+    { code: '+36', flag: '🇭🇺', country: 'Hungary', iso: 'HUN' },
+    { code: '+39', flag: '🇮🇹', country: 'Italy', iso: 'ITA' },
+    { code: '+40', flag: '🇷🇴', country: 'Romania', iso: 'ROU' },
+    { code: '+41', flag: '🇨🇭', country: 'Switzerland', iso: 'CHE' },
+    { code: '+43', flag: '🇦🇹', country: 'Austria', iso: 'AUT' },
+    { code: '+44', flag: '🇬🇧', country: 'United Kingdom', iso: 'GBR' },
+    { code: '+45', flag: '🇩🇰', country: 'Denmark', iso: 'DNK' },
+    { code: '+46', flag: '🇸🇪', country: 'Sweden', iso: 'SWE' },
+    { code: '+47', flag: '🇳🇴', country: 'Norway', iso: 'NOR' },
+    { code: '+48', flag: '🇵🇱', country: 'Poland', iso: 'POL' },
+    { code: '+49', flag: '🇩🇪', country: 'Germany', iso: 'DEU' },
+    { code: '+51', flag: '🇵🇪', country: 'Peru', iso: 'PER' },
+    { code: '+52', flag: '🇲🇽', country: 'Mexico', iso: 'MEX' },
+    { code: '+53', flag: '🇨🇺', country: 'Cuba', iso: 'CUB' },
+    { code: '+54', flag: '🇦🇷', country: 'Argentina', iso: 'ARG' },
+    { code: '+55', flag: '🇧🇷', country: 'Brazil', iso: 'BRA' },
+    { code: '+56', flag: '🇨🇱', country: 'Chile', iso: 'CHL' },
+    { code: '+57', flag: '🇨🇴', country: 'Colombia', iso: 'COL' },
+    { code: '+58', flag: '🇻🇪', country: 'Venezuela', iso: 'VEN' },
+    { code: '+60', flag: '🇲🇾', country: 'Malaysia', iso: 'MYS' },
+    { code: '+61', flag: '🇦🇺', country: 'Australia', iso: 'AUS' },
+    { code: '+62', flag: '🇮🇩', country: 'Indonesia', iso: 'IDN' },
+    { code: '+63', flag: '🇵🇭', country: 'Philippines', iso: 'PHL' },
+    { code: '+64', flag: '🇳🇿', country: 'New Zealand', iso: 'NZL' },
+    { code: '+65', flag: '🇸🇬', country: 'Singapore', iso: 'SGP' },
+    { code: '+66', flag: '🇹🇭', country: 'Thailand', iso: 'THA' },
+    { code: '+81', flag: '🇯🇵', country: 'Japan', iso: 'JPN' },
+    { code: '+82', flag: '🇰🇷', country: 'South Korea', iso: 'KOR' },
+    { code: '+84', flag: '🇻🇳', country: 'Vietnam', iso: 'VNM' },
+    { code: '+86', flag: '🇨🇳', country: 'China', iso: 'CHN' },
+    { code: '+90', flag: '🇹🇷', country: 'Turkey', iso: 'TUR' },
+    { code: '+91', flag: '🇮🇳', country: 'India', iso: 'IND' },
+    { code: '+92', flag: '🇵🇰', country: 'Pakistan', iso: 'PAK' },
+    { code: '+93', flag: '🇦🇫', country: 'Afghanistan', iso: 'AFG' },
+    { code: '+94', flag: '🇱🇰', country: 'Sri Lanka', iso: 'LKA' },
+    { code: '+95', flag: '🇲🇲', country: 'Myanmar', iso: 'MMR' },
+    { code: '+98', flag: '🇮🇷', country: 'Iran', iso: 'IRN' },
+    { code: '+212', flag: '🇲🇦', country: 'Morocco', iso: 'MAR' },
+    { code: '+213', flag: '🇩🇿', country: 'Algeria', iso: 'DZA' },
+    { code: '+216', flag: '🇹🇳', country: 'Tunisia', iso: 'TUN' },
+    { code: '+218', flag: '🇱🇾', country: 'Libya', iso: 'LBY' },
+    { code: '+220', flag: '🇬🇲', country: 'Gambia', iso: 'GMB' },
+    { code: '+221', flag: '🇸🇳', country: 'Senegal', iso: 'SEN' },
+    { code: '+222', flag: '🇲🇷', country: 'Mauritania', iso: 'MRT' },
+    { code: '+223', flag: '🇲🇱', country: 'Mali', iso: 'MLI' },
+    { code: '+224', flag: '🇬🇳', country: 'Guinea', iso: 'GIN' },
+    { code: '+225', flag: '🇨🇮', country: 'Côte d\'Ivoire', iso: 'CIV' },
+    { code: '+226', flag: '🇧🇫', country: 'Burkina Faso', iso: 'BFA' },
+    { code: '+227', flag: '🇳🇪', country: 'Niger', iso: 'NER' },
+    { code: '+228', flag: '🇹🇬', country: 'Togo', iso: 'TGO' },
+    { code: '+229', flag: '🇧🇯', country: 'Benin', iso: 'BEN' },
+    { code: '+230', flag: '🇲🇺', country: 'Mauritius', iso: 'MUS' },
+    { code: '+231', flag: '🇱🇷', country: 'Liberia', iso: 'LBR' },
+    { code: '+232', flag: '🇸🇱', country: 'Sierra Leone', iso: 'SLE' },
+    { code: '+233', flag: '🇬🇭', country: 'Ghana', iso: 'GHA' },
+    { code: '+234', flag: '🇳🇬', country: 'Nigeria', iso: 'NGA' },
+    { code: '+235', flag: '🇹🇩', country: 'Chad', iso: 'TCD' },
+    { code: '+236', flag: '🇨🇫', country: 'Central African Republic', iso: 'CAF' },
+    { code: '+237', flag: '🇨🇲', country: 'Cameroon', iso: 'CMR' },
+    { code: '+238', flag: '🇨🇻', country: 'Cape Verde', iso: 'CPV' },
+    { code: '+239', flag: '🇸🇹', country: 'São Tomé and Príncipe', iso: 'STP' },
+    { code: '+240', flag: '🇬🇶', country: 'Equatorial Guinea', iso: 'GNQ' },
+    { code: '+241', flag: '🇬🇦', country: 'Gabon', iso: 'GAB' },
+    { code: '+242', flag: '🇨🇬', country: 'Republic of the Congo', iso: 'COG' },
+    { code: '+243', flag: '🇨🇩', country: 'Democratic Republic of the Congo', iso: 'COD' },
+    { code: '+244', flag: '🇦🇴', country: 'Angola', iso: 'AGO' },
+    { code: '+245', flag: '🇬🇼', country: 'Guinea-Bissau', iso: 'GNB' },
+    { code: '+246', flag: '🇮🇴', country: 'British Indian Ocean Territory', iso: 'IOT' },
+    { code: '+248', flag: '🇸🇨', country: 'Seychelles', iso: 'SYC' },
+    { code: '+249', flag: '🇸🇩', country: 'Sudan', iso: 'SDN' },
+    { code: '+250', flag: '🇷🇼', country: 'Rwanda', iso: 'RWA' },
+    { code: '+251', flag: '🇪🇹', country: 'Ethiopia', iso: 'ETH' },
+    { code: '+252', flag: '🇸🇴', country: 'Somalia', iso: 'SOM' },
+    { code: '+253', flag: '🇩🇯', country: 'Djibouti', iso: 'DJI' },
+    { code: '+254', flag: '🇰🇪', country: 'Kenya', iso: 'KEN' },
+    { code: '+255', flag: '🇹🇿', country: 'Tanzania', iso: 'TZA' },
+    { code: '+256', flag: '🇺🇬', country: 'Uganda', iso: 'UGA' },
+    { code: '+257', flag: '🇧🇮', country: 'Burundi', iso: 'BDI' },
+    { code: '+258', flag: '🇲🇿', country: 'Mozambique', iso: 'MOZ' },
+    { code: '+260', flag: '🇿🇲', country: 'Zambia', iso: 'ZMB' },
+    { code: '+261', flag: '🇲🇬', country: 'Madagascar', iso: 'MDG' },
+    { code: '+262', flag: '🇷🇪', country: 'Réunion', iso: 'REU' },
+    { code: '+263', flag: '🇿🇼', country: 'Zimbabwe', iso: 'ZWE' },
+    { code: '+264', flag: '🇳🇦', country: 'Namibia', iso: 'NAM' },
+    { code: '+265', flag: '🇲🇼', country: 'Malawi', iso: 'MWI' },
+    { code: '+266', flag: '🇱🇸', country: 'Lesotho', iso: 'LSO' },
+    { code: '+267', flag: '🇧🇼', country: 'Botswana', iso: 'BWA' },
+    { code: '+268', flag: '🇸🇿', country: 'Eswatini', iso: 'SWZ' },
+    { code: '+269', flag: '🇰🇲', country: 'Comoros', iso: 'COM' },
+    { code: '+290', flag: '🇸🇭', country: 'Saint Helena', iso: 'SHN' },
+    { code: '+291', flag: '🇪🇷', country: 'Eritrea', iso: 'ERI' },
+    { code: '+297', flag: '🇦🇼', country: 'Aruba', iso: 'ABW' },
+    { code: '+298', flag: '🇫🇴', country: 'Faroe Islands', iso: 'FRO' },
+    { code: '+299', flag: '🇬🇱', country: 'Greenland', iso: 'GRL' },
+    { code: '+350', flag: '🇬🇮', country: 'Gibraltar', iso: 'GIB' },
+    { code: '+351', flag: '🇵🇹', country: 'Portugal', iso: 'PRT' },
+    { code: '+352', flag: '🇱🇺', country: 'Luxembourg', iso: 'LUX' },
+    { code: '+353', flag: '🇮🇪', country: 'Ireland', iso: 'IRL' },
+    { code: '+354', flag: '🇮🇸', country: 'Iceland', iso: 'ISL' },
+    { code: '+355', flag: '🇦🇱', country: 'Albania', iso: 'ALB' },
+    { code: '+356', flag: '🇲🇹', country: 'Malta', iso: 'MLT' },
+    { code: '+357', flag: '🇨🇾', country: 'Cyprus', iso: 'CYP' },
+    { code: '+358', flag: '🇫🇮', country: 'Finland', iso: 'FIN' },
+    { code: '+359', flag: '🇧🇬', country: 'Bulgaria', iso: 'BGR' },
+    { code: '+370', flag: '🇱🇹', country: 'Lithuania', iso: 'LTU' },
+    { code: '+371', flag: '🇱🇻', country: 'Latvia', iso: 'LVA' },
+    { code: '+372', flag: '🇪🇪', country: 'Estonia', iso: 'EST' },
+    { code: '+373', flag: '🇲🇩', country: 'Moldova', iso: 'MDA' },
+    { code: '+374', flag: '🇦🇲', country: 'Armenia', iso: 'ARM' },
+    { code: '+375', flag: '🇧🇾', country: 'Belarus', iso: 'BLR' },
+    { code: '+376', flag: '🇦🇩', country: 'Andorra', iso: 'AND' },
+    { code: '+377', flag: '🇲🇨', country: 'Monaco', iso: 'MCO' },
+    { code: '+378', flag: '🇸🇲', country: 'San Marino', iso: 'SMR' },
+    { code: '+380', flag: '🇺🇦', country: 'Ukraine', iso: 'UKR' },
+    { code: '+381', flag: '🇷🇸', country: 'Serbia', iso: 'SRB' },
+    { code: '+382', flag: '🇲🇪', country: 'Montenegro', iso: 'MNE' },
+    { code: '+383', flag: '🇽🇰', country: 'Kosovo', iso: 'XKX' },
+    { code: '+385', flag: '🇭🇷', country: 'Croatia', iso: 'HRV' },
+    { code: '+386', flag: '🇸🇮', country: 'Slovenia', iso: 'SVN' },
+    { code: '+387', flag: '🇧🇦', country: 'Bosnia and Herzegovina', iso: 'BIH' },
+    { code: '+389', flag: '🇲🇰', country: 'North Macedonia', iso: 'MKD' },
+    { code: '+420', flag: '🇨🇿', country: 'Czech Republic', iso: 'CZE' },
+    { code: '+421', flag: '🇸🇰', country: 'Slovakia', iso: 'SVK' },
+    { code: '+423', flag: '🇱🇮', country: 'Liechtenstein', iso: 'LIE' },
+    { code: '+500', flag: '🇫🇰', country: 'Falkland Islands', iso: 'FLK' },
+    { code: '+501', flag: '🇧🇿', country: 'Belize', iso: 'BLZ' },
+    { code: '+502', flag: '🇬🇹', country: 'Guatemala', iso: 'GTM' },
+    { code: '+503', flag: '🇸🇻', country: 'El Salvador', iso: 'SLV' },
+    { code: '+504', flag: '🇭🇳', country: 'Honduras', iso: 'HND' },
+    { code: '+505', flag: '🇳🇮', country: 'Nicaragua', iso: 'NIC' },
+    { code: '+506', flag: '🇨🇷', country: 'Costa Rica', iso: 'CRI' },
+    { code: '+507', flag: '🇵🇦', country: 'Panama', iso: 'PAN' },
+    { code: '+508', flag: '🇵🇲', country: 'Saint Pierre and Miquelon', iso: 'SPM' },
+    { code: '+509', flag: '🇭🇹', country: 'Haiti', iso: 'HTI' },
+    { code: '+590', flag: '🇬🇵', country: 'Guadeloupe', iso: 'GLP' },
+    { code: '+591', flag: '🇧🇴', country: 'Bolivia', iso: 'BOL' },
+    { code: '+592', flag: '🇬🇾', country: 'Guyana', iso: 'GUY' },
+    { code: '+593', flag: '🇪🇨', country: 'Ecuador', iso: 'ECU' },
+    { code: '+594', flag: '🇬🇫', country: 'French Guiana', iso: 'GUF' },
+    { code: '+595', flag: '🇵🇾', country: 'Paraguay', iso: 'PRY' },
+    { code: '+596', flag: '🇲🇶', country: 'Martinique', iso: 'MTQ' },
+    { code: '+597', flag: '🇸🇷', country: 'Suriname', iso: 'SUR' },
+    { code: '+598', flag: '🇺🇾', country: 'Uruguay', iso: 'URY' },
+    { code: '+599', flag: '🇨🇼', country: 'Curaçao', iso: 'CUW' },
+    { code: '+670', flag: '🇹🇱', country: 'Timor-Leste', iso: 'TLS' },
+    { code: '+672', flag: '🇦🇶', country: 'Antarctica', iso: 'ATA' },
+    { code: '+673', flag: '🇧🇳', country: 'Brunei', iso: 'BRN' },
+    { code: '+674', flag: '🇳🇷', country: 'Nauru', iso: 'NRU' },
+    { code: '+675', flag: '🇵🇬', country: 'Papua New Guinea', iso: 'PNG' },
+    { code: '+676', flag: '🇹🇴', country: 'Tonga', iso: 'TON' },
+    { code: '+677', flag: '🇸🇧', country: 'Solomon Islands', iso: 'SLB' },
+    { code: '+678', flag: '🇻🇺', country: 'Vanuatu', iso: 'VUT' },
+    { code: '+679', flag: '🇫🇯', country: 'Fiji', iso: 'FJI' },
+    { code: '+680', flag: '🇵🇼', country: 'Palau', iso: 'PLW' },
+    { code: '+681', flag: '🇼🇫', country: 'Wallis and Futuna', iso: 'WLF' },
+    { code: '+682', flag: '🇨🇰', country: 'Cook Islands', iso: 'COK' },
+    { code: '+683', flag: '🇳🇺', country: 'Niue', iso: 'NIU' },
+    { code: '+684', flag: '🇦🇸', country: 'American Samoa', iso: 'ASM' },
+    { code: '+685', flag: '🇼🇸', country: 'Samoa', iso: 'WSM' },
+    { code: '+686', flag: '🇰🇮', country: 'Kiribati', iso: 'KIR' },
+    { code: '+687', flag: '🇳🇨', country: 'New Caledonia', iso: 'NCL' },
+    { code: '+688', flag: '🇹🇻', country: 'Tuvalu', iso: 'TUV' },
+    { code: '+689', flag: '🇵🇫', country: 'French Polynesia', iso: 'PYF' },
+    { code: '+690', flag: '🇹🇰', country: 'Tokelau', iso: 'TKL' },
+    { code: '+691', flag: '🇫🇲', country: 'Micronesia', iso: 'FSM' },
+    { code: '+692', flag: '🇲🇭', country: 'Marshall Islands', iso: 'MHL' },
+    { code: '+850', flag: '🇰🇵', country: 'North Korea', iso: 'PRK' },
+    { code: '+852', flag: '🇭🇰', country: 'Hong Kong', iso: 'HKG' },
+    { code: '+853', flag: '🇲🇴', country: 'Macao', iso: 'MAC' },
+    { code: '+855', flag: '🇰🇭', country: 'Cambodia', iso: 'KHM' },
+    { code: '+856', flag: '🇱🇦', country: 'Laos', iso: 'LAO' },
+    { code: '+880', flag: '🇧🇩', country: 'Bangladesh', iso: 'BGD' },
+    { code: '+886', flag: '🇹🇼', country: 'Taiwan', iso: 'TWN' },
+    { code: '+960', flag: '🇲🇻', country: 'Maldives', iso: 'MDV' },
+    { code: '+961', flag: '🇱🇧', country: 'Lebanon', iso: 'LBN' },
+    { code: '+962', flag: '🇯🇴', country: 'Jordan', iso: 'JOR' },
+    { code: '+963', flag: '🇸🇾', country: 'Syria', iso: 'SYR' },
+    { code: '+964', flag: '🇮🇶', country: 'Iraq', iso: 'IRQ' },
+    { code: '+965', flag: '🇰🇼', country: 'Kuwait', iso: 'KWT' },
+    { code: '+966', flag: '🇸🇦', country: 'Saudi Arabia', iso: 'SAU' },
+    { code: '+967', flag: '🇾🇪', country: 'Yemen', iso: 'YEM' },
+    { code: '+968', flag: '🇴🇲', country: 'Oman', iso: 'OMN' },
+    { code: '+970', flag: '🇵🇸', country: 'Palestine', iso: 'PSE' },
+    { code: '+971', flag: '🇦🇪', country: 'United Arab Emirates', iso: 'ARE' },
+    { code: '+972', flag: '🇮🇱', country: 'Israel', iso: 'ISR' },
+    { code: '+973', flag: '🇧🇭', country: 'Bahrain', iso: 'BHR' },
+    { code: '+974', flag: '🇶🇦', country: 'Qatar', iso: 'QAT' },
+    { code: '+975', flag: '🇧🇹', country: 'Bhutan', iso: 'BTN' },
+    { code: '+976', flag: '🇲🇳', country: 'Mongolia', iso: 'MNG' },
+    { code: '+977', flag: '🇳🇵', country: 'Nepal', iso: 'NPL' },
+    { code: '+992', flag: '🇹🇯', country: 'Tajikistan', iso: 'TJK' },
+    { code: '+993', flag: '🇹🇲', country: 'Turkmenistan', iso: 'TKM' },
+    { code: '+994', flag: '🇦🇿', country: 'Azerbaijan', iso: 'AZE' },
+    { code: '+995', flag: '🇬🇪', country: 'Georgia', iso: 'GEO' },
+    { code: '+996', flag: '🇰🇬', country: 'Kyrgyzstan', iso: 'KGZ' },
+    { code: '+998', flag: '🇺🇿', country: 'Uzbekistan', iso: 'UZB' }
+  ].sort((a, b) => {
+    // For +1, prioritize USA (USA) over Canada (CAN)
+    if (a.code === '+1' && b.code === '+1') {
+      if (a.iso === 'USA') return -1;
+      if (b.iso === 'USA') return 1;
+    }
+    return a.iso.localeCompare(b.iso);
+  });
+
+  // Phone utility functions
+  const getPhoneInfo = (callingCode: string) => {
+    const rule = phoneRules.rules.find(rule => rule.calling_code === callingCode);
+    return rule || phoneRules.fallback;
+  };
+
+  const getSelectedCountry = (callingCode: string) => {
+    // For +1, prioritize USA over Canada
+    if (callingCode === '+1') {
+      return phoneCountryCodes.find(country => country.code === '+1' && country.iso === 'USA') || 
+             phoneCountryCodes.find(country => country.code === '+1');
+    }
+    return phoneCountryCodes.find(country => country.code === callingCode);
+  };
+
+  const cleanPhoneNumber = (phoneNumber: string) => {
+    return phoneNumber.replace(/\D/g, '');
+  };
+
+  // Format phone number according to country rules
+  const formatPhoneNumber = (phoneNumber: string, callingCode: string): string => {
+    const cleanNumber = cleanPhoneNumber(phoneNumber);
+    if (!cleanNumber) return '';
+    
+    const phoneInfo = getPhoneInfo(callingCode);
+    
+    // If no formats available, return cleaned number
+    if (!phoneInfo.formats || phoneInfo.formats.length === 0) {
+      return cleanNumber;
+    }
+    
+    // Try each format pattern
+    for (const formatRule of phoneInfo.formats) {
+      const pattern = new RegExp(formatRule.pattern);
+      const match = cleanNumber.match(pattern);
+      
+      if (match) {
+        let formatted = formatRule.format;
+        // Replace \1, \2, etc. with captured groups
+        for (let i = 1; i < match.length; i++) {
+          const regex = new RegExp(`\\\\${i}`, 'g');
+          formatted = formatted.replace(regex, match[i]);
+        }
+        return formatted;
+      }
+    }
+    
+    // If no pattern matches, return cleaned number
+    return cleanNumber;
+  };
+
+  const validatePhoneNumber = (phoneNumber: string, callingCode: string) => {
+    const cleanNumber = cleanPhoneNumber(phoneNumber);
+    const phoneInfo = getPhoneInfo(callingCode);
+    
+    if (!phoneInfo.national_number_pattern) {
+      return { isValid: true, error: '' };
+    }
+
+    const regex = new RegExp(phoneInfo.national_number_pattern);
+    const isValid = regex.test(cleanNumber);
+    
+    if (!isValid) {
+      const expectedLength = phoneInfo.national_number_pattern.match(/\d{(\d+),(\d+)}/);
+      if (expectedLength && expectedLength[1] && expectedLength[2]) {
+        const minLength = parseInt(expectedLength[1]);
+        const maxLength = parseInt(expectedLength[2]);
+        if (cleanNumber.length < minLength) {
+          return { 
+            isValid: false, 
+            error: `Phone number must be at least ${minLength} digits` 
+          };
+        } else if (cleanNumber.length > maxLength) {
+          return { 
+            isValid: false, 
+            error: `Phone number must be no more than ${maxLength} digits` 
+          };
+        }
+      }
+      return { 
+        isValid: false, 
+        error: `Invalid phone number format for ${callingCode}` 
+      };
+    }
+    
+    return { isValid: true, error: '' };
+  };
 
   // Handle ESC key to close settings and return to previous page
   useEffect(() => {
@@ -80,8 +392,8 @@ export default function CompanySettings() {
     { id: 'company-info', label: 'Company', icon: Building },
     { id: 'time-and-attendance', label: 'Time & Attendance', icon: Clock },
     { id: 'users', label: 'Users', icon: UserCheck },
-    { id: 'integrations', label: 'Integrations', icon: SettingsIcon },
-    { id: 'billing', label: 'Billing', icon: DollarSign }
+    { id: 'billing', label: 'Billing', icon: DollarSign },
+    { id: 'integrations', label: 'Integrations', icon: Zap }
   ];
 
   const handleSectionChange = (sectionId: string): void => {
@@ -105,6 +417,16 @@ export default function CompanySettings() {
           };
 
           const handleSaveCompany = () => {
+            // Validate phone number if provided
+            if (companyData.phoneNumber.trim() && companyData.phoneCountryCode) {
+              const validation = validatePhoneNumber(companyData.phoneNumber, companyData.phoneCountryCode);
+              if (!validation.isValid) {
+                setPhoneErrors({ phoneNumber: validation.error });
+                return;
+              }
+            }
+            
+            setPhoneErrors({});
             // TODO: Save to backend
             setOriginalCompanyData(companyData);
             setHasChanges(false);
@@ -229,13 +551,18 @@ export default function CompanySettings() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Country</label>
-                      <input
-                        type="text"
+                      <select
                         value={companyData.country}
                         onChange={(e) => handleCompanyChange('country', e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                        placeholder="Enter country"
-                      />
+                      >
+                        <option value="">Select a country</option>
+                        {countries.map((country) => (
+                          <option key={country.code} value={country.name}>
+                            {country.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                 </div>
@@ -250,13 +577,88 @@ export default function CompanySettings() {
                         <PhoneIcon className="w-4 h-4" />
                         Phone
                       </label>
-                      <input
-                        type="tel"
-                        value={companyData.phone}
-                        onChange={(e) => handleCompanyChange('phone', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                        placeholder="+1 (555) 123-4567"
-                      />
+                      <div className="flex gap-2">
+                        <div className="relative w-32">
+                          <PhoneIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                          <select
+                            value={companyData.phoneCountryCode}
+                            onChange={(e) => {
+                              handleCompanyChange('phoneCountryCode', e.target.value);
+                              setPhoneErrors({});
+                            }}
+                            className={`w-full pl-10 pr-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent appearance-none ${
+                              companyData.phoneCountryCode ? 'text-transparent' : ''
+                            }`}
+                          >
+                            <option value="">Area Code</option>
+                            {phoneCountryCodes.map((country, index) => {
+                              // For +1, only show USA in the dropdown to avoid confusion
+                              if (country.code === '+1' && country.iso !== 'USA') {
+                                return null;
+                              }
+                              return (
+                                <option key={`${country.code}-${country.iso}-${index}`} value={country.code}>
+                                  {country.iso} {country.flag} {country.code}
+                                </option>
+                              );
+                            })}
+                          </select>
+                          {companyData.phoneCountryCode && (
+                            <div className="absolute inset-y-0 left-0 right-0 flex items-center pl-10 pointer-events-none">
+                              <span className="text-sm">
+                                {getSelectedCountry(companyData.phoneCountryCode)?.flag} {companyData.phoneCountryCode}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <input
+                            type="tel"
+                            value={companyData.phoneNumber}
+                            onChange={(e) => {
+                              const inputValue = e.target.value;
+                              const cleanValue = cleanPhoneNumber(inputValue);
+                              
+                              // Format as user types if we have enough digits
+                              if (companyData.phoneCountryCode && cleanValue.length > 0) {
+                                const formatted = formatPhoneNumber(cleanValue, companyData.phoneCountryCode);
+                                handleCompanyChange('phoneNumber', formatted);
+                              } else {
+                                handleCompanyChange('phoneNumber', inputValue);
+                              }
+                              setPhoneErrors({});
+                            }}
+                            onBlur={() => {
+                              // Final format and validate when user leaves the field
+                              if (companyData.phoneCountryCode && companyData.phoneNumber.trim()) {
+                                const cleanValue = cleanPhoneNumber(companyData.phoneNumber);
+                                const formatted = formatPhoneNumber(cleanValue, companyData.phoneCountryCode);
+                                handleCompanyChange('phoneNumber', formatted);
+                                
+                                // Validate after formatting
+                                const validation = validatePhoneNumber(formatted, companyData.phoneCountryCode);
+                                if (!validation.isValid) {
+                                  setPhoneErrors({ phoneNumber: validation.error });
+                                } else {
+                                  setPhoneErrors({});
+                                }
+                              }
+                            }}
+                            className={`w-full px-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent ${
+                              phoneErrors.phoneNumber 
+                                ? 'border-red-300 focus:ring-red-500' 
+                                : ''
+                            }`}
+                            placeholder={(() => {
+                              const phoneInfo = getPhoneInfo(companyData.phoneCountryCode || '+1');
+                              return phoneInfo.example_national || 'Enter phone number';
+                            })()}
+                          />
+                        </div>
+                      </div>
+                      {phoneErrors.phoneNumber && (
+                        <p className="mt-1 text-sm text-red-600">{phoneErrors.phoneNumber}</p>
+                      )}
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">

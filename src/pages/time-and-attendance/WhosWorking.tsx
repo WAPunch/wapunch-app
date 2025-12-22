@@ -5,6 +5,8 @@ import { useWhosWorking, WhosWorkingEmployee } from '../../hooks/useWhosWorking'
 import { getCurrentStatusDotColor } from '../../hooks/useWorkers';
 import { GoogleMap, MarkerF } from '@react-google-maps/api';
 import { useGoogleMapsLoader } from '../../lib/google-maps';
+import { useCompany } from '../../hooks/useCompany';
+import { getDefaultMapCenter } from '../../lib/countries';
 import { 
   Users, 
   Search, 
@@ -66,6 +68,7 @@ const getDotSize = (avatarSize: 'sm' | 'md' | 'lg') => {
 export default function WhosWorking() {
   const { registerSubmodules } = useSubmoduleNav();
   const { workers: workersData, isLoading: workersLoading, error: workersError, refetch } = useWhosWorking();
+  const { currentCompany } = useCompany();
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -222,14 +225,15 @@ export default function WhosWorking() {
   // Calculate map center based on all workers with coordinates
   const mapCenter = useMemo(() => {
     if (workersWithCoords.length === 0) {
-      return { lat: 40.7128, lng: -74.0060 }; // Default to NYC
+      // Use company country center if available, otherwise default to US
+      return getDefaultMapCenter(currentCompany?.country);
     }
     
     const avgLat = workersWithCoords.reduce((sum, w) => sum + (w.latitude || 0), 0) / workersWithCoords.length;
     const avgLng = workersWithCoords.reduce((sum, w) => sum + (w.longitude || 0), 0) / workersWithCoords.length;
     
     return { lat: avgLat, lng: avgLng };
-  }, [workersWithCoords]);
+  }, [workersWithCoords, currentCompany?.country]);
 
   // Clear worker selection when search term or filters change
   useEffect(() => {

@@ -4,6 +4,8 @@ import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
 import { useSites } from '../../hooks/useSites';
 import { GoogleMap, MarkerF } from '@react-google-maps/api';
 import { useGoogleMapsLoader } from '../../lib/google-maps';
+import { useCompany } from '../../hooks/useCompany';
+import { getDefaultMapCenter } from '../../lib/countries';
 import ImportSitesWizard from '../../components/ImportSitesWizard';
 import { supabase } from '../../lib/supabase';
 import { logger } from '../../lib/logger';
@@ -47,6 +49,7 @@ interface Site {
 export default function Sites() {
   const { registerSubmodules } = useSubmoduleNav();
   const { sites: sitesData, isLoading: sitesLoading, error: sitesError, refetch } = useSites();
+  const { currentCompany } = useCompany();
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -202,14 +205,15 @@ export default function Sites() {
   // Calculate map center based on all sites with coordinates
   const mapCenter = useMemo(() => {
     if (sitesWithCoords.length === 0) {
-      return { lat: 40.7128, lng: -74.0060 }; // Default to NYC
+      // Use company country center if available, otherwise default to US
+      return getDefaultMapCenter(currentCompany?.country);
     }
     
     const avgLat = sitesWithCoords.reduce((sum, s) => sum + (s.latitude || 0), 0) / sitesWithCoords.length;
     const avgLng = sitesWithCoords.reduce((sum, s) => sum + (s.longitude || 0), 0) / sitesWithCoords.length;
     
     return { lat: avgLat, lng: avgLng };
-  }, [sitesWithCoords]);
+  }, [sitesWithCoords, currentCompany?.country]);
 
   // Clear site selection when search term or filters change
   useEffect(() => {
@@ -863,9 +867,19 @@ export default function Sites() {
                       </div>
                     </td>
                     <td className="py-4 px-4 w-36">
-                      <span className="text-sm text-gray-700">
-                        {site.type === 'company_branch' ? 'Company Branch' : site.type === 'customer_site' ? 'Customer Site' : site.type || '—'}
-                      </span>
+                      {site.type ? (
+                        <span className={`px-1.5 py-0.5 rounded-full text-xs font-medium ${
+                          site.type === 'company_branch' 
+                            ? 'bg-blue-50 text-blue-700' 
+                            : site.type === 'customer_site'
+                            ? 'bg-orange-50 text-orange-700'
+                            : 'bg-gray-50 text-gray-700'
+                        }`}>
+                          {site.type === 'company_branch' ? 'Company Branch' : site.type === 'customer_site' ? 'Customer Site' : site.type}
+                        </span>
+                      ) : (
+                        <span className="text-sm text-gray-400">—</span>
+                      )}
                     </td>
                     <td className="py-4 px-4 w-32">
                       <span className="text-sm text-gray-700 truncate">

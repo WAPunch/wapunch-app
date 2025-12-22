@@ -258,7 +258,14 @@ export default function WorkerInfo() {
     { code: '+995', flag: '🇬🇪', country: 'Georgia', iso: 'GEO' },
     { code: '+996', flag: '🇰🇬', country: 'Kyrgyzstan', iso: 'KGZ' },
     { code: '+998', flag: '🇺🇿', country: 'Uzbekistan', iso: 'UZB' },
-  ];
+  ].sort((a, b) => {
+    // For +1, prioritize USA (USA) over Canada (CAN)
+    if (a.code === '+1' && b.code === '+1') {
+      if (a.iso === 'USA') return -1;
+      if (b.iso === 'USA') return 1;
+    }
+    return a.iso.localeCompare(b.iso);
+  });
 
   // Función para obtener la información del teléfono según el código de país
   const getPhoneInfo = (callingCode: string) => {
@@ -268,12 +275,49 @@ export default function WorkerInfo() {
 
   // Función para obtener el país seleccionado
   const getSelectedCountry = (callingCode: string) => {
+    // For +1, prioritize USA over Canada
+    if (callingCode === '+1') {
+      return phoneCountryCodes.find(country => country.code === '+1' && country.iso === 'USA') || 
+             phoneCountryCodes.find(country => country.code === '+1');
+    }
     return phoneCountryCodes.find(country => country.code === callingCode);
   };
 
   // Función para limpiar el número de teléfono (solo números)
   const cleanPhoneNumber = (phoneNumber: string) => {
     return phoneNumber.replace(/\D/g, '');
+  };
+
+  // Format phone number according to country rules
+  const formatPhoneNumber = (phoneNumber: string, callingCode: string): string => {
+    const cleanNumber = cleanPhoneNumber(phoneNumber);
+    if (!cleanNumber) return '';
+    
+    const phoneInfo = getPhoneInfo(callingCode);
+    
+    // If no formats available, return cleaned number
+    if (!phoneInfo.formats || phoneInfo.formats.length === 0) {
+      return cleanNumber;
+    }
+    
+    // Try each format pattern
+    for (const formatRule of phoneInfo.formats) {
+      const pattern = new RegExp(formatRule.pattern);
+      const match = cleanNumber.match(pattern);
+      
+      if (match) {
+        let formatted = formatRule.format;
+        // Replace \1, \2, etc. with captured groups
+        for (let i = 1; i < match.length; i++) {
+          const regex = new RegExp(`\\\\${i}`, 'g');
+          formatted = formatted.replace(regex, match[i]);
+        }
+        return formatted;
+      }
+    }
+    
+    // If no pattern matches, return cleaned number
+    return cleanNumber;
   };
 
   // Función para detectar el country code desde un número completo (sin +)
@@ -534,22 +578,23 @@ export default function WorkerInfo() {
   };
 
   const handlePhoneNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setWorker(prev => ({ ...prev, phoneNumber: value }));
+    const inputValue = e.target.value;
+    const cleanValue = cleanPhoneNumber(inputValue);
     
-    // Validate phone number in real-time
-    if (value && worker.phoneCountryCode) {
-      const validation = validatePhoneNumber(value, worker.phoneCountryCode);
-      if (!validation.isValid) {
-        setErrors(prev => ({ ...prev, phoneNumber: validation.error }));
-      } else {
-        setErrors(prev => {
-          const newErrors = { ...prev };
-          delete newErrors.phoneNumber;
-          return newErrors;
-        });
-      }
+    // Format as user types if we have enough digits
+    if (worker.phoneCountryCode && cleanValue.length > 0) {
+      const formatted = formatPhoneNumber(cleanValue, worker.phoneCountryCode);
+      setWorker(prev => ({ ...prev, phoneNumber: formatted }));
+    } else {
+      setWorker(prev => ({ ...prev, phoneNumber: inputValue }));
     }
+    
+    // Clear error when user starts typing
+    setErrors(prev => {
+      const newErrors = { ...prev };
+      delete newErrors.phoneNumber;
+      return newErrors;
+    });
   };
 
   const handleAddDepartment = async () => {
@@ -1121,16 +1166,22 @@ export default function WorkerInfo() {
                   name="phoneCountryCode"
                   value={worker.phoneCountryCode}
                   onChange={handlePhoneCountryCodeChange}
-                  className={`w-full pl-10 pr-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50 appearance-none ${
+                  className={`w-full pl-10 pr-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent appearance-none ${
                     worker.phoneCountryCode ? 'text-transparent' : ''
                   }`}
                 >
                   <option value="">Area Code</option>
-                  {phoneCountryCodes.map((country, index) => (
-                    <option key={`${country.code}-${country.iso}-${index}`} value={country.code}>
-                      {country.iso} {country.flag} {country.code}
-                    </option>
-                  ))}
+                  {phoneCountryCodes.map((country, index) => {
+                    // For +1, only show USA in the dropdown to avoid confusion
+                    if (country.code === '+1' && country.iso !== 'USA') {
+                      return null;
+                    }
+                    return (
+                      <option key={`${country.code}-${country.iso}-${index}`} value={country.code}>
+                        {country.iso} {country.flag} {country.code}
+                      </option>
+                    );
+                  })}
                 </select>
                 {worker.phoneCountryCode && (
                   <div className="absolute inset-y-0 left-0 right-0 flex items-center pl-10 pointer-events-none">
@@ -1147,13 +1198,33 @@ export default function WorkerInfo() {
                   type="tel"
                   value={worker.phoneNumber}
                   onChange={handlePhoneNumberChange}
-                  className={`w-full px-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50 ${
+                  onBlur={() => {
+                    // Final format and validate when user leaves the field
+                    if (worker.phoneCountryCode && worker.phoneNumber.trim()) {
+                      const cleanValue = cleanPhoneNumber(worker.phoneNumber);
+                      const formatted = formatPhoneNumber(cleanValue, worker.phoneCountryCode);
+                      setWorker(prev => ({ ...prev, phoneNumber: formatted }));
+                      
+                      // Validate after formatting
+                      const validation = validatePhoneNumber(formatted, worker.phoneCountryCode);
+                      if (!validation.isValid) {
+                        setErrors(prev => ({ ...prev, phoneNumber: validation.error }));
+                      } else {
+                        setErrors(prev => {
+                          const newErrors = { ...prev };
+                          delete newErrors.phoneNumber;
+                          return newErrors;
+                        });
+                      }
+                    }
+                  }}
+                  className={`w-full px-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent ${
                     errors.phoneNumber 
                       ? 'border-red-300 focus:ring-red-500' 
                       : ''
                   }`}
                   placeholder={(() => {
-                    const phoneInfo = getPhoneInfo(worker.phoneCountryCode);
+                    const phoneInfo = getPhoneInfo(worker.phoneCountryCode || '+1');
                     return phoneInfo.example_national || 'Enter phone number';
                   })()}
                 />
