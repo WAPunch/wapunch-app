@@ -5,6 +5,8 @@ import { useSites } from '../../hooks/useSites';
 import { GoogleMap, MarkerF } from '@react-google-maps/api';
 import { useGoogleMapsLoader } from '../../lib/google-maps';
 import ImportSitesWizard from '../../components/ImportSitesWizard';
+import { supabase } from '../../lib/supabase';
+import { logger } from '../../lib/logger';
 import { 
   Search, 
   Filter,
@@ -17,7 +19,12 @@ import {
   Eye,
   MoreVertical,
   Plus,
-  Upload
+  Upload,
+  Power,
+  PowerOff,
+  Trash2,
+  X,
+  AlertTriangle
 } from 'lucide-react';
 
 // Google Maps libraries are centralized in `useGoogleMapsLoader`
@@ -34,6 +41,7 @@ interface Site {
   country?: string;
   type?: string;
   custom_site_id?: string;
+  is_active?: boolean;
 }
 
 export default function Sites() {
@@ -58,6 +66,8 @@ export default function Sites() {
   const [map, setMap] = useState<google.maps.Map | null>(null);
   const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
   const [showImportWizard, setShowImportWizard] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [siteToDelete, setSiteToDelete] = useState<Site | null>(null);
 
   // Load Google Maps (must be called with identical options app-wide)
   const { isLoaded, loadError } = useGoogleMapsLoader();
@@ -84,6 +94,10 @@ export default function Sites() {
         setSiteTypeSearchTerm('');
         setCustomIdSearchTerm('');
         setCountrySearchTerm('');
+      }
+      // Close action menu when clicking outside
+      if (!target.closest('[data-menu-id]')) {
+        setOpenMenuId(null);
       }
     };
 
@@ -241,6 +255,68 @@ export default function Sites() {
         map.fitBounds(bounds);
       }
     }
+  };
+
+  // Toggle action menu
+  const toggleMenu = (siteId: string) => {
+    setOpenMenuId(openMenuId === siteId ? null : siteId);
+  };
+
+  // Handle activate/deactivate site
+  const handleToggleActive = async (site: Site) => {
+    try {
+      const newIsActive = !site.is_active;
+      
+      const { error } = await supabase
+        .from('sites')
+        .update({ is_active: newIsActive, updated_at: new Date().toISOString() })
+        .eq('id', site.id);
+
+      if (error) {
+        throw error;
+      }
+
+      logger.info('Site status updated', { siteId: site.id, is_active: newIsActive });
+      setOpenMenuId(null);
+      await refetch();
+    } catch (err: any) {
+      logger.error('Error updating site status', err instanceof Error ? err : new Error(String(err)));
+      alert(`Failed to ${site.is_active ? 'deactivate' : 'activate'} site: ${err?.message || 'Unknown error'}`);
+    }
+  };
+
+  // Handle delete site - show confirmation modal
+  const handleDeleteSite = (site: Site) => {
+    setOpenMenuId(null);
+    setSiteToDelete(site);
+  };
+
+  // Confirm and execute delete
+  const confirmDeleteSite = async () => {
+    if (!siteToDelete) return;
+
+    try {
+      const { error } = await supabase
+        .from('sites')
+        .update({ is_deleted: true, updated_at: new Date().toISOString() })
+        .eq('id', siteToDelete.id);
+
+      if (error) {
+        throw error;
+      }
+
+      logger.info('Site deleted', { siteId: siteToDelete.id });
+      setSiteToDelete(null);
+      await refetch();
+    } catch (err: any) {
+      logger.error('Error deleting site', err instanceof Error ? err : new Error(String(err)));
+      alert(`Failed to delete site: ${err?.message || 'Unknown error'}`);
+    }
+  };
+
+  // Cancel delete
+  const cancelDeleteSite = () => {
+    setSiteToDelete(null);
   };
 
   // Pagination calculations
@@ -831,13 +907,54 @@ export default function Sites() {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
-                        <button 
-                          className="p-1 hover:bg-gray-100 rounded transition-colors"
-                          aria-label={`More options for ${site.name}`}
-                          title={`More options for ${site.name}`}
-                        >
-                          <MoreVertical className="w-4 h-4" />
-                        </button>
+                        <div className="relative" data-menu-id={site.id}>
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleMenu(site.id);
+                            }}
+                            className="p-1 hover:bg-gray-100 rounded transition-colors"
+                            aria-label={`More options for ${site.name}`}
+                            title={`More options for ${site.name}`}
+                          >
+                            <MoreVertical className="w-4 h-4" />
+                          </button>
+                          {openMenuId === site.id && (
+                            <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-[100]">
+                              <div className="py-1">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleActive(site);
+                                  }}
+                                  className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                                >
+                                  {site.is_active ? (
+                                    <>
+                                      <PowerOff className="w-4 h-4" />
+                                      Deactivate
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Power className="w-4 h-4" />
+                                      Activate
+                                    </>
+                                  )}
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteSite(site);
+                                  }}
+                                  className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                   </td>
                 </tr>
@@ -1063,6 +1180,58 @@ export default function Sites() {
           setShowImportWizard(false);
         }}
       />
+
+      {/* Delete Confirmation Modal */}
+      {siteToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Delete Site</h3>
+                  <p className="text-sm text-gray-500">This action cannot be undone</p>
+                </div>
+              </div>
+              <button
+                onClick={cancelDeleteSite}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Close modal"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6">
+              <p className="text-sm text-gray-700">
+                Are you sure you want to delete <span className="font-semibold text-gray-900">{siteToDelete.name}</span>? 
+                This will permanently remove the site from your directory.
+              </p>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200 bg-gray-50 rounded-b-lg">
+              <button
+                onClick={cancelDeleteSite}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteSite}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-red-600 rounded-md hover:bg-red-700 transition-colors flex items-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete Site
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

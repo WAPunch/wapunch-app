@@ -3,6 +3,8 @@ import { router } from '../../lib/router';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
 import { useWhosWorking, WhosWorkingEmployee } from '../../hooks/useWhosWorking';
 import { getCurrentStatusDotColor } from '../../hooks/useWorkers';
+import { GoogleMap, MarkerF } from '@react-google-maps/api';
+import { useGoogleMapsLoader } from '../../lib/google-maps';
 import { 
   Users, 
   Search, 
@@ -72,7 +74,7 @@ export default function WhosWorking() {
   const [sortBy, setSortBy] = useState<'firstName' | 'jobTitle' | 'lastActivityTime'>('firstName');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [selectedDepartment, setSelectedDepartment] = useState<string[]>([]);
-  const [selectedStatus, setSelectedStatus] = useState<string[]>([]);
+  const [selectedStatus, setSelectedStatus] = useState<string[]>(['present', 'on-break', 'on-transfer']); // Default to "Active" filter
   const [selectedLocation, setSelectedLocation] = useState<string[]>([]);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [showDepartmentDropdown, setShowDepartmentDropdown] = useState(false);
@@ -80,6 +82,11 @@ export default function WhosWorking() {
   const [statusSearchTerm, setStatusSearchTerm] = useState('');
   const [departmentSearchTerm, setDepartmentSearchTerm] = useState('');
   const [locationSearchTerm, setLocationSearchTerm] = useState('');
+  const [map, setMap] = useState<google.maps.Map | null>(null);
+  const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
+
+  // Load Google Maps (must be called with identical options app-wide)
+  const { isLoaded, loadError } = useGoogleMapsLoader();
 
   useEffect(() => {
     // Register submodule tabs for time and attendance section
@@ -174,6 +181,106 @@ export default function WhosWorking() {
     });
   }, [searchTerm, workers, sortBy, sortOrder, selectedDepartment, selectedStatus, selectedLocation]);
 
+  // Filter workers with coordinates (exclude workers who are "Out")
+  const workersWithCoords = useMemo(
+    () =>
+      filteredWorkers.filter(
+        (w) =>
+          // Must have valid coordinates
+          typeof w.latitude === 'number' &&
+          typeof w.longitude === 'number' &&
+          w.latitude !== 0 &&
+          w.longitude !== 0 &&
+          // Exclude workers who are "Out" (absent or on-leave)
+          w.status !== 'absent' &&
+          w.status !== 'on-leave'
+      ),
+    [filteredWorkers]
+  );
+
+  // Create red pin icon for markers (same as Sites)
+  const getMarkerIcon = () => {
+    if (!isLoaded || typeof google === 'undefined' || !google.maps) return undefined;
+    
+    try {
+      const svgIcon = `<svg width="24" height="32" viewBox="0 0 24 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 0C7.58172 0 4 3.58172 4 8C4 14 12 32 12 32C12 32 20 14 20 8C20 3.58172 16.4183 0 12 0Z" fill="#ef4444"/>
+        <circle cx="12" cy="8" r="3" fill="white"/>
+      </svg>`;
+      
+      return {
+        url: 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgIcon))),
+        scaledSize: new google.maps.Size(32, 42),
+        anchor: new google.maps.Point(16, 42),
+      };
+    } catch (error) {
+      console.error('Error creating marker icon:', error);
+      return undefined;
+    }
+  };
+
+  // Calculate map center based on all workers with coordinates
+  const mapCenter = useMemo(() => {
+    if (workersWithCoords.length === 0) {
+      return { lat: 40.7128, lng: -74.0060 }; // Default to NYC
+    }
+    
+    const avgLat = workersWithCoords.reduce((sum, w) => sum + (w.latitude || 0), 0) / workersWithCoords.length;
+    const avgLng = workersWithCoords.reduce((sum, w) => sum + (w.longitude || 0), 0) / workersWithCoords.length;
+    
+    return { lat: avgLat, lng: avgLng };
+  }, [workersWithCoords]);
+
+  // Clear worker selection when search term or filters change
+  useEffect(() => {
+    setSelectedWorkerId(null);
+  }, [searchTerm, selectedDepartment, selectedStatus, selectedLocation]);
+
+  // Fit map bounds to all workers with coordinates (unless user has selected a specific worker)
+  useEffect(() => {
+    if (!map || !isLoaded) return;
+    if (workersWithCoords.length === 0) return;
+
+    // If a worker is selected, we let selection handler control centering/zoom.
+    if (selectedWorkerId) return;
+
+    try {
+      const bounds = new google.maps.LatLngBounds();
+      workersWithCoords.forEach((w) => bounds.extend({ lat: w.latitude!, lng: w.longitude! }));
+      map.fitBounds(bounds);
+    } catch (error) {
+      console.error('Error fitting bounds:', error);
+    }
+  }, [map, isLoaded, workersWithCoords, selectedWorkerId]);
+
+  // Handle worker click in list to center map on that worker
+  const handleWorkerClick = (worker: WhosWorkingEmployee) => {
+    if (worker.latitude && worker.longitude && map) {
+      setSelectedWorkerId(worker.id);
+      map.panTo({ lat: worker.latitude, lng: worker.longitude });
+      map.setZoom(15);
+    }
+  };
+
+  // Handle "View All" button to show all workers
+  const handleViewAll = () => {
+    setSelectedWorkerId(null);
+    if (map) {
+      // Use the same filter as workersWithCoords (exclude "Out" workers)
+      const workersToShow = filteredWorkers.filter(w => 
+        w.latitude && w.longitude && w.latitude !== 0 && w.longitude !== 0 &&
+        w.status !== 'absent' && w.status !== 'on-leave'
+      );
+      if (workersToShow.length > 0) {
+        const bounds = new google.maps.LatLngBounds();
+        workersToShow.forEach(worker => {
+          bounds.extend({ lat: worker.latitude!, lng: worker.longitude! });
+        });
+        map.fitBounds(bounds);
+      }
+    }
+  };
+
   // Pagination calculations
   const totalPages = Math.ceil(filteredWorkers.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
@@ -203,10 +310,34 @@ export default function WhosWorking() {
     setStatusSearchTerm('');
     setDepartmentSearchTerm('');
     setLocationSearchTerm('');
+    setSelectedWorkerId(null);
   };
 
   // Handle summary card clicks for quick filters
   const handleSummaryCardClick = (status: string) => {
+    // Special case for "active" - selects all non-out statuses
+    if (status === 'active') {
+      const isCurrentlyActive = isSummaryCardActive('active');
+      if (isCurrentlyActive) {
+        // If active, clear all filters (toggle off)
+        setSelectedStatus([]);
+        setSelectedDepartment([]);
+        setSelectedLocation([]);
+        setStatusSearchTerm('');
+        setDepartmentSearchTerm('');
+        setLocationSearchTerm('');
+      } else {
+        // Set all active statuses
+        setSelectedStatus(['present', 'on-break', 'on-transfer']);
+        setSelectedDepartment([]);
+        setSelectedLocation([]);
+        setStatusSearchTerm('');
+        setDepartmentSearchTerm('');
+        setLocationSearchTerm('');
+      }
+      return;
+    }
+    
     // Check if this card is currently active
     const isCurrentlyActive = isSummaryCardActive(status);
     
@@ -229,8 +360,17 @@ export default function WhosWorking() {
     }
   };
 
-  // Check if a summary card should be active (only this status is selected)
+  // Check if a summary card should be active
   const isSummaryCardActive = (status: string) => {
+    if (status === 'active') {
+      // Active card is active when all three active statuses are selected
+      return selectedStatus.length === 3 && 
+             selectedStatus.includes('present') &&
+             selectedStatus.includes('on-break') &&
+             selectedStatus.includes('on-transfer') &&
+             selectedDepartment.length === 0 && 
+             selectedLocation.length === 0;
+    }
     return selectedStatus.length === 1 && selectedStatus[0] === status && 
            selectedDepartment.length === 0 && selectedLocation.length === 0;
   };
@@ -437,7 +577,24 @@ export default function WhosWorking() {
 
       {/* Stats Cards */}
       {!workersLoading && !workersError && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+          <button 
+            onClick={() => handleSummaryCardClick('active')}
+            className={`bg-white border rounded-lg p-4 transition-all duration-200 hover:shadow-md cursor-pointer ${
+              isSummaryCardActive('active') 
+                ? 'border-primary shadow-md' 
+                : 'border-gray-200 hover:border-gray-300'
+            }`}
+            title="Filter by Active workers (In, On Break, On Transfer)"
+          >
+            <div className="flex items-center gap-3">
+              <Users className="h-5 w-5 text-primary" />
+              <div className="text-2xl font-bold text-gray-900">
+                {workers.filter(e => e.status === 'present' || e.status === 'on-break' || e.status === 'on-transfer').length}
+              </div>
+              <div className="text-sm text-muted-foreground">Active</div>
+            </div>
+          </button>
           <button 
             onClick={() => handleSummaryCardClick('present')}
             className={`bg-white border rounded-lg p-4 transition-all duration-200 hover:shadow-md cursor-pointer ${
@@ -861,7 +1018,7 @@ export default function WhosWorking() {
                     </button>
                   </th>
                   <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs w-32">Status</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs w-36">
+                  <th className="text-left py-3 px-4 font-medium text-gray-900 text-xs w-48">
                     <button
                       onClick={() => handleSort('lastActivityTime')}
                       className="flex items-center gap-1 hover:text-gray-700"
@@ -875,8 +1032,38 @@ export default function WhosWorking() {
                 </tr>
               </thead>
               <tbody>
-                {paginatedWorkers.map((worker, _index) => (
-                  <tr key={worker.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                {paginatedWorkers.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-12 text-center">
+                      <Users className="w-8 h-8 text-gray-400 mx-auto mb-3" />
+                      <h3 className="text-sm font-semibold text-gray-900 mb-1">
+                        {(() => {
+                          // Determine message based on active filters
+                          if (selectedStatus.length === 3 && 
+                              selectedStatus.includes('present') && 
+                              selectedStatus.includes('on-break') && 
+                              selectedStatus.includes('on-transfer')) {
+                            return 'No active employees';
+                          } else if (selectedStatus.length === 1) {
+                            if (selectedStatus[0] === 'present') {
+                              return 'No employees in';
+                            } else if (selectedStatus[0] === 'on-break') {
+                              return 'No employees on break';
+                            } else if (selectedStatus[0] === 'on-transfer') {
+                              return 'No employees on transfer';
+                            } else if (selectedStatus[0] === 'out') {
+                              return 'No employees out';
+                            }
+                          }
+                          return 'No workers found';
+                        })()}
+                      </h3>
+                      <p className="text-xs text-gray-600">Try adjusting your search criteria.</p>
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedWorkers.map((worker, _index) => (
+                    <tr key={worker.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                     <td className="py-4 px-6 w-64">
                       <div className="flex items-center gap-3">
                         <div className="relative">
@@ -912,11 +1099,29 @@ export default function WhosWorking() {
                         {getStatusBadge(worker.status)}
                       </div>
                     </td>
-                    <td className="py-4 px-4 w-36 text-gray-600 text-sm">
-                      {(worker.status === 'absent' || worker.status === 'on-leave') ? '--' : worker.lastActivityTime}
+                    <td className="py-4 px-4 w-48">
+                      {worker.lastActivityTime && worker.lastActivityTime !== 'N/A|' ? (
+                        (() => {
+                          const [action, dateTime] = worker.lastActivityTime.split('|');
+                          return (
+                            <div className="min-w-0">
+                              <div className="text-gray-900 text-sm font-medium truncate">
+                                {action}
+                              </div>
+                              {dateTime && (
+                                <div className="text-xs truncate" style={{ color: 'var(--gray-500)' }}>
+                                  {dateTime}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()
+                      ) : (
+                        <span className="text-gray-600 text-sm">N/A</span>
+                      )}
                     </td>
                     <td className="py-4 px-4 text-gray-600 text-sm">
-                      {(worker.status === 'absent' || worker.status === 'on-leave') ? '--' : worker.location}
+                      {worker.location}
                     </td>
                     <td className="py-2 px-2 w-24">
                       <div className="flex items-center">
@@ -937,7 +1142,8 @@ export default function WhosWorking() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -949,15 +1155,37 @@ export default function WhosWorking() {
         <div className="flex gap-4 mb-4">
           {/* Worker List - 30% width */}
           <div className="w-[30%] bg-white border border-gray-200 rounded-lg overflow-hidden">
-            <div className="bg-gray-50 border-b border-gray-200 px-4 py-3">
-              <h3 className="text-sm font-medium text-gray-900">Workers ({filteredWorkers.length})</h3>
+            <div className="bg-gray-50 border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-gray-900">
+                Active Workers ({paginatedWorkers.filter(worker => worker.status !== 'absent' && worker.status !== 'on-leave').length})
+              </h3>
+              {selectedWorkerId && (
+                <button
+                  onClick={handleViewAll}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  View All
+                </button>
+              )}
             </div>
             <div className="h-[432px] overflow-y-auto">
-              {paginatedWorkers.map((worker) => (
-                <div
-                  key={worker.id}
-                  className="border-b border-gray-100 hover:bg-gray-50 transition-colors p-3 cursor-pointer"
-                >
+              {paginatedWorkers.filter(worker => worker.status !== 'absent' && worker.status !== 'on-leave').length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full p-6 text-center">
+                  <Users className="w-12 h-12 text-gray-300 mb-3" />
+                  <p className="text-sm font-medium text-gray-900 mb-1">No active employees</p>
+                  <p className="text-xs text-gray-500">There are no active employees at the moment</p>
+                </div>
+              ) : (
+                paginatedWorkers
+                  .filter(worker => worker.status !== 'absent' && worker.status !== 'on-leave')
+                  .map((worker) => (
+                    <div
+                      key={worker.id}
+                      onClick={() => handleWorkerClick(worker)}
+                      className={`border-b border-gray-100 hover:bg-gray-50 transition-colors p-3 cursor-pointer ${
+                        selectedWorkerId === worker.id ? 'bg-blue-50 border-blue-200' : ''
+                      }`}
+                    >
                   <div className="flex items-center gap-3">
                     <div className="relative">
                       <div 
@@ -975,29 +1203,85 @@ export default function WhosWorking() {
                       <div className="font-medium text-gray-900 text-sm">
                         {worker.firstName} {worker.lastName}
                       </div>
-                      <div className="text-xs" style={{ color: 'var(--gray-500)' }}>{worker.jobTitle}</div>
+                      {worker.department && (
+                        <div className="text-xs truncate" style={{ color: 'var(--gray-500)' }}>
+                          {worker.department}
+                        </div>
+                      )}
+                      <div className="text-xs text-gray-500 flex items-start gap-1 mt-1">
+                        <MapPin className="w-3 h-3 shrink-0 mt-[1px]" />
+                        <span className="whitespace-normal break-words">{worker.location}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              ))}
+                  ))
+              )}
             </div>
           </div>
 
           {/* Map - 70% width */}
           <div className="w-[70%] bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div className="bg-gray-50 border-b border-gray-200 px-4 py-3">
-              <h3 className="text-sm font-medium text-gray-900">Worker Locations</h3>
+              <h3 className="text-sm font-medium text-gray-900">
+                {selectedWorkerId 
+                  ? (() => {
+                      const selectedWorker = filteredWorkers.find(w => w.id === selectedWorkerId);
+                      return selectedWorker ? `${selectedWorker.firstName} ${selectedWorker.lastName}` : `Worker Locations (${workersWithCoords.length} with coordinates)`;
+                    })()
+                  : `Worker Locations (${workersWithCoords.length} with coordinates)`
+                }
+              </h3>
             </div>
+            {isLoaded ? (
+              <div className="h-[432px]">
+                <GoogleMap
+                  mapContainerStyle={{ width: '100%', height: '100%' }}
+                  center={mapCenter}
+                  zoom={workersWithCoords.length > 1 ? 10 : 15}
+                  onLoad={(map) => setMap(map)}
+                  options={{
+                    disableDefaultUI: false,
+                    zoomControl: true,
+                    streetViewControl: false,
+                    mapTypeControl: false,
+                    fullscreenControl: true,
+                  }}
+                >
+                  {isLoaded &&
+                    workersWithCoords
+                      .filter(worker => !selectedWorkerId || worker.id === selectedWorkerId)
+                      .map((worker) => (
+                        <MarkerF
+                          key={`worker-marker-${worker.id}`}
+                          position={{ lat: worker.latitude!, lng: worker.longitude! }}
+                          icon={getMarkerIcon()}
+                          onClick={() => {
+                            setSelectedWorkerId(worker.id);
+                            if (map) {
+                              map.panTo({ lat: worker.latitude!, lng: worker.longitude! });
+                              map.setZoom(15);
+                            }
+                          }}
+                        />
+                      ))}
+                </GoogleMap>
+              </div>
+            ) : loadError ? (
             <div className="h-[432px] bg-gray-100 flex items-center justify-center">
               <div className="text-center">
                 <Map className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                <h3 className="text-sm font-semibold text-gray-900 mb-1">Map View</h3>
-                <p className="text-xs text-gray-600">Interactive map will be implemented here</p>
-                <p className="text-xs text-gray-500 mt-2">
-                  Showing {filteredWorkers.length} workers with location data
-                </p>
+                  <p className="text-sm text-red-600">Error loading Google Maps</p>
               </div>
             </div>
+            ) : (
+              <div className="h-[432px] bg-gray-100 flex items-center justify-center">
+                <div className="text-center">
+                  <Map className="w-12 h-12 text-gray-400 mx-auto mb-3 animate-pulse" />
+                  <p className="text-sm text-gray-600">Loading map...</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1090,14 +1374,6 @@ export default function WhosWorking() {
       </div>
       )}
 
-      {/* Empty State */}
-      {!workersLoading && !workersError && filteredWorkers.length === 0 && (
-        <div className="text-center py-8">
-          <Users className="w-8 h-8 text-gray-400 mx-auto mb-3" />
-          <h3 className="text-sm font-semibold text-gray-900 mb-1">No workers found</h3>
-          <p className="text-xs text-gray-600">Try adjusting your search criteria.</p>
-        </div>
-      )}
     </div>
   );
 }

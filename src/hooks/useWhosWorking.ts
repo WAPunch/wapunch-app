@@ -68,28 +68,54 @@ const mapLastActivity = (logType: string): 'clock-in' | 'break-start' | 'transfe
   }
 };
 
-// Format time for display
-const formatTime = (timestamp: string): string => {
+// Format activity - returns object with action and dateTime
+const formatActivity = (logType: string, timestamp: string): { action: string; dateTime: string } => {
   const date = new Date(timestamp);
   const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) {
-    return 'Just now';
-  } else if (diffMins < 60) {
-    return `${diffMins}m ago`;
-  } else if (diffHours < 24) {
-    return `${diffHours}h ago`;
-  } else if (diffDays === 1) {
-    return 'Yesterday';
-  } else if (diffDays < 7) {
-    return `${diffDays}d ago`;
+  const isToday = date.toDateString() === now.toDateString();
+  const isYesterday = date.toDateString() === new Date(now.getTime() - 86400000).toDateString();
+  
+  // Format date
+  let dateStr = '';
+  if (isToday) {
+    dateStr = 'Today';
+  } else if (isYesterday) {
+    dateStr = 'Yesterday';
   } else {
-    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
   }
+  
+  const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  
+  // Map log_type to readable action name
+  let actionName = '';
+  switch (logType) {
+    case 'check_in':
+      actionName = 'Clock In';
+      break;
+    case 'start_break':
+      actionName = 'Start Break';
+      break;
+    case 'start_transfer':
+      actionName = 'Start Transfer';
+      break;
+    case 'check_out':
+      actionName = 'Clock Out';
+      break;
+    case 'end_break':
+      actionName = 'End Break';
+      break;
+    case 'end_transfer':
+      actionName = 'End Transfer';
+      break;
+    default:
+      actionName = 'Activity';
+  }
+  
+  return {
+    action: actionName,
+    dateTime: `${dateStr} ${timeStr}`
+  };
 };
 
 export const useWhosWorking = (): UseWhosWorkingResult => {
@@ -116,7 +142,6 @@ export const useWhosWorking = (): UseWhosWorkingResult => {
       }
 
       // Fetch workers with their current status
-      // Note: Workers are NOT users, so we don't select user_id
       const { data: workersData, error: workersError } = await supabase
         .from('workers')
         .select(`
@@ -136,7 +161,7 @@ export const useWhosWorking = (): UseWhosWorkingResult => {
         `)
         .eq('company_id', currentCompany.id)
         .eq('is_deleted', false)
-        .order('first_name', { ascending: true });
+        .order('first_name', { ascending: true});
 
       if (workersError) {
         if (import.meta.env.DEV) {
@@ -148,38 +173,84 @@ export const useWhosWorking = (): UseWhosWorkingResult => {
       // Fetch latest attendance log for each worker
       const workerIds = (workersData || []).map((worker: any) => worker.id);
       
+      if (import.meta.env.DEV) {
+        console.log('🔍 Worker IDs to fetch logs for:', workerIds);
+      }
+      
       let latestLogs: any[] = [];
       if (workerIds.length > 0) {
         const { data: logsData, error: logsError } = await supabase
           .from('attendance_logs')
-          .select(`
-            id,
-            worker_id,
-            log_type,
-            log_time,
-            latitude,
-            longitude,
-            source,
-            site_id,
-            site:sites(name, address)
-          `)
+          .select('id, worker_id, log_type, log_time, latitude, longitude, source, raw_message, site_id')
+          .eq('company_id', currentCompany.id)
           .in('worker_id', workerIds)
-          .order('log_time', { ascending: false });
+          .order('log_time', { ascending: false })
+          .limit(1000);
 
         if (logsError) {
           if (import.meta.env.DEV) {
-            console.warn('⚠️ Error fetching attendance logs:', logsError);
+            console.error('❌ Error fetching attendance logs:', logsError);
+            console.error('❌ Error details:', JSON.stringify(logsError, null, 2));
           }
         } else {
+          if (import.meta.env.DEV) {
+            console.log('📋 Fetched attendance logs:', logsData?.length || 0);
+            if (logsData && logsData.length > 0) {
+              console.log('📋 Sample log data:', logsData[0]);
+            }
+          }
+          
+          // Get unique site IDs from logs
+          const siteIds = [...new Set((logsData || []).map((log: any) => log.site_id).filter(Boolean))];
+          
+          // Fetch site details
+          let sitesMap = new Map<string, any>();
+          if (siteIds.length > 0) {
+            const { data: sitesData, error: sitesError } = await supabase
+              .from('sites')
+              .select('id, name, type, address, city, state, zip_code, latitude, longitude')
+              .in('id', siteIds);
+            
+            if (sitesError) {
+              if (import.meta.env.DEV) {
+                console.error('❌ Error fetching sites:', sitesError);
+              }
+            } else {
+              (sitesData || []).forEach((site: any) => {
+                sitesMap.set(site.id, site);
+              });
+              if (import.meta.env.DEV) {
+                console.log('📍 Fetched sites:', sitesData?.length || 0);
+              }
+            }
+          }
+          
+          // Attach site data to logs
+          const logsWithSites = (logsData || []).map((log: any) => ({
+            ...log,
+            site: log.site_id ? sitesMap.get(log.site_id) : null
+          }));
+          
           // Get the latest log for each worker
           const logsByWorker = new Map<string, any>();
-          (logsData || []).forEach((log: any) => {
+          logsWithSites.forEach((log: any) => {
             if (!logsByWorker.has(log.worker_id)) {
               logsByWorker.set(log.worker_id, log);
             }
           });
+          
           latestLogs = Array.from(logsByWorker.values());
+          if (import.meta.env.DEV) {
+            console.log('📍 Latest logs by worker:', latestLogs.length);
+            if (latestLogs.length > 0) {
+              console.log('📍 Sample latest log:', latestLogs[0]);
+            }
+          }
         }
+      }
+      
+      if (import.meta.env.DEV) {
+        console.log('📊 Final latestLogs array length:', latestLogs.length);
       }
 
       // Map workers to WhosWorkingEmployee interface
@@ -188,33 +259,91 @@ export const useWhosWorking = (): UseWhosWorkingResult => {
         
         const status = mapStatus(worker.current_status || 'out', worker.is_active, worker.archived);
         
-        // Get location from site or default
+        // Get location from site - build full address
         let location = 'N/A';
         let latitude: number | undefined;
         let longitude: number | undefined;
         
         if (latestLog?.site) {
-          location = latestLog.site.name || latestLog.site.address || 'N/A';
-        }
-        if (latestLog?.latitude && latestLog?.longitude) {
-          latitude = Number(latestLog.latitude);
-          longitude = Number(latestLog.longitude);
+          const site = latestLog.site;
+          const siteType = site.type?.toLowerCase();
+          
+          // Check if it's a manual entry site
+          if (siteType === 'manual' || siteType === 'manual_entry' || siteType === 'manual-entry') {
+            // For manual entry, use raw_message if available
+            if (latestLog.raw_message) {
+              location = `Manual Entry: ${latestLog.raw_message}`;
+            } else {
+              location = 'Manual Entry';
+            }
+          } else {
+            // Build location string from site address components
+            const addressParts: string[] = [];
+            if (site.address) addressParts.push(site.address);
+            if (site.city) addressParts.push(site.city);
+            if (site.state) addressParts.push(site.state);
+            if (site.zip_code) addressParts.push(site.zip_code);
+            
+            if (addressParts.length > 0) {
+              location = addressParts.join(', ');
+            } else if (site.name) {
+              location = site.name;
+            }
+          }
+          
+          // Use coordinates from log if available (priority), otherwise use site coordinates
+          // For manual entries, coordinates should come from the log
+          if (latestLog.latitude != null && latestLog.longitude != null) {
+            latitude = Number(latestLog.latitude);
+            longitude = Number(latestLog.longitude);
+          } else if (site.latitude != null && site.longitude != null) {
+            latitude = Number(site.latitude);
+            longitude = Number(site.longitude);
+          }
+        } else if (latestLog) {
+          // If we have a log but no site, check if it has raw_message (likely manual entry)
+          if (latestLog.raw_message) {
+            location = `Manual Entry: ${latestLog.raw_message}`;
+          }
+          // Always try to get coordinates from log if available
+          if (latestLog.latitude != null && latestLog.longitude != null) {
+            latitude = Number(latestLog.latitude);
+            longitude = Number(latestLog.longitude);
+            if (!location || location === 'N/A') {
+              location = `Lat: ${latitude.toFixed(4)}, Lng: ${longitude.toFixed(4)}`;
+            }
+          }
         }
 
         // Get last activity info
         const lastActivity = latestLog ? mapLastActivity(latestLog.log_type) : 'clock-out';
-        const lastActivityTime = latestLog ? formatTime(latestLog.log_time) : 'N/A';
+        const lastActivityInfo = latestLog ? formatActivity(latestLog.log_type, latestLog.log_time) : { action: 'N/A', dateTime: '' };
+        const lastActivityTime = latestLog ? `${lastActivityInfo.action}|${lastActivityInfo.dateTime}` : 'N/A|';
 
         // Get department name
         const departmentName = (worker.department as any)?.name || '';
-        // Get job title name - same logic as useWorkers
+        // Get job title name
         const jobTitleName = (worker.job_title as any)?.name || worker.position || '';
+
+        if (import.meta.env.DEV && latestLog) {
+          console.log(`Worker ${worker.first_name} ${worker.last_name}:`, {
+            hasLog: !!latestLog,
+            hasSite: !!latestLog?.site,
+            siteType: latestLog?.site?.type,
+            rawMessage: latestLog?.raw_message,
+            location,
+            latitude,
+            longitude,
+            lastActivity,
+            lastActivityTime,
+          });
+        }
 
         return {
           id: worker.id,
           firstName: worker.first_name || '',
           lastName: worker.last_name || '',
-          email: worker.email || '', // Email is stored directly in workers table
+          email: worker.email || '',
           jobTitle: jobTitleName,
           department: departmentName,
           status,
@@ -222,7 +351,7 @@ export const useWhosWorking = (): UseWhosWorkingResult => {
           location,
           lastActivityTime,
           lastActivity,
-          activityDetails: '', // No longer used, but keeping for interface compatibility
+          activityDetails: '',
           phone: worker.whatsapp_number || undefined,
           latitude,
           longitude,
@@ -251,4 +380,3 @@ export const useWhosWorking = (): UseWhosWorkingResult => {
     refetch: fetchWorkers,
   };
 };
-
