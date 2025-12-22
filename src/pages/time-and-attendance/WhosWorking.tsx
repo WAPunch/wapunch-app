@@ -7,6 +7,50 @@ import { GoogleMap, MarkerF } from '@react-google-maps/api';
 import { useGoogleMapsLoader } from '../../lib/google-maps';
 import { useCompany } from '../../hooks/useCompany';
 import { getDefaultMapCenter } from '../../lib/countries';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Component to handle map resize and initialization
+function MapResizeHandler() {
+  const map = useMap();
+  
+  useEffect(() => {
+    // Force map to resize and invalidate when component mounts
+    const timer = setTimeout(() => {
+      map.invalidateSize();
+      map.setView(map.getCenter(), map.getZoom());
+    }, 200);
+    
+    // Also invalidate on window resize
+    const handleResize = () => {
+      map.invalidateSize();
+    };
+    window.addEventListener('resize', handleResize);
+    
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [map]);
+  return null;
+}
+
+// Fix for default Leaflet marker icons
+import icon from 'leaflet/dist/images/marker-icon.png';
+import iconShadow from 'leaflet/dist/images/marker-shadow.png';
+
+let DefaultIcon = L.icon({
+  iconUrl: icon,
+  shadowUrl: iconShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  tooltipAnchor: [16, -28],
+  shadowSize: [41, 41]
+});
+
+L.Marker.prototype.options.icon = DefaultIcon;
 import { 
   Users, 
   Search, 
@@ -94,6 +138,17 @@ export default function WhosWorking() {
 
   // Load Google Maps (must be called with identical options app-wide)
   const { isLoaded, loadError } = useGoogleMapsLoader();
+
+  // Force Leaflet map to reinitialize when modal opens
+  useEffect(() => {
+    if (showLocationModal && selectedWorkerForModal) {
+      // Small delay to ensure DOM is ready
+      const timer = setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+  }, [showLocationModal, selectedWorkerForModal]);
 
   useEffect(() => {
     // Register submodule tabs for time and attendance section
@@ -205,7 +260,7 @@ export default function WhosWorking() {
     [filteredWorkers]
   );
 
-  // Create red pin icon for markers (same as Sites)
+  // Create red pin icon for markers (same as Sites) - for Google Maps
   const getMarkerIcon = () => {
     if (!isLoaded || typeof google === 'undefined' || !google.maps) return undefined;
     
@@ -224,6 +279,21 @@ export default function WhosWorking() {
       console.error('Error creating marker icon:', error);
       return undefined;
     }
+  };
+
+  // Create red pin icon for Leaflet markers
+  const getLeafletMarkerIcon = () => {
+    const svgIcon = `<svg width="24" height="32" viewBox="0 0 24 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 0C7.58172 0 4 3.58172 4 8C4 14 12 32 12 32C12 32 20 14 20 8C20 3.58172 16.4183 0 12 0Z" fill="#ef4444"/>
+      <circle cx="12" cy="8" r="3" fill="white"/>
+    </svg>`;
+    
+    return L.icon({
+      iconUrl: 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgIcon))),
+      iconSize: [24, 32],
+      iconAnchor: [12, 32],
+      popupAnchor: [0, -32],
+    });
   };
 
   // Calculate map center based on all workers with coordinates
@@ -1245,55 +1315,60 @@ export default function WhosWorking() {
                 }
               </h3>
             </div>
-            {isLoaded ? (
-              <div className="h-[432px]">
-                <GoogleMap
-                  mapContainerStyle={{ width: '100%', height: '100%' }}
-                  center={mapCenter}
+            <div className="h-[432px] relative">
+              {workersWithCoords.length > 0 ? (
+                <MapContainer
+                  key={`main-map-${workersWithCoords.length}-${selectedWorkerId}`}
+                  center={[mapCenter.lat, mapCenter.lng]}
                   zoom={workersWithCoords.length > 1 ? 10 : 15}
-                  onLoad={(map) => setMap(map)}
-                  options={{
-                    disableDefaultUI: false,
-                    zoomControl: true,
-                    streetViewControl: false,
-                    mapTypeControl: false,
-                    fullscreenControl: true,
-                  }}
+                  style={{ height: '100%', width: '100%' }}
+                  scrollWheelZoom={true}
+                  zoomControl={true}
                 >
-                  {isLoaded &&
-                    workersWithCoords
-                      .filter(worker => !selectedWorkerId || worker.id === selectedWorkerId)
-                      .map((worker) => (
-                        <MarkerF
-                          key={`worker-marker-${worker.id}`}
-                          position={{ lat: worker.latitude!, lng: worker.longitude! }}
-                          icon={getMarkerIcon()}
-                          onClick={() => {
+                  <MapResizeHandler />
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>'
+                    url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+                    subdomains="abcd"
+                    maxZoom={19}
+                    noWrap={false}
+                  />
+                  {workersWithCoords
+                    .filter(worker => !selectedWorkerId || worker.id === selectedWorkerId)
+                    .map((worker) => (
+                      <Marker
+                        key={`worker-marker-${worker.id}`}
+                        position={[worker.latitude!, worker.longitude!]}
+                        icon={getLeafletMarkerIcon()}
+                        eventHandlers={{
+                          click: () => {
                             setSelectedWorkerId(worker.id);
-                            if (map) {
-                              map.panTo({ lat: worker.latitude!, lng: worker.longitude! });
-                              map.setZoom(15);
-                            }
-                          }}
-                        />
-                      ))}
-                </GoogleMap>
-              </div>
-            ) : loadError ? (
-            <div className="h-[432px] bg-gray-100 flex items-center justify-center">
-              <div className="text-center">
-                <Map className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-sm text-red-600">Error loading Google Maps</p>
-              </div>
-            </div>
-            ) : (
-              <div className="h-[432px] bg-gray-100 flex items-center justify-center">
-                <div className="text-center">
-                  <Map className="w-12 h-12 text-gray-400 mx-auto mb-3 animate-pulse" />
-                  <p className="text-sm text-gray-600">Loading map...</p>
+                          }
+                        }}
+                      >
+                        <Popup>
+                          <div>
+                            <div className="font-medium">{worker.firstName} {worker.lastName}</div>
+                            {worker.department && (
+                              <div className="text-sm text-gray-600">{worker.department}</div>
+                            )}
+                            {worker.location && (
+                              <div className="text-xs text-gray-500 mt-1">{worker.location}</div>
+                            )}
+                          </div>
+                        </Popup>
+                      </Marker>
+                    ))}
+                </MapContainer>
+              ) : (
+                <div className="h-full bg-gray-100 flex items-center justify-center">
+                  <div className="text-center">
+                    <MapPin className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                    <p className="text-sm text-gray-600">No workers with location data</p>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1388,8 +1463,8 @@ export default function WhosWorking() {
 
       {/* Location Modal */}
       {showLocationModal && selectedWorkerForModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl flex flex-col">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50" style={{ zIndex: 9999 }}>
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl flex flex-col" style={{ zIndex: 10000 }}>
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <div className="flex items-center gap-4 flex-1 flex-wrap">
@@ -1432,33 +1507,36 @@ export default function WhosWorking() {
               </button>
             </div>
 
-            {/* Modal Map */}
-            <div className="h-[500px] w-full">
-              {isLoaded && selectedWorkerForModal.latitude && selectedWorkerForModal.longitude ? (
-                <GoogleMap
-                  mapContainerStyle={{ width: '100%', height: '100%' }}
-                  center={{
-                    lat: selectedWorkerForModal.latitude,
-                    lng: selectedWorkerForModal.longitude,
-                  }}
-                  zoom={15}
-                  onLoad={(map) => setModalMap(map)}
-                  options={{
-                    disableDefaultUI: false,
-                    zoomControl: true,
-                    streetViewControl: false,
-                    mapTypeControl: false,
-                    fullscreenControl: true,
-                  }}
-                >
-                  <MarkerF
-                    position={{
-                      lat: selectedWorkerForModal.latitude,
-                      lng: selectedWorkerForModal.longitude,
-                    }}
-                    icon={getMarkerIcon()}
-                  />
-                </GoogleMap>
+            {/* Modal Map - Using OpenStreetMap with Leaflet */}
+            <div className="h-[500px] w-full relative overflow-hidden bg-gray-100">
+              {selectedWorkerForModal.latitude && selectedWorkerForModal.longitude ? (
+                <div style={{ height: '100%', width: '100%' }}>
+                  <MapContainer
+                    key={`map-${selectedWorkerForModal.latitude}-${selectedWorkerForModal.longitude}-${showLocationModal}`}
+                    center={[selectedWorkerForModal.latitude, selectedWorkerForModal.longitude]}
+                    zoom={15}
+                    style={{ height: '100%', width: '100%' }}
+                    scrollWheelZoom={true}
+                    zoomControl={true}
+                  >
+                    <MapResizeHandler />
+                    <TileLayer
+                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>'
+                      url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+                      subdomains="abcd"
+                      maxZoom={19}
+                      noWrap={false}
+                    />
+                    <Marker
+                      position={[selectedWorkerForModal.latitude, selectedWorkerForModal.longitude]}
+                      icon={getLeafletMarkerIcon()}
+                    >
+                      <Popup>
+                        {selectedWorkerForModal.siteName || selectedWorkerForModal.location || 'Location'}
+                      </Popup>
+                    </Marker>
+                  </MapContainer>
+                </div>
               ) : (
                 <div className="h-full bg-gray-100 flex items-center justify-center">
                   <div className="text-center">
