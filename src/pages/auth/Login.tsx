@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Eye, EyeOff, Mail, Lock, ArrowRight, Phone, Box } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, ArrowRight, Phone, MessageCircleCode } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../stores/auth-store';
 import { getUserProfile } from '../../lib/supabase';
@@ -200,7 +200,7 @@ export default function Login() {
           {/* Mobile Header */}
           <div className="lg:hidden text-center mb-8">
             <div className="mx-auto mb-4 flex items-center justify-center gap-2">
-              <Box size={32} style={{ color: 'var(--primary-brand-hex)' }} />
+              <MessageCircleCode size={32} style={{ color: 'var(--primary-brand-hex)' }} />
               <span className="text-2xl font-semibold text-gray-900">WAPunch</span>
             </div>
           </div>
@@ -363,7 +363,7 @@ export default function Login() {
         <div className="max-w-md text-center text-white">
           <div className="mb-8">
             <div className="mx-auto mb-6 flex items-center justify-center gap-3">
-              <Box size={48} style={{ color: 'var(--primary-brand-hex)' }} />
+              <MessageCircleCode size={48} style={{ color: 'var(--primary-brand-hex)' }} />
               <span className="text-4xl font-semibold text-white">WAPunch</span>
             </div>
           </div>

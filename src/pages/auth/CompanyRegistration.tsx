@@ -18,7 +18,7 @@ import {
   Hash,
   X
 } from 'lucide-react';
-import { Box } from 'lucide-react';
+import { MessageCircleCode } from 'lucide-react';
 import taxIdRules from '../../../tax_id_rules_global_en.json';
 import phoneRules from '../../../phone_number_rules_global_full.json';
 import blockedEmailDomains from '../../../blocked_email_domains_for_company_registration.json';
@@ -1022,7 +1022,7 @@ export default function CompanyRegistration() {
             <div className="flex items-center justify-between h-16">
               <div className="flex items-center">
                 <div className="flex items-center gap-2">
-                  <Box size={24} style={{ color: 'var(--primary-brand-hex)' }} />
+                  <MessageCircleCode size={24} style={{ color: 'var(--primary-brand-hex)' }} />
                   <span className="text-lg font-semibold text-gray-900">WAPunch</span>
                 </div>
               </div>
@@ -1813,7 +1813,7 @@ export default function CompanyRegistration() {
           {/* Logo */}
           <div className="text-center mb-12">
             <div className="flex items-center justify-center gap-2 mb-6">
-              <Box size={32} style={{ color: 'var(--primary-brand-hex)' }} />
+              <MessageCircleCode size={32} style={{ color: 'var(--primary-brand-hex)' }} />
               <span className="text-2xl font-semibold text-gray-900">WAPunch</span>
             </div>
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Company Registration</h2>

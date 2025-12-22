@@ -36,7 +36,7 @@ import {
   Building2,
   Printer,
   CalendarCheck,
-  Box,
+  MessageCircleCode,
   Check
 } from 'lucide-react';
 
@@ -386,7 +386,7 @@ function Layout({ children }: LayoutProps) {
               }}
             >
               <div className="flex items-center justify-center" style={{ width: '27px', height: '27px', flexShrink: 0 }}>
-                <Box size={27} style={{ color: 'var(--primary-brand-hex)' }} />
+                <MessageCircleCode size={27} style={{ color: 'var(--primary-brand-hex)' }} />
               </div>
                           <span
               className="absolute transition-opacity duration-300 whitespace-nowrap font-normal"
