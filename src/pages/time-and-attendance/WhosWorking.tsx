@@ -33,7 +33,8 @@ import {
   CalendarCheck,
   Clock as ClockIcon,
   MapPin as MapPinIcon,
-  Flag
+  Flag,
+  X
 } from 'lucide-react';
 
 // Using WhosWorkingEmployee from hook
@@ -87,6 +88,9 @@ export default function WhosWorking() {
   const [locationSearchTerm, setLocationSearchTerm] = useState('');
   const [map, setMap] = useState<google.maps.Map | null>(null);
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const [selectedWorkerForModal, setSelectedWorkerForModal] = useState<Worker | null>(null);
+  const [modalMap, setModalMap] = useState<google.maps.Map | null>(null);
 
   // Load Google Maps (must be called with identical options app-wide)
   const { isLoaded, loadError } = useGoogleMapsLoader();
@@ -1130,9 +1134,13 @@ export default function WhosWorking() {
                     <td className="py-2 px-2 w-24">
                       <div className="flex items-center">
                         <button 
+                          onClick={() => {
+                            setSelectedWorkerForModal(worker);
+                            setShowLocationModal(true);
+                          }}
                           className="p-1 hover:bg-gray-100 rounded transition-colors"
-                          aria-label={`View ${worker.firstName} ${worker.lastName}`}
-                          title={`View ${worker.firstName} ${worker.lastName}`}
+                          aria-label={`View location for ${worker.firstName} ${worker.lastName}`}
+                          title={`View location for ${worker.firstName} ${worker.lastName}`}
                         >
                           <Eye className="w-4 h-4" />
                         </button>
@@ -1376,6 +1384,92 @@ export default function WhosWorking() {
           )}
         </div>
       </div>
+      )}
+
+      {/* Location Modal */}
+      {showLocationModal && selectedWorkerForModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center gap-4 flex-1 flex-wrap">
+                <h2 className="text-lg font-semibold text-gray-900">
+                  {selectedWorkerForModal.firstName} {selectedWorkerForModal.lastName}
+                </h2>
+                {selectedWorkerForModal.lastActivityTime && selectedWorkerForModal.lastActivityTime !== 'N/A|' && (
+                  <>
+                    <span className="text-gray-400">|</span>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-gray-900">
+                        {(() => {
+                          const [action] = selectedWorkerForModal.lastActivityTime.split('|');
+                          return action;
+                        })()}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {(() => {
+                          const [, dateTime] = selectedWorkerForModal.lastActivityTime.split('|');
+                          return dateTime;
+                        })()}
+                      </span>
+                    </div>
+                  </>
+                )}
+                <span className="text-gray-400">|</span>
+                <span className="text-sm text-gray-600">
+                  {selectedWorkerForModal.siteName || selectedWorkerForModal.location || 'Location'}
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  setShowLocationModal(false);
+                  setSelectedWorkerForModal(null);
+                }}
+                className="p-1 hover:bg-gray-100 rounded transition-colors"
+                aria-label="Close modal"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            {/* Modal Map */}
+            <div className="h-[500px] w-full">
+              {isLoaded && selectedWorkerForModal.latitude && selectedWorkerForModal.longitude ? (
+                <GoogleMap
+                  mapContainerStyle={{ width: '100%', height: '100%' }}
+                  center={{
+                    lat: selectedWorkerForModal.latitude,
+                    lng: selectedWorkerForModal.longitude,
+                  }}
+                  zoom={15}
+                  onLoad={(map) => setModalMap(map)}
+                  options={{
+                    disableDefaultUI: false,
+                    zoomControl: true,
+                    streetViewControl: false,
+                    mapTypeControl: false,
+                    fullscreenControl: true,
+                  }}
+                >
+                  <MarkerF
+                    position={{
+                      lat: selectedWorkerForModal.latitude,
+                      lng: selectedWorkerForModal.longitude,
+                    }}
+                    icon={getMarkerIcon()}
+                  />
+                </GoogleMap>
+              ) : (
+                <div className="h-full bg-gray-100 flex items-center justify-center">
+                  <div className="text-center">
+                    <MapPin className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                    <p className="text-sm text-gray-600">No location data available</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
     </div>

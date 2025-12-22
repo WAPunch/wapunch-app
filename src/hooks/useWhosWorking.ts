@@ -13,6 +13,7 @@ export interface WhosWorkingEmployee {
   status: 'present' | 'on-break' | 'on-transfer' | 'on-leave' | 'absent';
   current_status?: 'out' | 'in' | 'on_break' | 'on_transfer';
   location: string;
+  siteName?: string;
   lastActivityTime: string;
   lastActivity: 'clock-in' | 'break-start' | 'transfer-start' | 'clock-out' | 'break-end' | 'transfer-end';
   activityDetails: string;
@@ -261,12 +262,16 @@ export const useWhosWorking = (): UseWhosWorkingResult => {
         
         // Get location from site - build full address
         let location = 'N/A';
+        let siteName: string | undefined;
         let latitude: number | undefined;
         let longitude: number | undefined;
         
         if (latestLog?.site) {
           const site = latestLog.site;
           const siteType = site.type?.toLowerCase();
+          
+          // Store site name
+          siteName = site.name || undefined;
           
           // Check if it's a manual entry site
           if (siteType === 'manual' || siteType === 'manual_entry' || siteType === 'manual-entry') {
@@ -349,6 +354,7 @@ export const useWhosWorking = (): UseWhosWorkingResult => {
           status,
           current_status: worker.current_status || 'out',
           location,
+          siteName,
           lastActivityTime,
           lastActivity,
           activityDetails: '',

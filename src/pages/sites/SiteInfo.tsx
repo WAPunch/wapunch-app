@@ -26,6 +26,7 @@ const defaultSite = {
   longitude: 0,
   type: 'company_branch' as 'company_branch' | 'customer_site',
   customSiteId: '',
+  country: '',
 };
 
 interface SiteData {
@@ -36,6 +37,24 @@ interface SiteData {
   longitude: number;
   type: 'company_branch' | 'customer_site';
   customSiteId: string;
+  country?: string;
+}
+
+// Helper function to extract country from Google Maps address_components
+const extractCountryFromAddressComponents = (addressComponents: google.maps.GeocoderAddressComponent[]): string => {
+  if (!addressComponents || addressComponents.length === 0) return '';
+  
+  // Find the component with type "country"
+  const countryComponent = addressComponents.find(component => 
+    component.types && component.types.includes('country')
+  );
+  
+  if (countryComponent) {
+    // Use long_name for the full country name (e.g., "Panama" instead of "Provincia de Panama")
+    return countryComponent.long_name || '';
+  }
+  
+  return '';
 }
 
 export default function SiteInfo() {
@@ -92,6 +111,7 @@ export default function SiteInfo() {
                   longitude: siteData.longitude ? Number(siteData.longitude) : 0,
                   type: (siteData.type === 'customer_site' ? 'customer_site' : 'company_branch') as 'company_branch' | 'customer_site',
                   customSiteId: siteData.custom_site_id || '',
+                  country: siteData.country || '',
                 };
                 setSite(mappedSite);
                 setOriginalSite(mappedSite);
@@ -111,6 +131,7 @@ export default function SiteInfo() {
             longitude: parsedSite.longitude ? Number(parsedSite.longitude) : 0,
             type: (parsedSite.type === 'customer_site' ? 'customer_site' : 'company_branch') as 'company_branch' | 'customer_site',
             customSiteId: parsedSite.customSiteId || parsedSite.custom_site_id || '',
+            country: parsedSite.country || '',
           };
           setSite(mappedSite);
           setOriginalSite(mappedSite);
@@ -135,7 +156,7 @@ export default function SiteInfo() {
     if (!isLoaded || !autocompleteRef.current || autocomplete) return;
 
     const autocompleteInstance = new google.maps.places.Autocomplete(autocompleteRef.current, {
-      fields: ['formatted_address', 'geometry', 'name'],
+      fields: ['formatted_address', 'geometry', 'name', 'address_components'],
     });
 
     const handlePlaceSelect = () => {
@@ -148,6 +169,11 @@ export default function SiteInfo() {
       const lat = place.geometry.location.lat();
       const lng = place.geometry.location.lng();
       const address = place.formatted_address || place.name || '';
+      
+      // Extract country from address_components
+      const country = place.address_components 
+        ? extractCountryFromAddressComponents(place.address_components)
+        : '';
 
       // Mark timestamp to prevent geocoding conflict
       if (!window.lastAutocompleteUpdate) {
@@ -161,6 +187,7 @@ export default function SiteInfo() {
         address,
         latitude: lat,
         longitude: lng,
+        country: country || prev.country,
       }));
 
       // Update map immediately
@@ -224,16 +251,23 @@ export default function SiteInfo() {
     const geocoder = new google.maps.Geocoder();
     geocoder.geocode({ address: site.address }, (results, status) => {
       if (status === 'OK' && results && results.length > 0 && results[0].geometry) {
-        const location = results[0].geometry.location;
+        const result = results[0];
+        const location = result.geometry.location;
         const lat = location.lat();
         const lng = location.lng();
-        const formattedAddress = results[0].formatted_address || site.address;
+        const formattedAddress = result.formatted_address || site.address;
+        
+        // Extract country from address_components
+        const country = result.address_components 
+          ? extractCountryFromAddressComponents(result.address_components)
+          : '';
 
         setSite(prev => ({
           ...prev,
           address: formattedAddress,
           latitude: lat,
           longitude: lng,
+          country: country || prev.country,
         }));
 
         map.panTo({ lat, lng });
@@ -287,11 +321,19 @@ export default function SiteInfo() {
           const geocoder = new google.maps.Geocoder();
           geocoder.geocode({ location: { lat: latNum, lng: lngNum } }, (results, status) => {
             if (status === 'OK' && results && results.length > 0 && results[0]) {
-              const formattedAddress = results[0].formatted_address;
+              const result = results[0];
+              const formattedAddress = result.formatted_address;
+              
+              // Extract country from address_components
+              const country = result.address_components 
+                ? extractCountryFromAddressComponents(result.address_components)
+                : '';
+              
               if (formattedAddress) {
                 setSite(prev => ({
                   ...prev,
                   address: formattedAddress,
+                  country: country || prev.country,
                 }));
               }
             }
@@ -331,24 +373,9 @@ export default function SiteInfo() {
 
     setIsSaving(true);
     try {
-      // Parse address to extract components if needed
-      const addressParts = site.address.split(',').map(s => s.trim());
-      let city = '';
-      let state = '';
-      let zipCode = '';
-      let country = '';
-
-      if (addressParts.length >= 2) {
-        city = addressParts[1] || '';
-        if (addressParts.length >= 3) {
-          const stateZip = addressParts[2]?.split(' ') || [];
-          state = stateZip[0] || '';
-          zipCode = stateZip.slice(1).join(' ') || '';
-        }
-        if (addressParts.length >= 4) {
-          country = addressParts[3] || '';
-        }
-      }
+      // Use country from site state (extracted from Google Maps address_components)
+      // If not available, fallback to company country or default
+      const country = site.country || currentCompany?.country || 'United States';
 
       // Prepare site data for database
       const siteData: any = {
@@ -356,7 +383,7 @@ export default function SiteInfo() {
         site_address: site.address.trim(),
         latitude: site.latitude,
         longitude: site.longitude,
-        country: country || currentCompany?.country || 'USA',
+        country: country,
         type: site.type,
         custom_site_id: site.customSiteId.trim() || null,
         is_active: true,
@@ -716,11 +743,22 @@ export default function SiteInfo() {
                               // Reverse geocode
                               const geocoder = new google.maps.Geocoder();
                               geocoder.geocode({ location: { lat: latNum, lng: lngNum } }, (results, status) => {
-                                if (status === 'OK' && results && results.length > 0 && results[0] && results[0].formatted_address) {
-                                  setSite(prev => ({
-                                    ...prev,
-                                    address: results[0].formatted_address,
-                                  }));
+                                if (status === 'OK' && results && results.length > 0 && results[0]) {
+                                  const result = results[0];
+                                  const formattedAddress = result.formatted_address;
+                                  
+                                  // Extract country from address_components
+                                  const country = result.address_components 
+                                    ? extractCountryFromAddressComponents(result.address_components)
+                                    : '';
+                                  
+                                  if (formattedAddress) {
+                                    setSite(prev => ({
+                                      ...prev,
+                                      address: formattedAddress,
+                                      country: country || prev.country,
+                                    }));
+                                  }
                                 }
                               });
                             }
