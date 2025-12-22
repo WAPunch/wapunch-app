@@ -15,6 +15,13 @@ import { GoogleMap, LoadScript, Marker, useJsApiLoader } from '@react-google-map
 import { Autocomplete } from '@react-google-maps/api';
 import { useGoogleMapsLoader } from '../../lib/google-maps';
 
+// Extend Window interface for lastAutocompleteUpdate
+declare global {
+  interface Window {
+    lastAutocompleteUpdate?: number;
+  }
+}
+
 // Google Maps libraries are centralized in `useGoogleMapsLoader`
 
 // Default site data
@@ -218,7 +225,8 @@ export default function SiteInfo() {
         Math.abs(centerLng - site.longitude) > threshold) {
       map.panTo({ lat: site.latitude, lng: site.longitude });
       
-      if (map.getZoom() && map.getZoom() < 10) {
+      const currentZoom = map.getZoom();
+      if (currentZoom !== undefined && currentZoom < 10) {
         map.setZoom(15);
       }
     }
@@ -250,11 +258,25 @@ export default function SiteInfo() {
     
     const geocoder = new google.maps.Geocoder();
     geocoder.geocode({ address: site.address }, (results, status) => {
-      if (status === 'OK' && results && results.length > 0 && results[0].geometry) {
+      if (status === 'OK' && results && results.length > 0 && results[0]?.geometry) {
         const result = results[0];
-        const location = result.geometry.location;
-        const lat = location.lat();
-        const lng = location.lng();
+        if (!result) return;
+        const location = result.geometry?.location;
+        if (!location) return;
+        let lat: number = 0;
+        let lng: number = 0;
+        try {
+          const latValue = location.lat();
+          lat = typeof latValue === 'number' ? latValue : 0;
+        } catch {
+          lat = 0;
+        }
+        try {
+          const lngValue = location.lng();
+          lng = typeof lngValue === 'number' ? lngValue : 0;
+        } catch {
+          lng = 0;
+        }
         const formattedAddress = result.formatted_address || site.address;
         
         // Extract country from address_components
@@ -290,21 +312,15 @@ export default function SiteInfo() {
       let lngNum = 0;
       
       try {
-        if (typeof latLng.lat === 'function') {
-          latNum = Number(latLng.lat());
-        } else if (typeof latLng.lat === 'number') {
-          latNum = latLng.lat;
-        }
+        const latValue = latLng.lat();
+        latNum = typeof latValue === 'number' ? latValue : 0;
       } catch {
         latNum = 0;
       }
       
       try {
-        if (typeof latLng.lng === 'function') {
-          lngNum = Number(latLng.lng());
-        } else if (typeof latLng.lng === 'number') {
-          lngNum = latLng.lng;
-        }
+        const lngValue = latLng.lng();
+        lngNum = typeof lngValue === 'number' ? lngValue : 0;
       } catch {
         lngNum = 0;
       }
@@ -714,21 +730,15 @@ export default function SiteInfo() {
                             let lngNum = 0;
                             
                             try {
-                              if (typeof latLng.lat === 'function') {
-                                latNum = Number(latLng.lat());
-                              } else if (typeof latLng.lat === 'number') {
-                                latNum = latLng.lat;
-                              }
+                              const latValue = latLng.lat();
+                              latNum = typeof latValue === 'number' ? latValue : 0;
                             } catch {
                               latNum = 0;
                             }
                             
                             try {
-                              if (typeof latLng.lng === 'function') {
-                                lngNum = Number(latLng.lng());
-                              } else if (typeof latLng.lng === 'number') {
-                                lngNum = latLng.lng;
-                              }
+                              const lngValue = latLng.lng();
+                              lngNum = typeof lngValue === 'number' ? lngValue : 0;
                             } catch {
                               lngNum = 0;
                             }

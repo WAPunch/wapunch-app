@@ -22,6 +22,7 @@ interface CSVRow {
   longitude?: string;
   customSiteId?: string;
   type?: string;
+  radiusMeters?: string;
 }
 
 interface ValidationError {
@@ -120,7 +121,7 @@ Walt Disney World,1375 E Buena Vista Dr,Lake Buena Vista,FL,32830,USA,28.3852,-8
     const valid: CSVRow[] = [];
     const errors: ValidationError[] = [];
 
-    if (rows.length < 2) {
+    if (rows.length < 2 || !rows[0]) {
       errors.push({ row: 0, field: 'file', message: 'CSV file must have at least a header row and one data row' });
       return { valid, errors };
     }

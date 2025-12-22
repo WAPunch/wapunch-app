@@ -206,7 +206,7 @@ export default function Sites() {
   const mapCenter = useMemo(() => {
     if (sitesWithCoords.length === 0) {
       // Use company country center if available, otherwise default to US
-      return getDefaultMapCenter(currentCompany?.country);
+      return getDefaultMapCenter(currentCompany?.country || undefined);
     }
     
     const avgLat = sitesWithCoords.reduce((sum, s) => sum + (s.latitude || 0), 0) / sitesWithCoords.length;
@@ -411,8 +411,8 @@ export default function Sites() {
     );
   };
 
-  const getFilteredCustomIdOptions = () => {
-    const customIdOptions = Array.from(new Set(sitesData.map(s => s.custom_site_id).filter(Boolean))).sort();
+  const getFilteredCustomIdOptions = (): string[] => {
+    const customIdOptions = Array.from(new Set(sitesData.map(s => s.custom_site_id).filter((id): id is string => Boolean(id)))).sort();
     if (!customIdSearchTerm) return customIdOptions;
     return customIdOptions.filter(customId => 
       customId.toLowerCase().includes(customIdSearchTerm.toLowerCase())

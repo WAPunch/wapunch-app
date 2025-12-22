@@ -299,7 +299,7 @@ export default function CompanySettings() {
     const cleanNumber = cleanPhoneNumber(phoneNumber);
     if (!cleanNumber) return '';
     
-    const phoneInfo = getPhoneInfo(callingCode);
+    const phoneInfo = getPhoneInfo(callingCode) as any;
     
     // If no formats available, return cleaned number
     if (!phoneInfo.formats || phoneInfo.formats.length === 0) {
