@@ -8,7 +8,7 @@ const AttendanceFlags = () => {
   useEffect(() => {
     registerSubmodules('Time & Attendance', [
       { id: 'whos-working', label: "Who's Working", href: '/time-and-attendance/whos-working', icon: Users },
-      { id: 'schedule', label: 'Schedule', href: '/time-and-attendance/schedule', icon: Calendar },
+      // { id: 'schedule', label: 'Schedule', href: '/time-and-attendance/schedule', icon: Calendar }, // Hidden for future use
       { id: 'attendance', label: 'Attendance', href: '/time-and-attendance/attendance', icon: Clock },
       { id: 'attendance-flags', label: 'Attendance Flags', href: '/time-and-attendance/attendance-flags', icon: Flag }
     ]);
