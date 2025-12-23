@@ -61,7 +61,7 @@ export default function Attendance() {
   const [expandedRecords, setExpandedRecords] = useState<Set<string>>(new Set());
   const [activeFloatingMenu, setActiveFloatingMenu] = useState<string | null>(null);
 
-  const { workers, isLoading, error, refetch } = useAttendance(selectedDate);
+  const { workers, isLoading, error, refetch } = useAttendance(selectedDate || new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
     // Register submodule tabs for time and attendance
@@ -95,13 +95,13 @@ export default function Attendance() {
 
   // Date navigation
   const goToPreviousDay = () => {
-    const date = new Date(selectedDate);
+    const date = new Date(selectedDate || new Date().toISOString().split('T')[0]);
     date.setDate(date.getDate() - 1);
     setSelectedDate(date.toISOString().split('T')[0]);
   };
 
   const goToNextDay = () => {
-    const date = new Date(selectedDate);
+    const date = new Date(selectedDate || new Date().toISOString().split('T')[0]);
     date.setDate(date.getDate() + 1);
     setSelectedDate(date.toISOString().split('T')[0]);
   };
@@ -160,7 +160,7 @@ export default function Attendance() {
         employeeName: worker.workerName,
         role: worker.jobTitle,
         department: worker.department,
-        date: selectedDate,
+        date: selectedDate || new Date().toISOString().split('T')[0],
         clockIn: worker.firstClockIn ? formatTime(worker.firstClockIn) : null,
         clockOut: worker.lastClockOut ? formatTime(worker.lastClockOut) : null,
         breaks,

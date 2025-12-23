@@ -145,35 +145,43 @@ export const useAttendance = (selectedDate: string): UseAttendanceResult => {
 
       // Step 4: Map logs
       const logsByWorker = (logsData || []).reduce((acc, log: any) => {
+        if (!log.worker_id) return acc;
         if (!acc[log.worker_id]) {
           acc[log.worker_id] = [];
         }
-        acc[log.worker_id].push({
-          id: log.id,
-          workerId: log.worker_id,
-          logType: log.log_type,
-          logTime: log.log_time,
-          siteId: log.site_id,
-          siteName: (log.site as any)?.site_name || 'Unknown Site'
-        });
+        const workerLogs = acc[log.worker_id];
+        if (workerLogs) {
+          workerLogs.push({
+            id: log.id,
+            workerId: log.worker_id,
+            logType: log.log_type,
+            logTime: log.log_time,
+            siteId: log.site_id,
+            siteName: (log.site as any)?.site_name || 'Unknown Site'
+          });
+        }
         return acc;
       }, {} as Record<string, AttendanceLog[]>);
 
       // Step 5: Map summary sessions
       const summaryByWorker = (summaryData || []).reduce((acc, session: any) => {
+        if (!session.worker_id) return acc;
         if (!acc[session.worker_id]) {
           acc[session.worker_id] = [];
         }
-        acc[session.worker_id].push({
-          id: session.id,
-          workerId: session.worker_id,
-          sessionType: session.session_type,
-          startTime: session.start_time,
-          endTime: session.end_time,
-          durationSeconds: session.duration_seconds,
-          siteId: session.site_id,
-          siteName: (session.site as any)?.site_name || 'Unknown Site'
-        });
+        const workerSessions = acc[session.worker_id];
+        if (workerSessions) {
+          workerSessions.push({
+            id: session.id,
+            workerId: session.worker_id,
+            sessionType: session.session_type,
+            startTime: session.start_time,
+            endTime: session.end_time,
+            durationSeconds: session.duration_seconds,
+            siteId: session.site_id,
+            siteName: (session.site as any)?.site_name || 'Unknown Site'
+          });
+        }
         return acc;
       }, {} as Record<string, AttendanceSummarySession[]>);
 
@@ -187,8 +195,8 @@ export const useAttendance = (selectedDate: string): UseAttendanceResult => {
         const inLogs = logs.filter(l => l.logType === 'check_in').sort((a, b) => a.logTime.localeCompare(b.logTime));
         const outLogs = logs.filter(l => l.logType === 'check_out').sort((a, b) => b.logTime.localeCompare(a.logTime));
         
-        const firstClockIn = inLogs.length > 0 ? inLogs[0].logTime : null;
-        const lastClockOut = outLogs.length > 0 ? outLogs[0].logTime : null;
+        const firstClockIn = inLogs.length > 0 && inLogs[0] ? inLogs[0].logTime : null;
+        const lastClockOut = outLogs.length > 0 && outLogs[0] ? outLogs[0].logTime : null;
 
         // Calculate totals from summary
         const workSessions = summarySessions.filter(s => s.sessionType === 'work');
@@ -206,7 +214,7 @@ export const useAttendance = (selectedDate: string): UseAttendanceResult => {
         });
         const primaryLocation = Object.entries(siteCounts)
           .sort((a, b) => b[1] - a[1])[0]?.[0] || 
-          (logs.length > 0 ? logs[0].siteName : 'Unknown');
+          (logs.length > 0 && logs[0] ? logs[0].siteName : 'Unknown');
 
         const department = (worker.department as any)?.name || '';
         const jobTitle = (worker.job_title as any)?.name || '';
