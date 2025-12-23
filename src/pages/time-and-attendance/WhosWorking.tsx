@@ -3,8 +3,6 @@ import { router } from '../../lib/router';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
 import { useWhosWorking, WhosWorkingEmployee } from '../../hooks/useWhosWorking';
 import { getCurrentStatusDotColor } from '../../hooks/useWorkers';
-import { GoogleMap, MarkerF } from '@react-google-maps/api';
-import { useGoogleMapsLoader } from '../../lib/google-maps';
 import { useCompany } from '../../hooks/useCompany';
 import { getDefaultMapCenter } from '../../lib/countries';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
@@ -33,6 +31,35 @@ function MapResizeHandler() {
       window.removeEventListener('resize', handleResize);
     };
   }, [map]);
+  return null;
+}
+
+function WhosWorkingMapController({
+  selectedWorkerId,
+  workersWithCoords,
+}: {
+  selectedWorkerId: string | null;
+  workersWithCoords: Array<{ id: string; latitude: number; longitude: number }>;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (workersWithCoords.length === 0) return;
+
+    // If a specific worker is selected, center on them
+    if (selectedWorkerId) {
+      const worker = workersWithCoords.find((w) => w.id === selectedWorkerId);
+      if (worker) {
+        map.setView([worker.latitude, worker.longitude], 15, { animate: true });
+      }
+      return;
+    }
+
+    // Otherwise, fit bounds to all workers
+    const bounds = L.latLngBounds(workersWithCoords.map((w) => [w.latitude, w.longitude]));
+    map.fitBounds(bounds, { padding: [24, 24] });
+  }, [map, selectedWorkerId, workersWithCoords]);
+
   return null;
 }
 
@@ -130,14 +157,9 @@ export default function WhosWorking() {
   const [statusSearchTerm, setStatusSearchTerm] = useState('');
   const [departmentSearchTerm, setDepartmentSearchTerm] = useState('');
   const [locationSearchTerm, setLocationSearchTerm] = useState('');
-  const [map, setMap] = useState<google.maps.Map | null>(null);
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
   const [showLocationModal, setShowLocationModal] = useState(false);
   const [selectedWorkerForModal, setSelectedWorkerForModal] = useState<Worker | null>(null);
-  const [modalMap, setModalMap] = useState<google.maps.Map | null>(null);
-
-  // Load Google Maps (must be called with identical options app-wide)
-  const { isLoaded, loadError } = useGoogleMapsLoader();
 
   // Force Leaflet map to reinitialize when modal opens
   useEffect(() => {
@@ -260,27 +282,6 @@ export default function WhosWorking() {
     [filteredWorkers]
   );
 
-  // Create red pin icon for markers (same as Sites) - for Google Maps
-  const getMarkerIcon = () => {
-    if (!isLoaded || typeof google === 'undefined' || !google.maps) return undefined;
-    
-    try {
-      const svgIcon = `<svg width="24" height="32" viewBox="0 0 24 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M12 0C7.58172 0 4 3.58172 4 8C4 14 12 32 12 32C12 32 20 14 20 8C20 3.58172 16.4183 0 12 0Z" fill="#ef4444"/>
-        <circle cx="12" cy="8" r="3" fill="white"/>
-      </svg>`;
-      
-      return {
-        url: 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgIcon))),
-        scaledSize: new google.maps.Size(32, 42),
-        anchor: new google.maps.Point(16, 42),
-      };
-    } catch (error) {
-      console.error('Error creating marker icon:', error);
-      return undefined;
-    }
-  };
-
   // Create red pin icon for Leaflet markers
   const getLeafletMarkerIcon = () => {
     const svgIcon = `<svg width="24" height="32" viewBox="0 0 24 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -314,49 +315,16 @@ export default function WhosWorking() {
     setSelectedWorkerId(null);
   }, [searchTerm, selectedDepartment, selectedStatus, selectedLocation]);
 
-  // Fit map bounds to all workers with coordinates (unless user has selected a specific worker)
-  useEffect(() => {
-    if (!map || !isLoaded) return;
-    if (workersWithCoords.length === 0) return;
-
-    // If a worker is selected, we let selection handler control centering/zoom.
-    if (selectedWorkerId) return;
-
-    try {
-      const bounds = new google.maps.LatLngBounds();
-      workersWithCoords.forEach((w) => bounds.extend({ lat: w.latitude!, lng: w.longitude! }));
-      map.fitBounds(bounds);
-    } catch (error) {
-      console.error('Error fitting bounds:', error);
-    }
-  }, [map, isLoaded, workersWithCoords, selectedWorkerId]);
-
   // Handle worker click in list to center map on that worker
   const handleWorkerClick = (worker: WhosWorkingEmployee) => {
-    if (worker.latitude && worker.longitude && map) {
+    if (worker.latitude && worker.longitude) {
       setSelectedWorkerId(worker.id);
-      map.panTo({ lat: worker.latitude, lng: worker.longitude });
-      map.setZoom(15);
     }
   };
 
   // Handle "View All" button to show all workers
   const handleViewAll = () => {
     setSelectedWorkerId(null);
-    if (map) {
-      // Use the same filter as workersWithCoords (exclude "Out" workers)
-      const workersToShow = filteredWorkers.filter(w => 
-        w.latitude && w.longitude && w.latitude !== 0 && w.longitude !== 0 &&
-        w.status !== 'absent' && w.status !== 'on-leave'
-      );
-      if (workersToShow.length > 0) {
-        const bounds = new google.maps.LatLngBounds();
-        workersToShow.forEach(worker => {
-          bounds.extend({ lat: worker.latitude!, lng: worker.longitude! });
-        });
-        map.fitBounds(bounds);
-      }
-    }
   };
 
   // Pagination calculations
@@ -1141,7 +1109,7 @@ export default function WhosWorking() {
                   </tr>
                 ) : (
                   paginatedWorkers.map((worker, _index) => (
-                    <tr key={worker.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                  <tr key={worker.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                     <td className="py-4 px-6 w-64">
                       <div className="flex items-center gap-3">
                         <div className="relative">
@@ -1189,7 +1157,7 @@ export default function WhosWorking() {
                               {dateTime && (
                                 <div className="text-xs truncate" style={{ color: 'var(--gray-500)' }}>
                                   {dateTime}
-                                </div>
+                        </div>
                               )}
                             </div>
                           );
@@ -1261,13 +1229,13 @@ export default function WhosWorking() {
                 paginatedWorkers
                   .filter(worker => worker.status !== 'absent' && worker.status !== 'on-leave')
                   .map((worker) => (
-                    <div
-                      key={worker.id}
+                <div
+                  key={worker.id}
                       onClick={() => handleWorkerClick(worker)}
                       className={`border-b border-gray-100 hover:bg-gray-50 transition-colors p-3 cursor-pointer ${
                         selectedWorkerId === worker.id ? 'bg-blue-50 border-blue-200' : ''
                       }`}
-                    >
+                >
                   <div className="flex items-center gap-3">
                     <div className="relative">
                       <div 
@@ -1288,13 +1256,13 @@ export default function WhosWorking() {
                       {worker.department && (
                         <div className="text-xs truncate" style={{ color: 'var(--gray-500)' }}>
                           {worker.department}
-                        </div>
+                    </div>
                       )}
                       <div className="text-xs text-gray-500 flex items-start gap-1 mt-1">
                         <MapPin className="w-3 h-3 shrink-0 mt-[1px]" />
                         <span className="whitespace-normal break-words">{worker.location}</span>
-                      </div>
-                    </div>
+                  </div>
+                </div>
                   </div>
                 </div>
                   ))
@@ -1326,6 +1294,14 @@ export default function WhosWorking() {
                   zoomControl={true}
                 >
                   <MapResizeHandler />
+                  <WhosWorkingMapController
+                    selectedWorkerId={selectedWorkerId}
+                    workersWithCoords={workersWithCoords.map((w) => ({
+                      id: w.id,
+                      latitude: w.latitude!,
+                      longitude: w.longitude!,
+                    }))}
+                  />
                   <TileLayer
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>'
                     url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
@@ -1362,10 +1338,10 @@ export default function WhosWorking() {
                 </MapContainer>
               ) : (
                 <div className="h-full bg-gray-100 flex items-center justify-center">
-                  <div className="text-center">
+              <div className="text-center">
                     <MapPin className="w-12 h-12 text-gray-400 mx-auto mb-3" />
                     <p className="text-sm text-gray-600">No workers with location data</p>
-                  </div>
+              </div>
                 </div>
               )}
             </div>
@@ -1487,9 +1463,9 @@ export default function WhosWorking() {
                           return dateTime;
                         })()}
                       </span>
-                    </div>
+        </div>
                   </>
-                )}
+      )}
                 <span className="text-gray-400">|</span>
                 <span className="text-sm text-gray-600">
                   {selectedWorkerForModal.siteName || selectedWorkerForModal.location || 'Location'}

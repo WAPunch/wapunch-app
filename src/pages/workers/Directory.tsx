@@ -773,7 +773,7 @@ export default function Directory() {
                   Department
                   {sortBy === 'department' && (sortOrder === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
                 </button>
-                <button
+                <button 
                   onClick={() => handleSort('jobTitle')}
                   className={`text-xs hover:text-gray-900 flex items-center gap-1 ${
                     sortBy === 'jobTitle' ? 'text-gray-900 font-medium' : 'text-gray-600'

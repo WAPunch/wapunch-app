@@ -162,19 +162,19 @@ export default function SiteInfo() {
   useEffect(() => {
     if (!isLoaded || !autocompleteRef.current || autocomplete) return;
 
-    const autocompleteInstance = new google.maps.places.Autocomplete(autocompleteRef.current, {
+      const autocompleteInstance = new google.maps.places.Autocomplete(autocompleteRef.current, {
       fields: ['formatted_address', 'geometry', 'name', 'address_components'],
-    });
+      });
 
     const handlePlaceSelect = () => {
-      const place = autocompleteInstance.getPlace();
+        const place = autocompleteInstance.getPlace();
       
       if (!place || !place.geometry || !place.geometry.location) {
         return;
       }
 
-      const lat = place.geometry.location.lat();
-      const lng = place.geometry.location.lng();
+          const lat = place.geometry.location.lat();
+          const lng = place.geometry.location.lng();
       const address = place.formatted_address || place.name || '';
       
       // Extract country from address_components
@@ -189,23 +189,23 @@ export default function SiteInfo() {
       window.lastAutocompleteUpdate = Date.now();
 
       // Update state
-      setSite(prev => ({
-        ...prev,
-        address,
-        latitude: lat,
-        longitude: lng,
+          setSite(prev => ({
+            ...prev,
+            address,
+            latitude: lat,
+            longitude: lng,
         country: country || prev.country,
-      }));
+          }));
 
       // Update map immediately
-      if (map) {
+          if (map) {
         map.panTo({ lat, lng });
-        map.setZoom(15);
-      }
+            map.setZoom(15);
+          }
     };
 
     autocompleteInstance.addListener('place_changed', handlePlaceSelect);
-    setAutocomplete(autocompleteInstance);
+      setAutocomplete(autocompleteInstance);
 
   }, [isLoaded, autocompleteRef.current, autocomplete, map]);
 
@@ -763,11 +763,11 @@ export default function SiteInfo() {
                                     : '';
                                   
                                   if (formattedAddress) {
-                                    setSite(prev => ({
-                                      ...prev,
+                                  setSite(prev => ({
+                                    ...prev,
                                       address: formattedAddress,
                                       country: country || prev.country,
-                                    }));
+                                  }));
                                   }
                                 }
                               });

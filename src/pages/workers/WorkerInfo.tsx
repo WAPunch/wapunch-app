@@ -31,6 +31,8 @@ const defaultWorker = {
   departmentId: '',
   jobTitleId: '',
   customWorkerId: '',
+  logsBreaks: false,
+  logsTransfers: false,
 };
 
 export default function WorkerInfo() {
@@ -409,12 +411,16 @@ export default function WorkerInfo() {
                 .select(`
                   *,
                   department:departments(name),
-                  job_title:job_titles(title)
+                  job_title:job_titles(name)
                 `)
                 .eq('id', parsedWorker.id)
                 .eq('company_id', currentCompany.id)
                 .eq('is_deleted', false)
                 .single();
+
+              if (fetchError && import.meta.env.DEV) {
+                console.error('❌ Error fetching worker from database:', fetchError);
+              }
 
               if (!fetchError && workerData) {
                 // Parse whatsapp_number from database (format: country code + number, all digits)
@@ -433,7 +439,11 @@ export default function WorkerInfo() {
                     id: workerData.id,
                     email: workerData.email,
                     whatsapp_number: workerData.whatsapp_number,
-                    detectedPhone: { countryCode: phoneCountryCode, number: phoneNumber }
+                    detectedPhone: { countryCode: phoneCountryCode, number: phoneNumber },
+                    logs_breaks: workerData.logs_breaks,
+                    logs_breaks_type: typeof workerData.logs_breaks,
+                    logs_transfers: workerData.logs_transfers,
+                    logs_transfers_type: typeof workerData.logs_transfers,
                   });
                 }
 
@@ -453,6 +463,8 @@ export default function WorkerInfo() {
                   departmentId: workerData.department_id || '',
                   jobTitleId: workerData.job_title_id || '',
                   customWorkerId: workerData.custom_worker_id || '',
+                  logsBreaks: Boolean(workerData.logs_breaks),
+                  logsTransfers: Boolean(workerData.logs_transfers),
                 };
 
                 // Debug logging
@@ -462,6 +474,14 @@ export default function WorkerInfo() {
                     fromDBType: typeof workerData.email,
                     fromSession: parsedWorker.email,
                     final: mappedWorker.email
+                  });
+                  console.log('📥 Loaded worker punch options:', {
+                    logs_breaks_fromDB: workerData.logs_breaks,
+                    logs_breaks_type: typeof workerData.logs_breaks,
+                    logs_breaks_mapped: mappedWorker.logsBreaks,
+                    logs_transfers_fromDB: workerData.logs_transfers,
+                    logs_transfers_type: typeof workerData.logs_transfers,
+                    logs_transfers_mapped: mappedWorker.logsTransfers,
                   });
                 }
 
@@ -512,6 +532,8 @@ export default function WorkerInfo() {
             departmentId: parsedWorker.department_id || parsedWorker.departmentId || '',
             jobTitleId: parsedWorker.job_title_id || parsedWorker.jobTitleId || '',
             customWorkerId: parsedWorker.customWorkerId || parsedWorker.custom_worker_id || '',
+            logsBreaks: Boolean(parsedWorker.logsBreaks ?? parsedWorker.logs_breaks ?? false),
+            logsTransfers: Boolean(parsedWorker.logsTransfers ?? parsedWorker.logs_transfers ?? false),
           };
           setWorker(mappedWorker);
           setOriginalWorker(mappedWorker);
@@ -585,16 +607,16 @@ export default function WorkerInfo() {
     if (worker.phoneCountryCode && cleanValue.length > 0) {
       const formatted = formatPhoneNumber(cleanValue, worker.phoneCountryCode);
       setWorker(prev => ({ ...prev, phoneNumber: formatted }));
-    } else {
+      } else {
       setWorker(prev => ({ ...prev, phoneNumber: inputValue }));
     }
     
     // Clear error when user starts typing
-    setErrors(prev => {
-      const newErrors = { ...prev };
-      delete newErrors.phoneNumber;
-      return newErrors;
-    });
+        setErrors(prev => {
+          const newErrors = { ...prev };
+          delete newErrors.phoneNumber;
+          return newErrors;
+        });
   };
 
   const handleAddDepartment = async () => {
@@ -743,6 +765,8 @@ export default function WorkerInfo() {
         worker_type: worker.workerType,
         email: worker.email.trim() || null, // Store email in workers table (null if empty)
         custom_worker_id: worker.customWorkerId.trim() || null,
+        logs_breaks: Boolean(worker.logsBreaks),
+        logs_transfers: Boolean(worker.logsTransfers),
       };
 
       // Debug logging
@@ -836,6 +860,8 @@ export default function WorkerInfo() {
         ...worker,
         id: savedWorker.id,
         email: savedEmail, // Preserve email from saved data
+        logsBreaks: Boolean(savedWorker.logs_breaks),
+        logsTransfers: Boolean(savedWorker.logs_transfers),
       };
 
       // Debug logging
@@ -845,7 +871,13 @@ export default function WorkerInfo() {
           savedEmailFromDB: savedWorker.email,
           savedEmailType: typeof savedWorker.email,
           currentWorkerEmail: worker.email,
-          finalUpdatedEmail: updatedWorker.email
+          finalUpdatedEmail: updatedWorker.email,
+          logs_breaks_fromDB: savedWorker.logs_breaks,
+          logs_breaks_type: typeof savedWorker.logs_breaks,
+          logs_breaks_updated: updatedWorker.logsBreaks,
+          logs_transfers_fromDB: savedWorker.logs_transfers,
+          logs_transfers_type: typeof savedWorker.logs_transfers,
+          logs_transfers_updated: updatedWorker.logsTransfers,
         });
       }
 
@@ -1177,9 +1209,9 @@ export default function WorkerInfo() {
                       return null;
                     }
                     return (
-                      <option key={`${country.code}-${country.iso}-${index}`} value={country.code}>
-                        {country.iso} {country.flag} {country.code}
-                      </option>
+                    <option key={`${country.code}-${country.iso}-${index}`} value={country.code}>
+                      {country.iso} {country.flag} {country.code}
+                    </option>
                     );
                   })}
                 </select>
@@ -1269,6 +1301,35 @@ export default function WorkerInfo() {
                 {errors.customWorkerId}
               </p>
             )}
+          </div>
+
+          {/* Punch Options */}
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Punch Options
+              </label>
+              <div className="space-y-3">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={worker.logsBreaks}
+                    onChange={(e) => setWorker(prev => ({ ...prev, logsBreaks: e.target.checked }))}
+                    className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary focus:ring-2"
+                  />
+                  <span className="text-sm text-gray-700">This worker logs breaks</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={worker.logsTransfers}
+                    onChange={(e) => setWorker(prev => ({ ...prev, logsTransfers: e.target.checked }))}
+                    className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary focus:ring-2"
+                  />
+                  <span className="text-sm text-gray-700">This worker logs transfers</span>
+                </label>
+              </div>
+            </div>
           </div>
 
           {/* Action Buttons */}

@@ -309,11 +309,11 @@ export const useWhosWorking = (): UseWhosWorkingResult => {
           // If we have a log but no site, check if it has raw_message (likely manual entry)
           if (latestLog.raw_message) {
             location = `Manual Entry: ${latestLog.raw_message}`;
-          }
+        }
           // Always try to get coordinates from log if available
           if (latestLog.latitude != null && latestLog.longitude != null) {
-            latitude = Number(latestLog.latitude);
-            longitude = Number(latestLog.longitude);
+          latitude = Number(latestLog.latitude);
+          longitude = Number(latestLog.longitude);
             if (!location || location === 'N/A') {
               location = `Lat: ${latitude.toFixed(4)}, Lng: ${longitude.toFixed(4)}`;
             }

@@ -612,8 +612,8 @@ export default function CompanySettings() {
                           )}
                         </div>
                         <div className="flex-1">
-                          <input
-                            type="tel"
+                      <input
+                        type="tel"
                             value={companyData.phoneNumber}
                             onChange={(e) => {
                               const inputValue = e.target.value;
