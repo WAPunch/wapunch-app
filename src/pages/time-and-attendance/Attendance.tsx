@@ -41,7 +41,8 @@ interface AttendanceRecord {
 
 export default function Attendance() {
   const { registerSubmodules } = useSubmoduleNav();
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const getISODate = (d: Date = new Date()) => d.toISOString().slice(0, 10);
+  const [selectedDate, setSelectedDate] = useState<string>(() => getISODate());
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -61,7 +62,7 @@ export default function Attendance() {
   const [expandedRecords, setExpandedRecords] = useState<Set<string>>(new Set());
   const [activeFloatingMenu, setActiveFloatingMenu] = useState<string | null>(null);
 
-  const { workers, isLoading, error, refetch } = useAttendance(selectedDate || new Date().toISOString().split('T')[0]);
+  const { workers, isLoading, error, refetch } = useAttendance(selectedDate);
 
   useEffect(() => {
     // Register submodule tabs for time and attendance
@@ -95,15 +96,15 @@ export default function Attendance() {
 
   // Date navigation
   const goToPreviousDay = () => {
-    const date = new Date(selectedDate || new Date().toISOString().split('T')[0]);
+    const date = new Date(selectedDate);
     date.setDate(date.getDate() - 1);
-    setSelectedDate(date.toISOString().split('T')[0]);
+    setSelectedDate(getISODate(date));
   };
 
   const goToNextDay = () => {
-    const date = new Date(selectedDate || new Date().toISOString().split('T')[0]);
+    const date = new Date(selectedDate);
     date.setDate(date.getDate() + 1);
-    setSelectedDate(date.toISOString().split('T')[0]);
+    setSelectedDate(getISODate(date));
   };
 
   // Format time helper
@@ -160,7 +161,7 @@ export default function Attendance() {
         employeeName: worker.workerName,
         role: worker.jobTitle,
         department: worker.department,
-        date: selectedDate || new Date().toISOString().split('T')[0],
+        date: selectedDate,
         clockIn: worker.firstClockIn ? formatTime(worker.firstClockIn) : null,
         clockOut: worker.lastClockOut ? formatTime(worker.lastClockOut) : null,
         breaks,
