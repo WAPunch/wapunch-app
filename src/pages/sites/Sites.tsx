@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { router } from '../../lib/router';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
 import { useSites } from '../../hooks/useSites';
@@ -7,9 +7,8 @@ import { getDefaultMapCenter } from '../../lib/countries';
 import ImportSitesWizard from '../../components/ImportSitesWizard';
 import { supabase } from '../../lib/supabase';
 import { logger } from '../../lib/logger';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
+import { GoogleMap, MarkerF } from '@react-google-maps/api';
+import { useGoogleMapsLoader } from '../../lib/google-maps';
 import { 
   Search, 
   Filter,
@@ -30,58 +29,6 @@ import {
   AlertTriangle
 } from 'lucide-react';
 
-// Leaflet tiles use the same provider as Who's Working (Carto Voyager)
-
-function MapResizeHandler() {
-  const map = useMap();
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      map.invalidateSize();
-      map.setView(map.getCenter(), map.getZoom());
-    }, 200);
-
-    const handleResize = () => map.invalidateSize();
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener('resize', handleResize);
-    };
-  }, [map]);
-
-  return null;
-}
-
-function SitesMapController({
-  selectedSiteId,
-  sitesWithCoords,
-}: {
-  selectedSiteId: string | null;
-  sitesWithCoords: Array<{ id: string; latitude: number; longitude: number }>;
-}) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (sitesWithCoords.length === 0) return;
-
-    // If a specific site is selected, center on it
-    if (selectedSiteId) {
-      const site = sitesWithCoords.find((s) => s.id === selectedSiteId);
-      if (site) {
-        map.setView([site.latitude, site.longitude], 15, { animate: true });
-      }
-      return;
-    }
-
-    // Otherwise, fit bounds to all sites
-    const bounds = L.latLngBounds(sitesWithCoords.map((s) => [s.latitude, s.longitude]));
-    map.fitBounds(bounds, { padding: [24, 24] });
-  }, [map, selectedSiteId, sitesWithCoords]);
-
-  return null;
-}
-
 interface Site {
   id: string;
   name: string;
@@ -101,6 +48,9 @@ export default function Sites() {
   const { registerSubmodules } = useSubmoduleNav();
   const { sites: sitesData, isLoading: sitesLoading, error: sitesError, refetch } = useSites();
   const { currentCompany } = useCompany();
+  const { isLoaded: isGoogleMapsLoaded, loadError: googleMapsLoadError } = useGoogleMapsLoader();
+  const [googleMapInstance, setGoogleMapInstance] = useState<google.maps.Map | null>(null);
+  const lastSelectionSourceRef = useRef<'list' | 'map' | 'none'>('none');
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -131,6 +81,16 @@ export default function Sites() {
 
   // Use sites from Supabase hook
   const sites = sitesData;
+
+  const toFiniteNumber = (value: unknown): number | null => {
+    const num =
+      typeof value === 'number'
+        ? value
+        : typeof value === 'string'
+          ? Number(value)
+          : NaN;
+    return Number.isFinite(num) ? num : null;
+  };
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -216,32 +176,18 @@ export default function Sites() {
     });
   }, [searchTerm, sites, sortBy, sortOrder, selectedSiteType, selectedCustomId, selectedCountry]);
 
-  const sitesWithCoords = useMemo(
-    () =>
-      filteredSites.filter(
-        (s) =>
-          typeof s.latitude === 'number' &&
-          typeof s.longitude === 'number' &&
-          s.latitude !== 0 &&
-          s.longitude !== 0
-      ),
-    [filteredSites]
-  );
+  const sitesWithCoords = useMemo(() => {
+    return filteredSites.flatMap((s) => {
+      const lat = toFiniteNumber(s.latitude);
+      const lng = toFiniteNumber(s.longitude);
 
-  // Create red pin icon for Leaflet markers
-  const getLeafletMarkerIcon = () => {
-    const svgIcon = `<svg width="24" height="32" viewBox="0 0 24 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 0C7.58172 0 4 3.58172 4 8C4 14 12 32 12 32C12 32 20 14 20 8C20 3.58172 16.4183 0 12 0Z" fill="#ef4444"/>
-      <circle cx="12" cy="8" r="3" fill="white"/>
-    </svg>`;
+      if (lat == null || lng == null) return [];
+      if (lat === 0 || lng === 0) return [];
 
-    return L.icon({
-      iconUrl: 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgIcon))),
-      iconSize: [24, 32],
-      iconAnchor: [12, 32],
-      popupAnchor: [0, -32],
+      // Ensure latitude/longitude are always numbers for map operations
+      return [{ ...s, latitude: lat, longitude: lng }];
     });
-  };
+  }, [filteredSites]);
 
   // Calculate map center based on all sites with coordinates
   const mapCenter = useMemo(() => {
@@ -261,15 +207,47 @@ export default function Sites() {
     setSelectedSiteId(null);
   }, [searchTerm, selectedSiteType, selectedCustomId, selectedCountry]);
 
+  // Keep Google Map viewport in sync with selected site / all sites
+  useEffect(() => {
+    if (!googleMapInstance) return;
+    if (!isGoogleMapsLoaded) return;
+    if (sitesWithCoords.length === 0) return;
+
+    // Selected site: standard behavior
+    // - If selection came from the list, center instantly (no animation, no zoom changes)
+    // - If selection came from clicking a marker, don't force recenter
+    if (selectedSiteId) {
+      if (lastSelectionSourceRef.current !== 'list') return;
+      const site = sitesWithCoords.find((s) => s.id === selectedSiteId);
+      if (site?.latitude != null && site?.longitude != null) {
+        googleMapInstance.setCenter({ lat: site.latitude, lng: site.longitude });
+      }
+      return;
+    }
+
+    // All sites: fit bounds
+    const bounds = new google.maps.LatLngBounds();
+    sitesWithCoords.forEach((s) => {
+      if (s.latitude != null && s.longitude != null) {
+        bounds.extend({ lat: s.latitude, lng: s.longitude });
+      }
+    });
+    googleMapInstance.fitBounds(bounds);
+  }, [googleMapInstance, isGoogleMapsLoaded, selectedSiteId, sitesWithCoords]);
+
   // Handle site click in list to center map on that site
   const handleSiteClick = (site: Site) => {
-    if (site.latitude && site.longitude) {
+    const lat = toFiniteNumber(site.latitude);
+    const lng = toFiniteNumber(site.longitude);
+    if (lat != null && lng != null && lat !== 0 && lng !== 0) {
+      lastSelectionSourceRef.current = 'list';
       setSelectedSiteId(site.id);
     }
   };
 
   // Handle "View All" button to show all sites
   const handleViewAll = () => {
+    lastSelectionSourceRef.current = 'none';
     setSelectedSiteId(null);
   };
 
@@ -1054,54 +1032,53 @@ export default function Sites() {
             </div>
             <div className="h-[432px] relative">
               {sitesWithCoords.length > 0 ? (
-                <MapContainer
-                  key={`sites-map-${sitesWithCoords.length}-${selectedSiteId ?? 'all'}`}
-                  center={[mapCenter.lat, mapCenter.lng]}
-                  zoom={sitesWithCoords.length > 1 ? 10 : 15}
-                  style={{ height: '100%', width: '100%' }}
-                  scrollWheelZoom={true}
-                  zoomControl={true}
-                >
-                  <MapResizeHandler />
-                  <SitesMapController
-                    selectedSiteId={selectedSiteId}
-                    sitesWithCoords={sitesWithCoords.map((s) => ({
-                      id: s.id,
-                      latitude: s.latitude!,
-                      longitude: s.longitude!,
-                    }))}
-                  />
-                  <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>'
-                    url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
-                    subdomains="abcd"
-                    maxZoom={19}
-                    noWrap={false}
-                  />
-                  {sitesWithCoords
-                    .filter((site) => !selectedSiteId || site.id === selectedSiteId)
-                    .map((site) => (
-                      <Marker
-                        key={`site-marker-${site.id}`}
-                        position={[site.latitude!, site.longitude!]}
-                        icon={getLeafletMarkerIcon()}
-                        eventHandlers={{
-                          click: () => {
-                            setSelectedSiteId(site.id);
-                          },
-                        }}
-                      >
-                        <Popup>
-                          <div>
-                            <div className="font-medium">{site.name}</div>
-                            <div className="text-sm text-gray-600">
-                              {site.address}, {site.city}, {site.state} {site.zipCode}
-                            </div>
-                          </div>
-                        </Popup>
-                      </Marker>
-                    ))}
-                </MapContainer>
+                <div className="h-[432px] w-full">
+                  {googleMapsLoadError ? (
+                    <div className="h-full bg-gray-100 flex items-center justify-center">
+                      <div className="text-center max-w-sm px-6">
+                        <Map className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                        <p className="text-sm text-gray-600 font-medium">Google Maps failed to load</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Please verify your `VITE_GOOGLE_MAPS_API_KEY` and allowed domains.
+                        </p>
+                      </div>
+                    </div>
+                  ) : !isGoogleMapsLoaded ? (
+                    <div className="h-full bg-gray-100 flex items-center justify-center">
+                      <div className="text-center">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-3"></div>
+                        <p className="text-sm text-gray-600">Loading map…</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <GoogleMap
+                      mapContainerStyle={{ height: '100%', width: '100%' }}
+                      center={mapCenter}
+                      zoom={sitesWithCoords.length > 1 ? 10 : 15}
+                      onLoad={(map) => setGoogleMapInstance(map)}
+                      onUnmount={() => setGoogleMapInstance(null)}
+                      options={{
+                        fullscreenControl: false,
+                        streetViewControl: false,
+                        mapTypeControl: false,
+                      }}
+                    >
+                      {sitesWithCoords
+                        .filter((site) => !selectedSiteId || site.id === selectedSiteId)
+                        .map((site) => (
+                          <MarkerF
+                            key={`site-marker-${site.id}`}
+                            position={{ lat: site.latitude!, lng: site.longitude! }}
+                            onClick={() => {
+                              lastSelectionSourceRef.current = 'map';
+                              setSelectedSiteId(site.id);
+                            }}
+                          >
+                          </MarkerF>
+                        ))}
+                    </GoogleMap>
+                  )}
+                </div>
               ) : (
                 <div className="h-[432px] bg-gray-100 flex items-center justify-center">
                   <div className="text-center">

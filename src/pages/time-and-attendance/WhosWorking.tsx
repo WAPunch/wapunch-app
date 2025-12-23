@@ -1,83 +1,12 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { router } from '../../lib/router';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
 import { useWhosWorking, WhosWorkingEmployee } from '../../hooks/useWhosWorking';
 import { getCurrentStatusDotColor } from '../../hooks/useWorkers';
 import { useCompany } from '../../hooks/useCompany';
 import { getDefaultMapCenter } from '../../lib/countries';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-
-// Component to handle map resize and initialization
-function MapResizeHandler() {
-  const map = useMap();
-  
-  useEffect(() => {
-    // Force map to resize and invalidate when component mounts
-    const timer = setTimeout(() => {
-      map.invalidateSize();
-      map.setView(map.getCenter(), map.getZoom());
-    }, 200);
-    
-    // Also invalidate on window resize
-    const handleResize = () => {
-      map.invalidateSize();
-    };
-    window.addEventListener('resize', handleResize);
-    
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener('resize', handleResize);
-    };
-  }, [map]);
-  return null;
-}
-
-function WhosWorkingMapController({
-  selectedWorkerId,
-  workersWithCoords,
-}: {
-  selectedWorkerId: string | null;
-  workersWithCoords: Array<{ id: string; latitude: number; longitude: number }>;
-}) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (workersWithCoords.length === 0) return;
-
-    // If a specific worker is selected, center on them
-    if (selectedWorkerId) {
-      const worker = workersWithCoords.find((w) => w.id === selectedWorkerId);
-      if (worker) {
-        map.setView([worker.latitude, worker.longitude], 15, { animate: true });
-      }
-      return;
-    }
-
-    // Otherwise, fit bounds to all workers
-    const bounds = L.latLngBounds(workersWithCoords.map((w) => [w.latitude, w.longitude]));
-    map.fitBounds(bounds, { padding: [24, 24] });
-  }, [map, selectedWorkerId, workersWithCoords]);
-
-  return null;
-}
-
-// Fix for default Leaflet marker icons
-import icon from 'leaflet/dist/images/marker-icon.png';
-import iconShadow from 'leaflet/dist/images/marker-shadow.png';
-
-let DefaultIcon = L.icon({
-  iconUrl: icon,
-  shadowUrl: iconShadow,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  tooltipAnchor: [16, -28],
-  shadowSize: [41, 41]
-});
-
-L.Marker.prototype.options.icon = DefaultIcon;
+import { GoogleMap, MarkerF } from '@react-google-maps/api';
+import { useGoogleMapsLoader } from '../../lib/google-maps';
 import { 
   Users, 
   Search, 
@@ -141,6 +70,9 @@ export default function WhosWorking() {
   const { registerSubmodules } = useSubmoduleNav();
   const { workers: workersData, isLoading: workersLoading, error: workersError, refetch } = useWhosWorking();
   const { currentCompany } = useCompany();
+  const { isLoaded: isGoogleMapsLoaded, loadError: googleMapsLoadError } = useGoogleMapsLoader();
+  const [googleMapInstance, setGoogleMapInstance] = useState<google.maps.Map | null>(null);
+  const lastSelectionSourceRef = useRef<'list' | 'map' | 'none'>('none');
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -160,17 +92,6 @@ export default function WhosWorking() {
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
   const [showLocationModal, setShowLocationModal] = useState(false);
   const [selectedWorkerForModal, setSelectedWorkerForModal] = useState<Worker | null>(null);
-
-  // Force Leaflet map to reinitialize when modal opens
-  useEffect(() => {
-    if (showLocationModal && selectedWorkerForModal) {
-      // Small delay to ensure DOM is ready
-      const timer = setTimeout(() => {
-        window.dispatchEvent(new Event('resize'));
-      }, 200);
-      return () => clearTimeout(timer);
-    }
-  }, [showLocationModal, selectedWorkerForModal]);
 
   useEffect(() => {
     // Register submodule tabs for time and attendance section
@@ -203,6 +124,16 @@ export default function WhosWorking() {
 
   // Use workers from Supabase hook instead of mock data
   const workers: Worker[] = workersData;
+
+  const toFiniteNumber = (value: unknown): number | null => {
+    const num =
+      typeof value === 'number'
+        ? value
+        : typeof value === 'string'
+          ? Number(value)
+          : NaN;
+    return Number.isFinite(num) ? num : null;
+  };
 
   const filteredWorkers = useMemo(() => {
     const filtered = workers.filter(worker => {
@@ -266,36 +197,18 @@ export default function WhosWorking() {
   }, [searchTerm, workers, sortBy, sortOrder, selectedDepartment, selectedStatus, selectedLocation]);
 
   // Filter workers with coordinates (exclude workers who are "Out")
-  const workersWithCoords = useMemo(
-    () =>
-      filteredWorkers.filter(
-        (w) =>
-          // Must have valid coordinates
-          typeof w.latitude === 'number' &&
-          typeof w.longitude === 'number' &&
-          w.latitude !== 0 &&
-          w.longitude !== 0 &&
-          // Exclude workers who are "Out" (absent or on-leave)
-          w.status !== 'absent' &&
-          w.status !== 'on-leave'
-      ),
-    [filteredWorkers]
-  );
+  const workersWithCoords = useMemo(() => {
+    return filteredWorkers.flatMap((w) => {
+      const lat = toFiniteNumber(w.latitude);
+      const lng = toFiniteNumber(w.longitude);
 
-  // Create red pin icon for Leaflet markers
-  const getLeafletMarkerIcon = () => {
-    const svgIcon = `<svg width="24" height="32" viewBox="0 0 24 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 0C7.58172 0 4 3.58172 4 8C4 14 12 32 12 32C12 32 20 14 20 8C20 3.58172 16.4183 0 12 0Z" fill="#ef4444"/>
-      <circle cx="12" cy="8" r="3" fill="white"/>
-    </svg>`;
-    
-    return L.icon({
-      iconUrl: 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgIcon))),
-      iconSize: [24, 32],
-      iconAnchor: [12, 32],
-      popupAnchor: [0, -32],
+      if (lat == null || lng == null) return [];
+      if (lat === 0 || lng === 0) return [];
+      if (w.status === 'absent' || w.status === 'on-leave') return [];
+
+      return [{ ...w, latitude: lat, longitude: lng }];
     });
-  };
+  }, [filteredWorkers]);
 
   // Calculate map center based on all workers with coordinates
   const mapCenter = useMemo(() => {
@@ -312,20 +225,51 @@ export default function WhosWorking() {
 
   // Clear worker selection when search term or filters change
   useEffect(() => {
+    lastSelectionSourceRef.current = 'none';
     setSelectedWorkerId(null);
   }, [searchTerm, selectedDepartment, selectedStatus, selectedLocation]);
 
   // Handle worker click in list to center map on that worker
   const handleWorkerClick = (worker: WhosWorkingEmployee) => {
-    if (worker.latitude && worker.longitude) {
+    const lat = toFiniteNumber(worker.latitude);
+    const lng = toFiniteNumber(worker.longitude);
+    if (lat != null && lng != null && lat !== 0 && lng !== 0) {
+      lastSelectionSourceRef.current = 'list';
       setSelectedWorkerId(worker.id);
     }
   };
 
   // Handle "View All" button to show all workers
   const handleViewAll = () => {
+    lastSelectionSourceRef.current = 'none';
     setSelectedWorkerId(null);
   };
+
+  // Keep Google Map viewport in sync (standard behavior)
+  useEffect(() => {
+    if (!googleMapInstance) return;
+    if (!isGoogleMapsLoaded) return;
+    if (workersWithCoords.length === 0) return;
+
+    // Selected worker: center only when selection came from list
+    if (selectedWorkerId) {
+      if (lastSelectionSourceRef.current !== 'list') return;
+      const worker = workersWithCoords.find((w) => w.id === selectedWorkerId);
+      if (worker?.latitude != null && worker?.longitude != null) {
+        googleMapInstance.setCenter({ lat: worker.latitude, lng: worker.longitude });
+      }
+      return;
+    }
+
+    // View all: fit bounds
+    const bounds = new google.maps.LatLngBounds();
+    workersWithCoords.forEach((w) => {
+      if (w.latitude != null && w.longitude != null) {
+        bounds.extend({ lat: w.latitude, lng: w.longitude });
+      }
+    });
+    googleMapInstance.fitBounds(bounds);
+  }, [googleMapInstance, isGoogleMapsLoaded, selectedWorkerId, workersWithCoords]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredWorkers.length / itemsPerPage);
@@ -1285,57 +1229,52 @@ export default function WhosWorking() {
             </div>
             <div className="h-[432px] relative">
               {workersWithCoords.length > 0 ? (
-                <MapContainer
-                  key={`main-map-${workersWithCoords.length}-${selectedWorkerId}`}
-                  center={[mapCenter.lat, mapCenter.lng]}
-                  zoom={workersWithCoords.length > 1 ? 10 : 15}
-                  style={{ height: '100%', width: '100%' }}
-                  scrollWheelZoom={true}
-                  zoomControl={true}
-                >
-                  <MapResizeHandler />
-                  <WhosWorkingMapController
-                    selectedWorkerId={selectedWorkerId}
-                    workersWithCoords={workersWithCoords.map((w) => ({
-                      id: w.id,
-                      latitude: w.latitude!,
-                      longitude: w.longitude!,
-                    }))}
-                  />
-                  <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>'
-                    url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
-                    subdomains="abcd"
-                    maxZoom={19}
-                    noWrap={false}
-                  />
-                  {workersWithCoords
-                    .filter(worker => !selectedWorkerId || worker.id === selectedWorkerId)
-                    .map((worker) => (
-                      <Marker
-                        key={`worker-marker-${worker.id}`}
-                        position={[worker.latitude!, worker.longitude!]}
-                        icon={getLeafletMarkerIcon()}
-                        eventHandlers={{
-                          click: () => {
-                            setSelectedWorkerId(worker.id);
-                          }
-                        }}
-                      >
-                        <Popup>
-                          <div>
-                            <div className="font-medium">{worker.firstName} {worker.lastName}</div>
-                            {worker.department && (
-                              <div className="text-sm text-gray-600">{worker.department}</div>
-                            )}
-                            {worker.location && (
-                              <div className="text-xs text-gray-500 mt-1">{worker.location}</div>
-                            )}
-                          </div>
-                        </Popup>
-                      </Marker>
-                    ))}
-                </MapContainer>
+                <div className="h-[432px] w-full">
+                  {googleMapsLoadError ? (
+                    <div className="h-full bg-gray-100 flex items-center justify-center">
+                      <div className="text-center max-w-sm px-6">
+                        <Map className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                        <p className="text-sm text-gray-600 font-medium">Google Maps failed to load</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Please verify your `VITE_GOOGLE_MAPS_API_KEY` and allowed domains.
+                        </p>
+                      </div>
+                    </div>
+                  ) : !isGoogleMapsLoaded ? (
+                    <div className="h-full bg-gray-100 flex items-center justify-center">
+                      <div className="text-center">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-3"></div>
+                        <p className="text-sm text-gray-600">Loading map…</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <GoogleMap
+                      mapContainerStyle={{ height: '100%', width: '100%' }}
+                      center={mapCenter}
+                      zoom={workersWithCoords.length > 1 ? 10 : 15}
+                      onLoad={(map) => setGoogleMapInstance(map)}
+                      onUnmount={() => setGoogleMapInstance(null)}
+                      options={{
+                        fullscreenControl: false,
+                        streetViewControl: false,
+                        mapTypeControl: false,
+                      }}
+                    >
+                      {workersWithCoords
+                        .filter((worker) => !selectedWorkerId || worker.id === selectedWorkerId)
+                        .map((worker) => (
+                          <MarkerF
+                            key={`worker-marker-${worker.id}`}
+                            position={{ lat: worker.latitude!, lng: worker.longitude! }}
+                            onClick={() => {
+                              lastSelectionSourceRef.current = 'map';
+                              setSelectedWorkerId(worker.id);
+                            }}
+                          />
+                        ))}
+                    </GoogleMap>
+                  )}
+                </div>
               ) : (
                 <div className="h-full bg-gray-100 flex items-center justify-center">
               <div className="text-center">
@@ -1483,35 +1422,41 @@ export default function WhosWorking() {
               </button>
             </div>
 
-            {/* Modal Map - Using OpenStreetMap with Leaflet */}
+            {/* Modal Map - Google Maps */}
             <div className="h-[500px] w-full relative overflow-hidden bg-gray-100">
               {selectedWorkerForModal.latitude && selectedWorkerForModal.longitude ? (
-                <div style={{ height: '100%', width: '100%' }}>
-                  <MapContainer
-                    key={`map-${selectedWorkerForModal.latitude}-${selectedWorkerForModal.longitude}-${showLocationModal}`}
-                    center={[selectedWorkerForModal.latitude, selectedWorkerForModal.longitude]}
-                    zoom={15}
-                    style={{ height: '100%', width: '100%' }}
-                    scrollWheelZoom={true}
-                    zoomControl={true}
-                  >
-                    <MapResizeHandler />
-                    <TileLayer
-                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>'
-                      url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
-                      subdomains="abcd"
-                      maxZoom={19}
-                      noWrap={false}
-                    />
-                    <Marker
-                      position={[selectedWorkerForModal.latitude, selectedWorkerForModal.longitude]}
-                      icon={getLeafletMarkerIcon()}
+                <div className="h-full w-full">
+                  {googleMapsLoadError ? (
+                    <div className="h-full bg-gray-100 flex items-center justify-center">
+                      <div className="text-center max-w-sm px-6">
+                        <MapPin className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                        <p className="text-sm text-gray-600 font-medium">Google Maps failed to load</p>
+                      </div>
+                    </div>
+                  ) : !isGoogleMapsLoaded ? (
+                    <div className="h-full bg-gray-100 flex items-center justify-center">
+                      <div className="text-center">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-3"></div>
+                        <p className="text-sm text-gray-600">Loading map…</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <GoogleMap
+                      key={`modal-gmap-${selectedWorkerForModal.id}-${showLocationModal}`}
+                      mapContainerStyle={{ height: '100%', width: '100%' }}
+                      center={{ lat: Number(selectedWorkerForModal.latitude), lng: Number(selectedWorkerForModal.longitude) }}
+                      zoom={15}
+                      options={{
+                        fullscreenControl: false,
+                        streetViewControl: false,
+                        mapTypeControl: false,
+                      }}
                     >
-                      <Popup>
-                        {selectedWorkerForModal.siteName || selectedWorkerForModal.location || 'Location'}
-                      </Popup>
-                    </Marker>
-                  </MapContainer>
+                      <MarkerF
+                        position={{ lat: Number(selectedWorkerForModal.latitude), lng: Number(selectedWorkerForModal.longitude) }}
+                      />
+                    </GoogleMap>
+                  )}
                 </div>
               ) : (
                 <div className="h-full bg-gray-100 flex items-center justify-center">
