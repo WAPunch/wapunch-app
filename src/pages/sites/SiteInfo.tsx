@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
 import { useCompany } from '../../hooks/useCompany';
 import { supabase } from '../../lib/supabase';
@@ -11,8 +11,7 @@ import {
   X,
   AlertCircle,
 } from 'lucide-react';
-import { GoogleMap, LoadScript, Marker, useJsApiLoader } from '@react-google-maps/api';
-import { Autocomplete } from '@react-google-maps/api';
+import { GoogleMap, MarkerF } from '@react-google-maps/api';
 import { useGoogleMapsLoader } from '../../lib/google-maps';
 
 // Extend Window interface for lastAutocompleteUpdate
@@ -76,6 +75,8 @@ export default function SiteInfo() {
   const [autocomplete, setAutocomplete] = useState<google.maps.places.Autocomplete | null>(null);
   const autocompleteRef = useRef<HTMLInputElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
+  const addressEditedRef = useRef(false);
+  const isApplyingCoordinatesRef = useRef(false);
 
   // Load Google Maps (must be called with identical options app-wide)
   const { isLoaded, loadError } = useGoogleMapsLoader();
@@ -189,6 +190,7 @@ export default function SiteInfo() {
       window.lastAutocompleteUpdate = Date.now();
 
       // Update state
+      addressEditedRef.current = false;
           setSite(prev => ({
             ...prev,
             address,
@@ -199,8 +201,8 @@ export default function SiteInfo() {
 
       // Update map immediately
           if (map) {
-        map.panTo({ lat, lng });
-            map.setZoom(15);
+        map.setCenter({ lat, lng });
+        map.setZoom(15);
           }
     };
 
@@ -234,6 +236,9 @@ export default function SiteInfo() {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    if (name === 'address') {
+      addressEditedRef.current = true;
+    }
     setSite(prev => ({ ...prev, [name]: value }));
     
     // Clear error for this field
@@ -249,6 +254,10 @@ export default function SiteInfo() {
   // Geocode address when user types manually and presses Enter or loses focus
   const handleAddressGeocode = async () => {
     if (!isLoaded || !site.address.trim() || !map) return;
+
+    // Only geocode on blur if the user manually edited the address.
+    // If the user picked from Google Autocomplete, we already have authoritative geometry.
+    if (!addressEditedRef.current) return;
     
     // Prevent geocoding if we just selected from autocomplete
     const recentUpdate = Date.now();
@@ -291,8 +300,9 @@ export default function SiteInfo() {
           longitude: lng,
           country: country || prev.country,
         }));
+        addressEditedRef.current = false;
 
-        map.panTo({ lat, lng });
+        map.setCenter({ lat, lng });
         map.setZoom(15);
       }
     });
@@ -303,6 +313,87 @@ export default function SiteInfo() {
       e.preventDefault();
       handleAddressGeocode();
     }
+  };
+
+  const isValidLatLng = (lat: number, lng: number) => {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+    if (lat < -90 || lat > 90) return false;
+    if (lng < -180 || lng > 180) return false;
+    // Keep existing convention: 0,0 means “unset”
+    if (lat === 0 && lng === 0) return false;
+    return true;
+  };
+
+  const applyCoordinates = (lat: number, lng: number, opts?: { reverseGeocode?: boolean }) => {
+    if (!isLoaded) return;
+    if (!isValidLatLng(lat, lng)) return;
+
+    isApplyingCoordinatesRef.current = true;
+    addressEditedRef.current = false;
+
+    setSite((prev) => ({
+      ...prev,
+      latitude: lat,
+      longitude: lng,
+    }));
+
+    // Clear coordinates error once valid coordinates are applied
+    if (errors.coordinates) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next.coordinates;
+        return next;
+      });
+    }
+
+    if (map) {
+      map.setCenter({ lat, lng });
+      map.setZoom(15);
+    }
+
+    if (opts?.reverseGeocode) {
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+        if (status === 'OK' && results && results.length > 0 && results[0]) {
+          const result = results[0];
+          const formattedAddress = result.formatted_address;
+          const country = result.address_components
+            ? extractCountryFromAddressComponents(result.address_components)
+            : '';
+
+          if (formattedAddress) {
+            setSite((prev) => ({
+              ...prev,
+              address: formattedAddress,
+              country: country || prev.country,
+            }));
+          }
+        }
+        isApplyingCoordinatesRef.current = false;
+      });
+    } else {
+      isApplyingCoordinatesRef.current = false;
+    }
+  };
+
+  const commitCoordinatesFromInputs = () => {
+    // Don't fight with ongoing reverse-geocode / map updates
+    if (isApplyingCoordinatesRef.current) return;
+    const lat = site.latitude;
+    const lng = site.longitude;
+
+    // If user hasn't entered both, don't show an error yet
+    if (lat === 0 || lng === 0) return;
+
+    if (!isValidLatLng(lat, lng)) {
+      setErrors((prev) => ({
+        ...prev,
+        coordinates: 'Coordinates must be valid (lat -90..90, lng -180..180).',
+      }));
+      return;
+    }
+
+    applyCoordinates(lat, lng, { reverseGeocode: true });
   };
 
   const handleMapClick = (e: google.maps.MapMouseEvent) => {
@@ -325,37 +416,7 @@ export default function SiteInfo() {
         lngNum = 0;
       }
 
-      if (latNum !== 0 && lngNum !== 0) {
-        setSite(prev => ({
-          ...prev,
-          latitude: latNum,
-          longitude: lngNum,
-        }));
-
-        // Reverse geocode to get address
-        if (isLoaded) {
-          const geocoder = new google.maps.Geocoder();
-          geocoder.geocode({ location: { lat: latNum, lng: lngNum } }, (results, status) => {
-            if (status === 'OK' && results && results.length > 0 && results[0]) {
-              const result = results[0];
-              const formattedAddress = result.formatted_address;
-              
-              // Extract country from address_components
-              const country = result.address_components 
-                ? extractCountryFromAddressComponents(result.address_components)
-                : '';
-              
-              if (formattedAddress) {
-                setSite(prev => ({
-                  ...prev,
-                  address: formattedAddress,
-                  country: country || prev.country,
-                }));
-              }
-            }
-          });
-        }
-      }
+      applyCoordinates(latNum, lngNum, { reverseGeocode: true });
     }
   };
 
@@ -464,9 +525,6 @@ export default function SiteInfo() {
       setOriginalSite(updatedSite);
       setHasChanges(false);
       setErrors({});
-
-      // Navigate back to sites list
-      router.navigate('/sites');
     } catch (err: any) {
       logger.error('Error saving site', err instanceof Error ? err : new Error(String(err)));
       setErrors({ general: err?.message || 'Failed to save site. Please try again.' });
@@ -672,9 +730,26 @@ export default function SiteInfo() {
               </label>
               <input
                 type="number"
+                step="0.000001"
+                min={-90}
+                max={90}
                 value={site.latitude !== 0 ? site.latitude.toFixed(6) : ''}
-                readOnly
-                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-600"
+                onChange={(e) => {
+                  const v = e.target.value;
+                  const next = v === '' ? 0 : Number(v);
+                  setSite((prev) => ({ ...prev, latitude: Number.isFinite(next) ? next : prev.latitude }));
+                }}
+                onBlur={commitCoordinatesFromInputs}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    commitCoordinatesFromInputs();
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 ${
+                  errors.coordinates ? 'border-red-300' : 'border-gray-300'
+                }`}
                 placeholder="0.000000"
               />
             </div>
@@ -684,9 +759,26 @@ export default function SiteInfo() {
               </label>
               <input
                 type="number"
+                step="0.000001"
+                min={-180}
+                max={180}
                 value={site.longitude !== 0 ? site.longitude.toFixed(6) : ''}
-                readOnly
-                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-600"
+                onChange={(e) => {
+                  const v = e.target.value;
+                  const next = v === '' ? 0 : Number(v);
+                  setSite((prev) => ({ ...prev, longitude: Number.isFinite(next) ? next : prev.longitude }));
+                }}
+                onBlur={commitCoordinatesFromInputs}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    commitCoordinatesFromInputs();
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 ${
+                  errors.coordinates ? 'border-red-300' : 'border-gray-300'
+                }`}
                 placeholder="0.000000"
               />
             </div>
@@ -713,14 +805,13 @@ export default function SiteInfo() {
                     zoomControl: true,
                     streetViewControl: false,
                     mapTypeControl: false,
-                    fullscreenControl: true,
+                    fullscreenControl: false,
                   }}
                 >
                   {isLoaded && site.latitude !== 0 && site.longitude !== 0 && (
-                    <Marker
-                      key={`marker-${site.id || 'new'}`}
+                    <MarkerF
+                      key={`marker-${site.id || 'new'}-${site.latitude}-${site.longitude}`}
                       position={{ lat: site.latitude, lng: site.longitude }}
-                      icon={getMarkerIcon()}
                       draggable={true}
                       onDragEnd={(e) => {
                         if (e.latLng) {
@@ -743,35 +834,7 @@ export default function SiteInfo() {
                               lngNum = 0;
                             }
                             
-                            if (latNum !== 0 && lngNum !== 0) {
-                              setSite(prev => ({
-                                ...prev,
-                                latitude: latNum,
-                                longitude: lngNum,
-                              }));
-
-                              // Reverse geocode
-                              const geocoder = new google.maps.Geocoder();
-                              geocoder.geocode({ location: { lat: latNum, lng: lngNum } }, (results, status) => {
-                                if (status === 'OK' && results && results.length > 0 && results[0]) {
-                                  const result = results[0];
-                                  const formattedAddress = result.formatted_address;
-                                  
-                                  // Extract country from address_components
-                                  const country = result.address_components 
-                                    ? extractCountryFromAddressComponents(result.address_components)
-                                    : '';
-                                  
-                                  if (formattedAddress) {
-                                  setSite(prev => ({
-                                    ...prev,
-                                      address: formattedAddress,
-                                      country: country || prev.country,
-                                  }));
-                                  }
-                                }
-                              });
-                            }
+                            applyCoordinates(latNum, lngNum, { reverseGeocode: true });
                           }
                         }
                       }}
