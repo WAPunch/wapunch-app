@@ -129,10 +129,9 @@ export default function TeamSchedule() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   useEffect(() => {
-    // Register submodule tabs for Schedule
+    // Register submodule tabs for time and attendance
     registerSubmodules('Schedule', [
       { id: 'schedule', label: 'Schedule', href: '/schedule/schedule', icon: Calendar },
-      { id: 'schedule3', label: 'Schedule 3', href: '/schedule/schedule3', icon: Calendar },
       { id: 'time-off', label: 'Time Off', href: '/schedule/time-off', icon: Calendar },
     ]);
   }, [registerSubmodules]);

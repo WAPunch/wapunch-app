@@ -51,7 +51,8 @@ export default function CompanySettings() {
     late_tolerance_minutes: 5,
     early_leave_tolerance_minutes: 5,
     early_arrival_tolerance_minutes: 0,
-    late_departure_tolerance_minutes: 0
+    late_departure_tolerance_minutes: 0,
+    overtime_calculation_mode: 'daily_total' as 'daily_total' | 'per_shift'
   });
   const [originalAttendanceSettings, setOriginalAttendanceSettings] = useState(attendanceSettings);
   const [attendanceSettingsLoading, setAttendanceSettingsLoading] = useState(true);
@@ -433,7 +434,7 @@ export default function CompanySettings() {
       try {
         const { data, error } = await supabase
           .from('company_attendance_settings')
-          .select('late_tolerance_minutes, early_leave_tolerance_minutes, early_arrival_tolerance_minutes, late_departure_tolerance_minutes')
+          .select('late_tolerance_minutes, early_leave_tolerance_minutes, early_arrival_tolerance_minutes, late_departure_tolerance_minutes, overtime_calculation_mode')
           .eq('company_id', currentCompany.id)
           .single();
 
@@ -446,13 +447,15 @@ export default function CompanySettings() {
             late_tolerance_minutes: data.late_tolerance_minutes || 5,
             early_leave_tolerance_minutes: data.early_leave_tolerance_minutes || 5,
             early_arrival_tolerance_minutes: data.early_arrival_tolerance_minutes ?? 0,
-            late_departure_tolerance_minutes: data.late_departure_tolerance_minutes ?? 0
+            late_departure_tolerance_minutes: data.late_departure_tolerance_minutes ?? 0,
+            overtime_calculation_mode: (data.overtime_calculation_mode || 'daily_total') as 'daily_total' | 'per_shift'
           });
           setOriginalAttendanceSettings({
             late_tolerance_minutes: data.late_tolerance_minutes || 5,
             early_leave_tolerance_minutes: data.early_leave_tolerance_minutes || 5,
             early_arrival_tolerance_minutes: data.early_arrival_tolerance_minutes ?? 0,
-            late_departure_tolerance_minutes: data.late_departure_tolerance_minutes ?? 0
+            late_departure_tolerance_minutes: data.late_departure_tolerance_minutes ?? 0,
+            overtime_calculation_mode: (data.overtime_calculation_mode || 'daily_total') as 'daily_total' | 'per_shift'
           });
         }
       } catch (err) {
@@ -1291,6 +1294,10 @@ export default function CompanySettings() {
         setAttendanceSettings(prev => ({ ...prev, [field]: value }));
       };
 
+      const handleOvertimeModeChange = (value: 'daily_total' | 'per_shift') => {
+        setAttendanceSettings(prev => ({ ...prev, overtime_calculation_mode: value }));
+      };
+
       const handleSaveAttendanceSettings = async () => {
         if (!currentCompany?.id) return;
 
@@ -1302,7 +1309,8 @@ export default function CompanySettings() {
               late_tolerance_minutes: attendanceSettings.late_tolerance_minutes,
               early_leave_tolerance_minutes: attendanceSettings.early_leave_tolerance_minutes,
               early_arrival_tolerance_minutes: attendanceSettings.early_arrival_tolerance_minutes,
-              late_departure_tolerance_minutes: attendanceSettings.late_departure_tolerance_minutes
+              late_departure_tolerance_minutes: attendanceSettings.late_departure_tolerance_minutes,
+              overtime_calculation_mode: attendanceSettings.overtime_calculation_mode
             }, {
               onConflict: 'company_id'
             });
@@ -1412,6 +1420,28 @@ export default function CompanySettings() {
                     />
                     <p className="text-sm text-gray-500">
                       Workers leaving within this many minutes after their scheduled end time will not be flagged as late departure.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Overtime Calculation Mode */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Overtime Calculation Mode
+                  </label>
+                  <div className="flex items-center gap-4">
+                    <select
+                      value={attendanceSettings.overtime_calculation_mode}
+                      onChange={(e) => handleOvertimeModeChange(e.target.value as 'daily_total' | 'per_shift')}
+                      className="w-48 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    >
+                      <option value="daily_total">Daily Total</option>
+                      <option value="per_shift">Per Shift</option>
+                    </select>
+                    <p className="text-sm text-gray-500">
+                      {attendanceSettings.overtime_calculation_mode === 'daily_total' 
+                        ? 'Overtime is calculated based on the total hours worked in a day.'
+                        : 'Overtime is calculated separately for each shift worked in a day.'}
                     </p>
                   </div>
                 </div>

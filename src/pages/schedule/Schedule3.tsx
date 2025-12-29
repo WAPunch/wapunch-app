@@ -1,6 +1,9 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
 import { getCurrentStatusDotColor } from '../../hooks/useWorkers';
+import { useCompany } from '../../hooks/useCompany';
+import { supabase } from '../../lib/supabase';
+import { logger } from '../../lib/logger';
 import { 
   Clock, 
   Calendar, 
@@ -92,14 +95,56 @@ interface Shift {
   notes?: string;
 }
 
-export default function TeamSchedule() {
+type PlannedShiftRow = {
+  id: string;
+  company_id: string;
+  worker_id: string;
+  site_id: string | null;
+  shift_date: string;
+  start_time: string;
+  end_time: string;
+  created_at: string;
+};
+
+type WorkerRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  is_active: boolean | null;
+  archived: boolean | null;
+  job_title?: { name: string } | { name: string }[] | null;
+};
+
+type SiteRow = { id: string; site_name: string | null };
+
+type WorkerWorkRuleRow = {
+  worker_id: string;
+  rule_type: string | null;
+  start_date: string | null;
+};
+
+function normalizeTime(value: string): string {
+  // Supabase time columns often come back as "HH:MM:SS". UI expects "HH:MM".
+  if (!value) return '';
+  if (value.length >= 5 && value[2] === ':') return value.slice(0, 5);
+  return value;
+}
+
+export default function Schedule3() {
   const { registerSubmodules } = useSubmoduleNav();
+  const { currentCompany } = useCompany();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [showCreateShift, setShowCreateShift] = useState(false);
+  const [isLoadingData, setIsLoadingData] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [sitesById, setSitesById] = useState<Record<string, string>>({});
+  const [workRuleTypeByWorkerId, setWorkRuleTypeByWorkerId] = useState<Record<string, string>>({});
   
   // Multi-select filter states
   const [selectedDepartment, setSelectedDepartment] = useState<string[]>([]);
@@ -137,6 +182,152 @@ export default function TeamSchedule() {
     ]);
   }, [registerSubmodules]);
 
+  const weekRange = useMemo(() => {
+    const start = new Date(currentDate);
+    const day = start.getDay();
+    const diff = start.getDate() - day + (day === 0 ? -6 : 1); // Monday start, Sunday end
+    start.setDate(diff);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
+
+    return {
+      startISO: start.toISOString().slice(0, 10),
+      endISO: end.toISOString().slice(0, 10),
+    };
+  }, [currentDate]);
+
+  useEffect(() => {
+    const loadScheduleData = async () => {
+      if (!currentCompany?.id) {
+        setEmployees([]);
+        setShifts([]);
+        setSitesById({});
+        setWorkRuleTypeByWorkerId({});
+        setLoadError(null);
+        setIsLoadingData(false);
+        return;
+      }
+
+      setIsLoadingData(true);
+      setLoadError(null);
+
+      try {
+        const [workersRes, sitesRes, rulesRes, shiftsRes] = await Promise.all([
+          supabase
+            .from('workers')
+            .select('id, first_name, last_name, is_active, archived, job_title:job_titles(name)')
+            .eq('company_id', currentCompany.id)
+            .eq('is_deleted', false)
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('sites')
+            .select('id, site_name')
+            .eq('company_id', currentCompany.id)
+            .eq('is_deleted', false)
+            .eq('archived', false)
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('worker_work_rules')
+            .select('worker_id, rule_type, start_date')
+            .eq('company_id', currentCompany.id)
+            .order('start_date', { ascending: false }),
+          supabase
+            .from('planned_shifts')
+            .select('id, company_id, worker_id, site_id, shift_date, start_time, end_time, created_at')
+            .eq('company_id', currentCompany.id)
+            .gte('shift_date', weekRange.startISO)
+            .lte('shift_date', weekRange.endISO)
+            .order('shift_date', { ascending: true })
+            .order('start_time', { ascending: true }),
+        ]);
+
+        if (workersRes.error) throw workersRes.error;
+        if (sitesRes.error) throw sitesRes.error;
+        if (rulesRes.error) throw rulesRes.error;
+        if (shiftsRes.error) throw shiftsRes.error;
+
+        const siteMap: Record<string, string> = {};
+        for (const s of (sitesRes.data || []) as SiteRow[]) {
+          if (s?.id && s?.site_name) siteMap[s.id] = s.site_name;
+        }
+        setSitesById(siteMap);
+
+        // Pick the latest rule per worker (rules are ordered by start_date DESC).
+        const ruleMap: Record<string, string> = {};
+        for (const r of (rulesRes.data || []) as WorkerWorkRuleRow[]) {
+          if (!r?.worker_id) continue;
+          if (ruleMap[r.worker_id]) continue;
+          if (r.rule_type) ruleMap[r.worker_id] = r.rule_type;
+        }
+        setWorkRuleTypeByWorkerId(ruleMap);
+
+        const mappedEmployees: Employee[] = ((workersRes.data || []) as WorkerRow[])
+          .filter(w => Boolean(w?.id))
+          .filter(w => (w.is_active ?? false) && !(w.archived ?? false))
+          .map(w => {
+            const first = (w.first_name || '').trim();
+            const last = (w.last_name || '').trim();
+            const fullName = `${first} ${last}`.trim();
+            const jobTitleObj = w.job_title as any;
+            const jobTitle = Array.isArray(jobTitleObj) 
+              ? (jobTitleObj[0]?.name || '')
+              : (jobTitleObj?.name || '');
+
+            return {
+              id: w.id,
+              name: fullName || 'Unnamed worker',
+              role: jobTitle,
+              department: '',
+              status: 'absent',
+              current_status: 'out',
+              availability: {
+                monday: [],
+                tuesday: [],
+                wednesday: [],
+                thursday: [],
+                friday: [],
+                saturday: [],
+                sunday: [],
+              },
+              qualifications: [],
+              hourlyRate: 0,
+              maxHoursPerWeek: 0,
+            };
+          });
+        setEmployees(mappedEmployees);
+
+        const mappedShifts: Shift[] = ((shiftsRes.data || []) as PlannedShiftRow[]).map((s) => {
+          const siteName = (s.site_id && siteMap[s.site_id]) || 'Unassigned site';
+          return {
+            id: s.id,
+            workerId: s.worker_id,
+            date: s.shift_date,
+            startTime: normalizeTime(s.start_time),
+            endTime: normalizeTime(s.end_time),
+            role: siteName,
+            location: siteName,
+            status: 'scheduled',
+          };
+        });
+        setShifts(mappedShifts);
+      } catch (err: any) {
+        logger.error('Error loading schedule data', err);
+        setLoadError(err?.message || 'Error loading schedule data');
+        setEmployees([]);
+        setShifts([]);
+        setSitesById({});
+        setWorkRuleTypeByWorkerId({});
+      } finally {
+        setIsLoadingData(false);
+      }
+    };
+
+    loadScheduleData();
+  }, [currentCompany?.id, weekRange.startISO, weekRange.endISO]);
+
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -167,1265 +358,41 @@ export default function TeamSchedule() {
     }
   };
 
-  // Mock data
-  const employees: Employee[] = [
-    {
-      id: '1',
-      name: 'Sarah Johnson',
-      role: 'Senior Developer',
-      department: 'Engineering',
-      status: 'present',
-      current_status: 'in',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '17:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['JavaScript', 'React', 'Node.js'],
-      hourlyRate: 75,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '2',
-      name: 'Mike Chen',
-      role: 'UX Designer',
-      department: 'Design',
-      status: 'on-break',
-      current_status: 'on_break',
-      availability: {
-        monday: ['08:00', '17:00'],
-        tuesday: ['08:00', '17:00'],
-        wednesday: ['08:00', '17:00'],
-        thursday: ['08:00', '17:00'],
-        friday: ['08:00', '16:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Figma', 'Sketch', 'Adobe Creative Suite'],
-      hourlyRate: 65,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '3',
-      name: 'Alex Rodriguez',
-      role: 'Project Manager',
-      department: 'Management',
-      status: 'present',
-      current_status: 'in',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '17:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Agile', 'Scrum', 'Project Management'],
-      hourlyRate: 85,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '4',
-      name: 'David Kim',
-      role: 'Frontend Developer',
-      department: 'Engineering',
-      status: 'on-transfer',
-      current_status: 'on_transfer',
-      availability: {
-        monday: ['10:00', '19:00'],
-        tuesday: ['10:00', '19:00'],
-        wednesday: ['10:00', '19:00'],
-        thursday: ['10:00', '19:00'],
-        friday: ['10:00', '19:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Vue.js', 'JavaScript', 'CSS'],
-      hourlyRate: 70,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '5',
-      name: 'Lisa Wang',
-      role: 'Backend Developer',
-      department: 'Engineering',
-      status: 'present',
-      current_status: 'in',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Python', 'Django', 'PostgreSQL'],
-      hourlyRate: 80,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '6',
-      name: 'James Wilson',
-      role: 'DevOps Engineer',
-      department: 'Engineering',
-      status: 'absent',
-      availability: {
-        monday: ['08:00', '17:00'],
-        tuesday: ['08:00', '17:00'],
-        wednesday: ['08:00', '17:00'],
-        thursday: ['08:00', '17:00'],
-        friday: ['08:00', '17:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['AWS', 'Docker', 'Kubernetes'],
-      hourlyRate: 90,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '7',
-      name: 'Maria Garcia',
-      role: 'UI Designer',
-      department: 'Design',
-      status: 'on-leave',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Adobe XD', 'InVision', 'Prototyping'],
-      hourlyRate: 60,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '8',
-      name: 'Robert Taylor',
-      role: 'Product Manager',
-      department: 'Management',
-      status: 'present',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Product Strategy', 'User Research', 'Analytics'],
-      hourlyRate: 95,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '9',
-      name: 'Jennifer Brown',
-      role: 'QA Engineer',
-      department: 'Engineering',
-      status: 'on-break',
-      availability: {
-        monday: ['10:00', '19:00'],
-        tuesday: ['10:00', '19:00'],
-        wednesday: ['10:00', '19:00'],
-        thursday: ['10:00', '19:00'],
-        friday: ['10:00', '19:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Selenium', 'Jest', 'Manual Testing'],
-      hourlyRate: 65,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '10',
-      name: 'Christopher Lee',
-      role: 'Full Stack Developer',
-      department: 'Engineering',
-      status: 'present',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['React', 'Node.js', 'MongoDB'],
-      hourlyRate: 85,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '11',
-      name: 'Amanda Davis',
-      role: 'Marketing Manager',
-      department: 'Marketing',
-      status: 'present',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Digital Marketing', 'SEO', 'Analytics'],
-      hourlyRate: 70,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '12',
-      name: 'Kevin Martinez',
-      role: 'Sales Representative',
-      department: 'Sales',
-      status: 'on-break',
-      availability: {
-        monday: ['08:00', '17:00'],
-        tuesday: ['08:00', '17:00'],
-        wednesday: ['08:00', '17:00'],
-        thursday: ['08:00', '17:00'],
-        friday: ['08:00', '17:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['CRM', 'Lead Generation', 'Negotiation'],
-      hourlyRate: 55,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '13',
-      name: 'Rachel Green',
-      role: 'Content Writer',
-      department: 'Marketing',
-      status: 'on-transfer',
-      availability: {
-        monday: ['10:00', '19:00'],
-        tuesday: ['10:00', '19:00'],
-        wednesday: ['10:00', '19:00'],
-        thursday: ['10:00', '19:00'],
-        friday: ['10:00', '19:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Copywriting', 'SEO Writing', 'Content Strategy'],
-      hourlyRate: 50,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '14',
-      name: 'Thomas Anderson',
-      role: 'Data Analyst',
-      department: 'Analytics',
-      status: 'present',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['SQL', 'Python', 'Tableau'],
-      hourlyRate: 75,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '15',
-      name: 'Nicole White',
-      role: 'HR Specialist',
-      department: 'Human Resources',
-      status: 'absent',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Recruitment', 'Employee Relations', 'HRIS'],
-      hourlyRate: 60,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '16',
-      name: 'Daniel Clark',
-      role: 'Mobile Developer',
-      department: 'Engineering',
-      status: 'on-leave',
-      availability: {
-        monday: ['10:00', '19:00'],
-        tuesday: ['10:00', '19:00'],
-        wednesday: ['10:00', '19:00'],
-        thursday: ['10:00', '19:00'],
-        friday: ['10:00', '19:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['React Native', 'iOS', 'Android'],
-      hourlyRate: 80,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '17',
-      name: 'Samantha Turner',
-      role: 'Graphic Designer',
-      department: 'Design',
-      status: 'present',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Photoshop', 'Illustrator', 'Brand Design'],
-      hourlyRate: 55,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '18',
-      name: 'Mark Johnson',
-      role: 'System Administrator',
-      department: 'IT',
-      status: 'on-break',
-      availability: {
-        monday: ['08:00', '17:00'],
-        tuesday: ['08:00', '17:00'],
-        wednesday: ['08:00', '17:00'],
-        thursday: ['08:00', '17:00'],
-        friday: ['08:00', '17:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Windows Server', 'Linux', 'Network Security'],
-      hourlyRate: 70,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '19',
-      name: 'Laura Miller',
-      role: 'Business Analyst',
-      department: 'Analytics',
-      status: 'present',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Requirements Analysis', 'Process Improvement', 'Documentation'],
-      hourlyRate: 65,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '20',
-      name: 'Alex Thompson',
-      role: 'Customer Success Manager',
-      department: 'Customer Success',
-      status: 'on-transfer',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Customer Relations', 'Account Management', 'Retention'],
-      hourlyRate: 60,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '21',
-      name: 'Jessica Adams',
-      role: 'Financial Analyst',
-      department: 'Finance',
-      status: 'present',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Financial Modeling', 'Excel', 'Budgeting'],
-      hourlyRate: 70,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '22',
-      name: 'Ryan Cooper',
-      role: 'Security Engineer',
-      department: 'IT',
-      status: 'absent',
-      availability: {
-        monday: ['10:00', '19:00'],
-        tuesday: ['10:00', '19:00'],
-        wednesday: ['10:00', '19:00'],
-        thursday: ['10:00', '19:00'],
-        friday: ['10:00', '19:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Cybersecurity', 'Penetration Testing', 'Compliance'],
-      hourlyRate: 95,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '23',
-      name: 'Michelle Lewis',
-      role: 'Operations Manager',
-      department: 'Operations',
-      status: 'on-leave',
-      availability: {
-        monday: ['08:00', '17:00'],
-        tuesday: ['08:00', '17:00'],
-        wednesday: ['08:00', '17:00'],
-        thursday: ['08:00', '17:00'],
-        friday: ['08:00', '17:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Process Optimization', 'Supply Chain', 'Quality Control'],
-      hourlyRate: 75,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '24',
-      name: 'Brandon Wright',
-      role: 'Technical Writer',
-      department: 'Engineering',
-      status: 'present',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Technical Documentation', 'API Documentation', 'User Guides'],
-      hourlyRate: 55,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '25',
-      name: 'Stephanie Hall',
-      role: 'Training Coordinator',
-      department: 'Human Resources',
-      status: 'on-break',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Training Development', 'LMS', 'Employee Onboarding'],
-      hourlyRate: 50,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '26',
-      name: 'Elena Rodriguez',
-      role: 'Senior UX Designer',
-      department: 'Design',
-      status: 'present',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['User Research', 'Prototyping', 'Design Systems'],
-      hourlyRate: 75,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '27',
-      name: 'Marcus Thompson',
-      role: 'DevOps Lead',
-      department: 'Engineering',
-      status: 'on-break',
-      availability: {
-        monday: ['08:00', '17:00'],
-        tuesday: ['08:00', '17:00'],
-        wednesday: ['08:00', '17:00'],
-        thursday: ['08:00', '17:00'],
-        friday: ['08:00', '17:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['AWS', 'Terraform', 'CI/CD'],
-      hourlyRate: 100,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '28',
-      name: 'Sophie Chen',
-      role: 'Product Designer',
-      department: 'Design',
-      status: 'on-transfer',
-      availability: {
-        monday: ['10:00', '19:00'],
-        tuesday: ['10:00', '19:00'],
-        wednesday: ['10:00', '19:00'],
-        thursday: ['10:00', '19:00'],
-        friday: ['10:00', '19:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Figma', 'Design Thinking', 'User Testing'],
-      hourlyRate: 70,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '29',
-      name: 'Carlos Mendez',
-      role: 'Senior Backend Developer',
-      department: 'Engineering',
-      status: 'absent',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Java', 'Spring Boot', 'Microservices'],
-      hourlyRate: 90,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '30',
-      name: 'Isabella Foster',
-      role: 'Content Marketing Manager',
-      department: 'Marketing',
-      status: 'on-leave',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Content Strategy', 'SEO', 'Social Media'],
-      hourlyRate: 65,
-      maxHoursPerWeek: 40
-    }
-  ];
-
-  // Get current week dates for shift data
-  const getCurrentWeekDates = (): string[] => {
-    const today = new Date();
-    const start = new Date(today);
-    const day = start.getDay();
-    const diff = start.getDate() - day + (day === 0 ? -6 : 1);
-    start.setDate(diff);
-    
-    const week: string[] = [];
-    for (let i = 0; i < 7; i++) {
-      const day = new Date(start);
-      day.setDate(start.getDate() + i);
-      const dateStr = day.toISOString().split('T')[0];
-      if (dateStr) {
-        week.push(dateStr);
-      }
-    }
-    return week;
+  const canPlanShiftsForWorker = (workerId: string) => {
+    const ruleType = workRuleTypeByWorkerId[workerId];
+    // Backwards/forwards compat: codebase currently uses "planned"; user spec says "planner".
+    return ruleType === 'planned' || ruleType === 'planner';
   };
 
-  const currentWeekDates = getCurrentWeekDates();
-  // Ensure we have all 7 dates, use fallback if needed
-  const getDate = (index: number): string => {
-    const date = currentWeekDates[index];
-    if (date) return date;
-    const fallback = new Date().toISOString().split('T')[0];
-    return fallback || '';
+  const getWorkRuleTypeLabel = (ruleType: string | undefined): string => {
+    if (!ruleType) return 'No work rule';
+    switch (ruleType) {
+      case 'fixed':
+        return 'Fixed schedule';
+      case 'planned':
+      case 'planner':
+        return 'Planner-based';
+      case 'open':
+        return 'Flexible / No expected hours';
+      default:
+        return ruleType.charAt(0).toUpperCase() + ruleType.slice(1);
+    }
   };
 
-  const shifts: Shift[] = [
-    // Monday shifts
-    {
-      id: '1',
-      workerId: '1',
-      date: getDate(0), // Monday
-      startTime: '09:00',
-      endTime: '17:00',
-      role: 'Senior Developer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '2',
-      workerId: '2',
-      date: getDate(0), // Monday
-      startTime: '08:00',
-      endTime: '16:00',
-      role: 'UX Designer',
-      location: 'Main Office',
-      status: 'confirmed'
-    },
-    {
-      id: '3',
-      workerId: '3',
-      date: getDate(0), // Monday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Project Manager',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    {
-      id: '4',
-      workerId: '4',
-      date: getDate(0), // Monday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'Frontend Developer',
-      location: 'Remote',
-      status: 'cancelled'
-    },
-    {
-      id: '5',
-      workerId: '5',
-      date: getDate(0), // Monday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Backend Developer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '6',
-      workerId: '6',
-      date: getDate(0), // Monday
-      startTime: '08:00',
-      endTime: '17:00',
-      role: 'DevOps Engineer',
-      location: 'Data Center',
-      status: 'confirmed'
-    },
-    {
-      id: '7',
-      workerId: '7',
-      date: getDate(0), // Monday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'UI Designer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '8',
-      workerId: '8',
-      date: getDate(0), // Monday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Product Manager',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    {
-      id: '9',
-      workerId: '9',
-      date: getDate(0), // Monday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'QA Engineer',
-      location: 'Testing Lab',
-      status: 'scheduled'
-    },
-    {
-      id: '10',
-      workerId: '10',
-      date: getDate(0), // Monday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Full Stack Developer',
-      location: 'Main Office',
-      status: 'confirmed'
-    },
-    // Additional Monday shifts for more variety
-    {
-      id: '56',
-      workerId: '11',
-      date: getDate(0), // Monday
-      startTime: '09:00',
-      endTime: '13:00',
-      role: 'Marketing Manager',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '56b',
-      workerId: '11',
-      date: getDate(0), // Monday
-      startTime: '14:00',
-      endTime: '18:00',
-      role: 'Marketing Manager',
-      location: 'Client Site',
-      status: 'confirmed'
-    },
-    {
-      id: '57',
-      workerId: '12',
-      date: getDate(0), // Monday
-      startTime: '08:00',
-      endTime: '17:00',
-      role: 'Sales Representative',
-      location: 'Remote',
-      status: 'confirmed'
-    },
-    {
-      id: '58',
-      workerId: '14',
-      date: getDate(0), // Monday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'Data Analyst',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '59',
-      workerId: '17',
-      date: getDate(0), // Monday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Graphic Designer',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    {
-      id: '60',
-      workerId: '21',
-      date: getDate(0), // Monday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Financial Analyst',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    // Tuesday shifts
-    {
-      id: '11',
-      workerId: '1',
-      date: getDate(1), // Tuesday
-      startTime: '09:00',
-      endTime: '17:00',
-      role: 'Senior Developer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '12',
-      workerId: '2',
-      date: getDate(1), // Tuesday
-      startTime: '08:00',
-      endTime: '16:00',
-      role: 'UX Designer',
-      location: 'Main Office',
-      status: 'confirmed'
-    },
-    {
-      id: '13',
-      workerId: '3',
-      date: getDate(1), // Tuesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Project Manager',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '14',
-      workerId: '4',
-      date: getDate(1), // Tuesday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'Frontend Developer',
-      location: 'Remote',
-      status: 'cancelled'
-    },
-    {
-      id: '15',
-      workerId: '5',
-      date: getDate(1), // Tuesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Backend Developer',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    {
-      id: '16',
-      workerId: '6',
-      date: getDate(1), // Tuesday
-      startTime: '08:00',
-      endTime: '17:00',
-      role: 'DevOps Engineer',
-      location: 'Data Center',
-      status: 'scheduled'
-    },
-    {
-      id: '17',
-      workerId: '7',
-      date: getDate(1), // Tuesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'UI Designer',
-      location: 'Main Office',
-      status: 'confirmed'
-    },
-    {
-      id: '18',
-      workerId: '8',
-      date: getDate(1), // Tuesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Product Manager',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '19',
-      workerId: '9',
-      date: getDate(1), // Tuesday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'QA Engineer',
-      location: 'Testing Lab',
-      status: 'completed'
-    },
-    {
-      id: '20',
-      workerId: '10',
-      date: getDate(1), // Tuesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Full Stack Developer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    // Additional Tuesday shifts
-    {
-      id: '61',
-      workerId: '13',
-      date: getDate(1), // Tuesday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'Content Writer',
-      location: 'Remote',
-      status: 'confirmed'
-    },
-    {
-      id: '62',
-      workerId: '15',
-      date: getDate(1), // Tuesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'HR Specialist',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '63',
-      workerId: '19',
-      date: getDate(1), // Tuesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Business Analyst',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    // Wednesday shifts
-    {
-      id: '21',
-      workerId: '1',
-      date: getDate(2), // Wednesday
-      startTime: '09:00',
-      endTime: '17:00',
-      role: 'Senior Developer',
-      location: 'Main Office',
-      status: 'confirmed'
-    },
-    {
-      id: '22',
-      workerId: '2',
-      date: getDate(2), // Wednesday
-      startTime: '08:00',
-      endTime: '16:00',
-      role: 'UX Designer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '23',
-      workerId: '3',
-      date: getDate(2), // Wednesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Project Manager',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    {
-      id: '24',
-      workerId: '4',
-      date: getDate(2), // Wednesday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'Frontend Developer',
-      location: 'Remote',
-      status: 'scheduled'
-    },
-    {
-      id: '25',
-      workerId: '5',
-      date: getDate(2), // Wednesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Backend Developer',
-      location: 'Main Office',
-      status: 'confirmed'
-    },
-    {
-      id: '26',
-      workerId: '6',
-      date: getDate(2), // Wednesday
-      startTime: '08:00',
-      endTime: '17:00',
-      role: 'DevOps Engineer',
-      location: 'Data Center',
-      status: 'cancelled'
-    },
-    {
-      id: '27',
-      workerId: '7',
-      date: getDate(2), // Wednesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'UI Designer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '28',
-      workerId: '8',
-      date: getDate(2), // Wednesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Product Manager',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    {
-      id: '29',
-      workerId: '9',
-      date: getDate(2), // Wednesday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'QA Engineer',
-      location: 'Testing Lab',
-      status: 'scheduled'
-    },
-    {
-      id: '30',
-      workerId: '10',
-      date: getDate(2), // Wednesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Full Stack Developer',
-      location: 'Main Office',
-      status: 'confirmed'
-    },
-    // Thursday shifts
-    {
-      id: '31',
-      workerId: '1',
-      date: getDate(3), // Thursday
-      startTime: '09:00',
-      endTime: '17:00',
-      role: 'Senior Developer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '32',
-      workerId: '2',
-      date: getDate(3), // Thursday
-      startTime: '08:00',
-      endTime: '16:00',
-      role: 'UX Designer',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    {
-      id: '33',
-      workerId: '3',
-      date: getDate(3), // Thursday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Project Manager',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '34',
-      workerId: '4',
-      date: getDate(3), // Thursday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'Frontend Developer',
-      location: 'Remote',
-      status: 'confirmed'
-    },
-    {
-      id: '35',
-      workerId: '5',
-      date: getDate(3), // Thursday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Backend Developer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '36',
-      workerId: '6',
-      date: getDate(3), // Thursday
-      startTime: '08:00',
-      endTime: '17:00',
-      role: 'DevOps Engineer',
-      location: 'Data Center',
-      status: 'completed'
-    },
-    {
-      id: '37',
-      workerId: '7',
-      date: getDate(3), // Thursday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'UI Designer',
-      location: 'Main Office',
-      status: 'cancelled'
-    },
-    {
-      id: '38',
-      workerId: '8',
-      date: getDate(3), // Thursday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Product Manager',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '39',
-      workerId: '9',
-      date: getDate(3), // Thursday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'QA Engineer',
-      location: 'Testing Lab',
-      status: 'confirmed'
-    },
-    {
-      id: '40',
-      workerId: '10',
-      date: getDate(3), // Thursday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Full Stack Developer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    // Friday shifts
-    {
-      id: '41',
-      workerId: '1',
-      date: getDate(4), // Friday
-      startTime: '09:00',
-      endTime: '17:00',
-      role: 'Senior Developer',
-      location: 'Main Office',
-      status: 'confirmed'
-    },
-    {
-      id: '42',
-      workerId: '2',
-      date: getDate(4), // Friday
-      startTime: '08:00',
-      endTime: '16:00',
-      role: 'UX Designer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '43',
-      workerId: '3',
-      date: getDate(4), // Friday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Project Manager',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    {
-      id: '44',
-      workerId: '4',
-      date: getDate(4), // Friday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'Frontend Developer',
-      location: 'Remote',
-      status: 'scheduled'
-    },
-    {
-      id: '45',
-      workerId: '5',
-      date: getDate(4), // Friday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Backend Developer',
-      location: 'Main Office',
-      status: 'confirmed'
-    },
-    {
-      id: '46',
-      workerId: '6',
-      date: getDate(4), // Friday
-      startTime: '08:00',
-      endTime: '17:00',
-      role: 'DevOps Engineer',
-      location: 'Data Center',
-      status: 'scheduled'
-    },
-    {
-      id: '47',
-      workerId: '7',
-      date: getDate(4), // Friday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'UI Designer',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    {
-      id: '48',
-      workerId: '8',
-      date: getDate(4), // Friday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Product Manager',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '49',
-      workerId: '9',
-      date: getDate(4), // Friday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'QA Engineer',
-      location: 'Testing Lab',
-      status: 'confirmed'
-    },
-    {
-      id: '50',
-      workerId: '10',
-      date: getDate(4), // Friday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Full Stack Developer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    // Saturday shifts (some employees work weekends)
-    {
-      id: '51',
-      workerId: '1',
-      date: getDate(5), // Saturday
-      startTime: '10:00',
-      endTime: '16:00',
-      role: 'Senior Developer',
-      location: 'Remote',
-      status: 'scheduled'
-    },
-    {
-      id: '52',
-      workerId: '6',
-      date: getDate(5), // Saturday
-      startTime: '09:00',
-      endTime: '15:00',
-      role: 'DevOps Engineer',
-      location: 'Data Center',
-      status: 'confirmed'
-    },
-    {
-      id: '53',
-      workerId: '18',
-      date: getDate(5), // Saturday
-      startTime: '08:00',
-      endTime: '14:00',
-      role: 'System Administrator',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    // Sunday shifts
-    {
-      id: '54',
-      workerId: '6',
-      date: getDate(6), // Sunday
-      startTime: '10:00',
-      endTime: '16:00',
-      role: 'DevOps Engineer',
-      location: 'Data Center',
-      status: 'confirmed'
-    },
-    {
-      id: '55',
-      workerId: '22',
-      date: getDate(6), // Sunday
-      startTime: '09:00',
-      endTime: '15:00',
-      role: 'Security Engineer',
-      location: 'Main Office',
-      status: 'scheduled'
+  const getWorkRuleBorderColor = (ruleType: string | undefined): string => {
+    if (!ruleType) return 'border-l-gray-400';
+    switch (ruleType) {
+      case 'fixed':
+        return 'border-l-blue-500';
+      case 'planned':
+      case 'planner':
+        return 'border-l-green-500';
+      case 'open':
+        return 'border-l-yellow-500';
+      default:
+        return 'border-l-gray-400';
     }
-  ];
+  };
 
   // Clear all filters
   const clearAllFilters = () => {
@@ -1492,17 +459,13 @@ export default function TeamSchedule() {
 
   // Filter options based on search terms
   const getFilteredDepartmentOptions = () => {
-    const departments = [...new Set(employees.map(e => e.department))];
-    return departments.filter(dept => 
-      dept.toLowerCase().includes(departmentSearchTerm.toLowerCase())
-    );
+    const departments = [...new Set(employees.map(e => e.department).filter(Boolean))];
+    return departments.filter(dept => dept.toLowerCase().includes(departmentSearchTerm.toLowerCase()));
   };
 
   const getFilteredRoleOptions = () => {
-    const roles = [...new Set(employees.map(e => e.role))];
-    return roles.filter(role => 
-      role.toLowerCase().includes(roleSearchTerm.toLowerCase())
-    );
+    const roles = [...new Set(employees.map(e => e.role).filter(Boolean))];
+    return roles.filter(role => role.toLowerCase().includes(roleSearchTerm.toLowerCase()));
   };
 
   const getFilteredStatusOptions = () => {
@@ -1619,19 +582,25 @@ export default function TeamSchedule() {
         </div>
       </div>
 
+      {loadError && (
+        <div className="mb-4 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+          {loadError}
+        </div>
+      )}
+
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <div className="flex items-center gap-3">
             <Users className="h-5 w-5 text-teal-600" />
-            <div className="text-2xl font-bold text-gray-900">{employees.length}</div>
+            <div className="text-2xl font-bold text-gray-900">{isLoadingData ? '—' : employees.length}</div>
               <div className="text-sm text-muted-foreground">Total Employees</div>
           </div>
         </div>
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <div className="flex items-center gap-3">
             <Calendar className="h-5 w-5 text-blue-600" />
-            <div className="text-2xl font-bold text-gray-900">{shifts.length}</div>
+            <div className="text-2xl font-bold text-gray-900">{isLoadingData ? '—' : shifts.length}</div>
               <div className="text-sm text-muted-foreground">Scheduled Shifts</div>
           </div>
         </div>
@@ -2129,11 +1098,11 @@ export default function TeamSchedule() {
           <div>
             {/* Header Row */}
             <div className="flex border-b border-gray-200">
-            {/* Employee Column Header */}
+            {/* Worker Column Header */}
               <div className="w-64 p-3 pl-6 border-r border-gray-200 bg-gray-50">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8"></div>
-              <span className="text-sm font-medium text-gray-700">Employee</span>
+              <span className="text-sm font-medium text-gray-700">Worker</span>
                 </div>
             </div>
             
@@ -2156,7 +1125,7 @@ export default function TeamSchedule() {
             {paginatedEmployees.map((employee, employeeIndex) => (
               <div key={employee.id} className="flex">
                 {/* Employee Info */}
-                <div className={`w-64 p-3 pl-6 border-r border-gray-200 flex items-center gap-3 ${employeeIndex < paginatedEmployees.length - 1 ? 'border-b border-gray-200' : ''}`}>
+                <div className={`w-64 p-3 pl-6 border-r border-gray-200 border-l-4 ${getWorkRuleBorderColor(workRuleTypeByWorkerId[employee.id])} flex items-center gap-3 ${employeeIndex < paginatedEmployees.length - 1 ? 'border-b border-gray-200' : ''}`}>
                   <div className="relative">
                     <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center text-white text-sm font-medium">
                       {generateAvatarInitials(employee.name.split(' ')[0] || '', employee.name.split(' ')[1] || '')}
@@ -2170,9 +1139,11 @@ export default function TeamSchedule() {
                     <div className="text-sm font-medium text-gray-900 truncate">
                       {employee.name}
                     </div>
-                    <div className="text-xs text-gray-500 truncate">
-                      {employee.role}
-                    </div>
+                    {employee.role && (
+                      <div className="text-xs text-gray-500 truncate">
+                        {employee.role}
+                      </div>
+                    )}
                   </div>
                 </div>
                 
@@ -2213,10 +1184,21 @@ export default function TeamSchedule() {
                           ))}
                           {/* Add button that appears on hover */}
                           <button 
-                            className="absolute top-1/2 left-1 transform -translate-y-1/2 w-4 h-4 bg-white border border-gray-200 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-gray-50"
+                            disabled={!canPlanShiftsForWorker(employee.id)}
+                            title={
+                              canPlanShiftsForWorker(employee.id)
+                                ? `Add shift for ${employee.name}`
+                                : 'This worker is not configured for planner-based scheduling'
+                            }
+                            className={`absolute top-1/2 left-1 transform -translate-y-1/2 w-4 h-4 bg-white border border-gray-200 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 ${
+                              canPlanShiftsForWorker(employee.id)
+                                ? 'hover:bg-gray-50'
+                                : 'cursor-not-allowed opacity-0 group-hover:opacity-30'
+                            }`}
                             onClick={() => {
-                              // TODO: Add shift functionality
-                              console.log('Add shift for', employee.name, 'on', date.toDateString());
+                              if (!canPlanShiftsForWorker(employee.id)) return;
+                              setSelectedEmployee(employee.id);
+                              setShowCreateShift(true);
                             }}
                             aria-label={`Add shift for ${employee.name}`}
                           >
@@ -2226,10 +1208,21 @@ export default function TeamSchedule() {
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
                           <button 
-                            className="opacity-0 group-hover:opacity-100 w-6 h-6 border border-gray-200 rounded flex items-center justify-center hover:bg-gray-50 transition-all duration-200"
+                            disabled={!canPlanShiftsForWorker(employee.id)}
+                            title={
+                              canPlanShiftsForWorker(employee.id)
+                                ? `Add shift for ${employee.name}`
+                                : 'This worker is not configured for planner-based scheduling'
+                            }
+                            className={`opacity-0 group-hover:opacity-100 w-6 h-6 border border-gray-200 rounded flex items-center justify-center transition-all duration-200 ${
+                              canPlanShiftsForWorker(employee.id)
+                                ? 'hover:bg-gray-50'
+                                : 'cursor-not-allowed opacity-0 group-hover:opacity-30'
+                            }`}
                             onClick={() => {
-                              // TODO: Add shift functionality
-                              console.log('Add shift for', employee.name, 'on', date.toDateString());
+                              if (!canPlanShiftsForWorker(employee.id)) return;
+                              setSelectedEmployee(employee.id);
+                              setShowCreateShift(true);
                             }}
                             aria-label={`Add shift for ${employee.name}`}
                           >
