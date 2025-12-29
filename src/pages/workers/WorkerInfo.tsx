@@ -51,6 +51,21 @@ export default function WorkerInfo() {
   const [isAddingDepartment, setIsAddingDepartment] = useState(false);
   const [isAddingJobTitle, setIsAddingJobTitle] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Work rules state
+  const [workRuleType, setWorkRuleType] = useState<'fixed' | 'planned' | 'open' | ''>('');
+  const [fixedScheduleId, setFixedScheduleId] = useState<string>('');
+  const [fixedSchedules, setFixedSchedules] = useState<any[]>([]);
+  const [workRuleStartDate, setWorkRuleStartDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [workRuleEndDate, setWorkRuleEndDate] = useState<string>('');
+  
+  // Original work rules state for change tracking
+  const [originalWorkRules, setOriginalWorkRules] = useState({
+    workRuleType: '' as 'fixed' | 'planned' | 'open' | '',
+    fixedScheduleId: '',
+    workRuleStartDate: new Date().toISOString().slice(0, 10),
+    workRuleEndDate: ''
+  });
 
   // Phone country codes - same as CompanyRegistration
   const phoneCountryCodes = [
@@ -395,6 +410,101 @@ export default function WorkerInfo() {
     return { isValid: true, error: '' };
   };
 
+  // Load fixed schedules
+  useEffect(() => {
+    const loadFixedSchedules = async () => {
+      if (!currentCompany?.id) return;
+
+      try {
+        const { data, error } = await supabase
+          .from('fixed_schedules')
+          .select('id, name')
+          .eq('company_id', currentCompany.id)
+          .order('name');
+
+        if (error) throw error;
+        setFixedSchedules(data || []);
+      } catch (err) {
+        console.error('Error loading fixed schedules:', err);
+      }
+    };
+
+    loadFixedSchedules();
+  }, [currentCompany?.id]);
+
+  // Load work rules for worker
+  useEffect(() => {
+    const loadWorkRules = async () => {
+      if (!worker.id || !currentCompany?.id) {
+        const defaultStartDate = new Date().toISOString().slice(0, 10);
+        setWorkRuleType('');
+        setFixedScheduleId('');
+        setWorkRuleStartDate(defaultStartDate);
+        setWorkRuleEndDate('');
+        
+        // Save original values (empty) for change tracking
+        setOriginalWorkRules({
+          workRuleType: '',
+          fixedScheduleId: '',
+          workRuleStartDate: defaultStartDate,
+          workRuleEndDate: ''
+        });
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('worker_work_rules')
+          .select('*')
+          .eq('worker_id', worker.id)
+          .eq('company_id', currentCompany.id)
+          .order('start_date', { ascending: false })
+          .limit(1);
+
+        if (error && error.code !== 'PGRST116') throw error;
+
+        if (data && data.length > 0) {
+          const rule = data[0];
+          const ruleType = rule.rule_type as 'fixed' | 'planned' | 'open';
+          const scheduleId = (rule as any).fixed_schedule_id || '';
+          const startDate = rule.start_date || new Date().toISOString().slice(0, 10);
+          const endDate = rule.end_date || '';
+          
+          setWorkRuleType(ruleType);
+          setFixedScheduleId(scheduleId);
+          setWorkRuleStartDate(startDate);
+          setWorkRuleEndDate(endDate);
+          
+          // Save original values for change tracking
+          setOriginalWorkRules({
+            workRuleType: ruleType,
+            fixedScheduleId: scheduleId,
+            workRuleStartDate: startDate,
+            workRuleEndDate: endDate
+          });
+        } else {
+          const defaultStartDate = new Date().toISOString().slice(0, 10);
+          setWorkRuleType('');
+          setFixedScheduleId('');
+          setWorkRuleStartDate(defaultStartDate);
+          setWorkRuleEndDate('');
+          
+          // Save original values (empty) for change tracking
+          setOriginalWorkRules({
+            workRuleType: '',
+            fixedScheduleId: '',
+            workRuleStartDate: defaultStartDate,
+            workRuleEndDate: ''
+          });
+        }
+      } catch (err) {
+        console.error('Error loading work rules:', err);
+      }
+    };
+
+    loadWorkRules();
+  }, [worker.id, currentCompany?.id]);
+
   useEffect(() => {
     // Load worker data from sessionStorage if available, or fetch from database if ID is in URL
     const loadWorkerData = async () => {
@@ -569,9 +679,24 @@ export default function WorkerInfo() {
 
   // Track changes
   useEffect(() => {
-    const hasChanged = JSON.stringify(worker) !== JSON.stringify(originalWorker);
-    setHasChanges(hasChanged);
-  }, [worker, originalWorker]);
+    const workerChanged = JSON.stringify(worker) !== JSON.stringify(originalWorker);
+    
+    // Check work rules changes
+    const workRulesChanged = 
+      workRuleType !== originalWorkRules.workRuleType ||
+      fixedScheduleId !== originalWorkRules.fixedScheduleId ||
+      workRuleStartDate !== originalWorkRules.workRuleStartDate ||
+      workRuleEndDate !== originalWorkRules.workRuleEndDate;
+    
+    setHasChanges(workerChanged || workRulesChanged);
+  }, [worker, originalWorker, workRuleType, fixedScheduleId, workRuleStartDate, workRuleEndDate, originalWorkRules]);
+
+  // Clear fixed_schedule_id when work rule type changes away from 'fixed'
+  useEffect(() => {
+    if (workRuleType !== 'fixed') {
+      setFixedScheduleId('');
+    }
+  }, [workRuleType]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -883,6 +1008,98 @@ export default function WorkerInfo() {
 
       setWorker(updatedWorker);
       setOriginalWorker(updatedWorker);
+
+      // Save work rules
+      if (workRuleType && currentCompany?.id && savedWorker.id) {
+        // Validate work rules
+        if (workRuleType === 'fixed' && !fixedScheduleId) {
+          setErrors({ workRules: 'Please select a fixed schedule' });
+          setIsSaving(false);
+          return;
+        }
+
+        if (!workRuleStartDate) {
+          setErrors({ workRules: 'Start date is required' });
+          setIsSaving(false);
+          return;
+        }
+
+        // Check if work rule already exists
+        const { data: existingRule } = await supabase
+          .from('worker_work_rules')
+          .select('id')
+          .eq('worker_id', savedWorker.id)
+          .eq('company_id', currentCompany.id)
+          .order('start_date', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const workRuleData: any = {
+          company_id: currentCompany.id,
+          worker_id: savedWorker.id,
+          rule_type: workRuleType,
+          start_date: workRuleStartDate,
+          end_date: workRuleEndDate || null,
+        };
+
+        // Add fixed_schedule_id if rule type is fixed (assuming column exists or will be added)
+        if (workRuleType === 'fixed' && fixedScheduleId) {
+          workRuleData.fixed_schedule_id = fixedScheduleId;
+        }
+
+        if (existingRule) {
+          // Update existing rule
+          const { error: updateRuleError } = await supabase
+            .from('worker_work_rules')
+            .update(workRuleData)
+            .eq('id', existingRule.id);
+
+          if (updateRuleError) {
+            console.error('Error updating work rule:', updateRuleError);
+            // Don't fail the entire save, just log the error
+          }
+        } else {
+          // Create new rule
+          const { error: insertRuleError } = await supabase
+            .from('worker_work_rules')
+            .insert(workRuleData);
+
+          if (insertRuleError) {
+            console.error('Error creating work rule:', insertRuleError);
+            // Don't fail the entire save, just log the error
+          }
+        }
+      } else if (savedWorker.id && currentCompany?.id && !workRuleType) {
+        // If work rule type is cleared, delete existing rule
+        const { error: deleteRuleError } = await supabase
+          .from('worker_work_rules')
+          .delete()
+          .eq('worker_id', savedWorker.id)
+          .eq('company_id', currentCompany.id);
+
+        if (deleteRuleError) {
+          console.error('Error deleting work rule:', deleteRuleError);
+        }
+      }
+
+      // Update original work rules after successful save
+      if (workRuleType && currentCompany?.id && savedWorker.id) {
+        setOriginalWorkRules({
+          workRuleType: workRuleType,
+          fixedScheduleId: fixedScheduleId,
+          workRuleStartDate: workRuleStartDate,
+          workRuleEndDate: workRuleEndDate
+        });
+      } else {
+        const defaultStartDate = new Date().toISOString().slice(0, 10);
+        setOriginalWorkRules({
+          workRuleType: '',
+          fixedScheduleId: '',
+          workRuleStartDate: defaultStartDate,
+          workRuleEndDate: ''
+        });
+      }
+
       setHasChanges(false);
       setErrors({});
 
@@ -904,6 +1121,10 @@ export default function WorkerInfo() {
 
   const handleCancel = () => {
     setWorker(originalWorker);
+    setWorkRuleType(originalWorkRules.workRuleType);
+    setFixedScheduleId(originalWorkRules.fixedScheduleId);
+    setWorkRuleStartDate(originalWorkRules.workRuleStartDate);
+    setWorkRuleEndDate(originalWorkRules.workRuleEndDate);
     setErrors({});
     setHasChanges(false);
   };
@@ -1328,6 +1549,146 @@ export default function WorkerInfo() {
                   />
                   <span className="text-sm text-gray-700">This worker logs transfers</span>
                 </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Work Rules */}
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Work Rules
+              </label>
+              <p className="text-xs text-gray-500 mb-4">
+                Define how this worker's attendance is evaluated. Fixed schedules are reusable templates defined at company level.
+              </p>
+              {errors.workRules && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4" />
+                  {errors.workRules}
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {/* Work Rule Type */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    How does this worker work? <span className="text-red-500">*</span>
+                  </label>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-3 cursor-pointer p-3 border border-gray-300 rounded-lg hover:bg-gray-50">
+                      <input
+                        type="radio"
+                        name="workRuleType"
+                        value="fixed"
+                        checked={workRuleType === 'fixed'}
+                        onChange={(e) => {
+                          setWorkRuleType('fixed');
+                          if (e.target.value !== 'fixed') {
+                            setFixedScheduleId('');
+                          }
+                        }}
+                        className="w-4 h-4 text-primary border-gray-300 focus:ring-primary focus:ring-2"
+                      />
+                      <div>
+                        <span className="text-sm font-medium text-gray-900">Fixed Schedule</span>
+                        <p className="text-xs text-gray-500">Worker follows a recurring weekly schedule template</p>
+                      </div>
+                    </label>
+                    <label className="flex items-center gap-3 cursor-pointer p-3 border border-gray-300 rounded-lg hover:bg-gray-50">
+                      <input
+                        type="radio"
+                        name="workRuleType"
+                        value="planned"
+                        checked={workRuleType === 'planned'}
+                        onChange={(e) => {
+                          setWorkRuleType('planned');
+                          setFixedScheduleId('');
+                        }}
+                        className="w-4 h-4 text-primary border-gray-300 focus:ring-primary focus:ring-2"
+                      />
+                      <div>
+                        <span className="text-sm font-medium text-gray-900">Planner-based</span>
+                        <p className="text-xs text-gray-500">Worker's schedule is defined in the planner/shifts system</p>
+                      </div>
+                    </label>
+                    <label className="flex items-center gap-3 cursor-pointer p-3 border border-gray-300 rounded-lg hover:bg-gray-50">
+                      <input
+                        type="radio"
+                        name="workRuleType"
+                        value="open"
+                        checked={workRuleType === 'open'}
+                        onChange={(e) => {
+                          setWorkRuleType('open');
+                          setFixedScheduleId('');
+                        }}
+                        className="w-4 h-4 text-primary border-gray-300 focus:ring-primary focus:ring-2"
+                      />
+                      <div>
+                        <span className="text-sm font-medium text-gray-900">Flexible / No Expected Hours</span>
+                        <p className="text-xs text-gray-500">Worker has no fixed schedule (contractor, flexible hours)</p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Fixed Schedule Selector (only if fixed schedule selected) */}
+                {workRuleType === 'fixed' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Fixed Schedule <span className="text-red-500">*</span>
+                    </label>
+                    {fixedSchedules.length === 0 ? (
+                      <div className="p-3 border border-yellow-300 rounded-lg bg-yellow-50">
+                        <p className="text-sm text-yellow-800">
+                          No fixed schedules available. Please create a fixed schedule in Company Settings → Schedule first.
+                        </p>
+                      </div>
+                    ) : (
+                      <select
+                        value={fixedScheduleId}
+                        onChange={(e) => setFixedScheduleId(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        required={workRuleType === 'fixed'}
+                      >
+                        <option value="">Select a fixed schedule</option>
+                        {fixedSchedules.map((schedule) => (
+                          <option key={schedule.id} value={schedule.id}>
+                            {schedule.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
+
+                {/* Date Range */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Start Date <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={workRuleStartDate}
+                      onChange={(e) => setWorkRuleStartDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      End Date <span className="text-gray-400">(optional)</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={workRuleEndDate}
+                      onChange={(e) => setWorkRuleEndDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Leave empty for ongoing schedule</p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

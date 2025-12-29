@@ -85,7 +85,12 @@ const WhosWorking = lazy(() => {
 
 const Schedule = lazy(() => {
   logger.debug('Loading Schedule component');
-  return import('./pages/time-and-attendance/TeamSchedule');
+  return import('./pages/schedule/Schedule');
+});
+
+const TimeOff = lazy(() => {
+  logger.debug('Loading TimeOff component');
+  return import('./pages/schedule/TimeOff');
 });
 
 const TeamAttendance = lazy(() => {
@@ -297,9 +302,12 @@ function App() {
     router.addRoute('/sites/site-info/:slug', () => setCurrentPage('site-info'));
     router.addRoute('/sites/site-info', () => setCurrentPage('site-info'));
     
+    // Schedule routes
+    router.addRoute('/schedule/schedule', () => setCurrentPage('schedule'));
+    router.addRoute('/schedule/time-off', () => setCurrentPage('time-off'));
+    
     // Time & Attendance routes
     router.addRoute('/time-and-attendance/whos-working', () => setCurrentPage('whos-working'));
-    router.addRoute('/time-and-attendance/schedule', () => setCurrentPage('schedule'));
     router.addRoute('/time-and-attendance/team-attendance', () => setCurrentPage('team-attendance'));
     router.addRoute('/time-and-attendance/team-attendance3', () => setCurrentPage('team-attendance3'));
     router.addRoute('/time-and-attendance/attendance-flags', () => setCurrentPage('attendance-flags'));
@@ -399,6 +407,8 @@ function App() {
         return <WhosWorking />;
       case 'schedule':
         return <Schedule />;
+      case 'time-off':
+        return <TimeOff />;
       case 'team-attendance':
         return <TeamAttendance />;
       case 'team-attendance3':

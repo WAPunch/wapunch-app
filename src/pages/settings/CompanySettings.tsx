@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
 import { router } from '../../lib/router';
 import { usePreviousPage } from '../../hooks/usePreviousPage';
+import { useCompany } from '../../hooks/useCompany';
+import { supabase } from '../../lib/supabase';
 import {
   Building,
   Users,
   Clock,
+  Calendar,
   DollarSign,
   UserCheck,
   Settings as SettingsIcon,
@@ -17,7 +20,10 @@ import {
   Mail,
   Globe,
   Building2,
-  Zap
+  Zap,
+  Plus,
+  Edit,
+  Trash2
 } from 'lucide-react';
 import { countries } from '../../lib/countries';
 import phoneRules from '../../../phone_number_rules_global_full.json';
@@ -37,7 +43,42 @@ interface CompanyFormData {
 
 export default function CompanySettings() {
   const { getPreviousPage } = usePreviousPage();
+  const { currentCompany } = useCompany();
   const [activeSection, setActiveSection] = useState<string>('company-info');
+  
+  // Attendance settings state
+  const [attendanceSettings, setAttendanceSettings] = useState({
+    late_tolerance_minutes: 5,
+    early_leave_tolerance_minutes: 5,
+    early_arrival_tolerance_minutes: 0,
+    late_departure_tolerance_minutes: 0
+  });
+  const [originalAttendanceSettings, setOriginalAttendanceSettings] = useState(attendanceSettings);
+  const [attendanceSettingsLoading, setAttendanceSettingsLoading] = useState(true);
+  const [attendanceSettingsHasChanges, setAttendanceSettingsHasChanges] = useState(false);
+  
+  // Fixed schedules state
+  const [fixedSchedules, setFixedSchedules] = useState<any[]>([]);
+  const [fixedSchedulesLoading, setFixedSchedulesLoading] = useState(true);
+  const [showCreateSchedule, setShowCreateSchedule] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState<any | null>(null);
+  const [newScheduleName, setNewScheduleName] = useState('');
+  const [scheduleDays, setScheduleDays] = useState<Array<{
+    day_of_week: number;
+    day_name: string;
+    is_working: boolean;
+    start_time: string;
+    end_time: string;
+    break_minutes: number;
+  }>>([
+    { day_of_week: 1, day_name: 'Monday', is_working: true, start_time: '09:00', end_time: '17:00', break_minutes: 60 },
+    { day_of_week: 2, day_name: 'Tuesday', is_working: true, start_time: '09:00', end_time: '17:00', break_minutes: 60 },
+    { day_of_week: 3, day_name: 'Wednesday', is_working: true, start_time: '09:00', end_time: '17:00', break_minutes: 60 },
+    { day_of_week: 4, day_name: 'Thursday', is_working: true, start_time: '09:00', end_time: '17:00', break_minutes: 60 },
+    { day_of_week: 5, day_name: 'Friday', is_working: true, start_time: '09:00', end_time: '17:00', break_minutes: 60 },
+    { day_of_week: 6, day_name: 'Saturday', is_working: false, start_time: '09:00', end_time: '17:00', break_minutes: 60 },
+    { day_of_week: 0, day_name: 'Sunday', is_working: false, start_time: '09:00', end_time: '17:00', break_minutes: 60 },
+  ]);
   
   // Company form state
   const [companyData, setCompanyData] = useState<CompanyFormData>({
@@ -381,15 +422,106 @@ export default function CompanySettings() {
     return () => document.removeEventListener('keydown', handleEscape);
   }, [getPreviousPage]);
 
+  // Load attendance settings
+  useEffect(() => {
+    const loadAttendanceSettings = async () => {
+      if (!currentCompany?.id) {
+        setAttendanceSettingsLoading(false);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('company_attendance_settings')
+          .select('late_tolerance_minutes, early_leave_tolerance_minutes, early_arrival_tolerance_minutes, late_departure_tolerance_minutes')
+          .eq('company_id', currentCompany.id)
+          .single();
+
+        if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+          console.error('Error loading attendance settings:', error);
+        }
+
+        if (data) {
+          setAttendanceSettings({
+            late_tolerance_minutes: data.late_tolerance_minutes || 5,
+            early_leave_tolerance_minutes: data.early_leave_tolerance_minutes || 5,
+            early_arrival_tolerance_minutes: data.early_arrival_tolerance_minutes ?? 0,
+            late_departure_tolerance_minutes: data.late_departure_tolerance_minutes ?? 0
+          });
+          setOriginalAttendanceSettings({
+            late_tolerance_minutes: data.late_tolerance_minutes || 5,
+            early_leave_tolerance_minutes: data.early_leave_tolerance_minutes || 5,
+            early_arrival_tolerance_minutes: data.early_arrival_tolerance_minutes ?? 0,
+            late_departure_tolerance_minutes: data.late_departure_tolerance_minutes ?? 0
+          });
+        }
+      } catch (err) {
+        console.error('Error loading attendance settings:', err);
+      } finally {
+        setAttendanceSettingsLoading(false);
+      }
+    };
+
+    loadAttendanceSettings();
+  }, [currentCompany?.id]);
+
+  // Load fixed schedules
+  useEffect(() => {
+    const loadFixedSchedules = async () => {
+      if (!currentCompany?.id) {
+        setFixedSchedulesLoading(false);
+        return;
+      }
+
+      try {
+        setFixedSchedulesLoading(true);
+        const { data, error } = await supabase
+          .from('fixed_schedules')
+          .select(`
+            *,
+            fixed_schedule_days (
+              id,
+              day_of_week,
+              is_working,
+              start_time,
+              end_time,
+              break_minutes
+            )
+          `)
+          .eq('company_id', currentCompany.id)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        setFixedSchedules(data || []);
+      } catch (err) {
+        console.error('Error loading fixed schedules:', err);
+      } finally {
+        setFixedSchedulesLoading(false);
+      }
+    };
+
+    if (activeSection === 'schedule') {
+      loadFixedSchedules();
+    }
+  }, [currentCompany?.id, activeSection]);
+
   // Check for changes in company data
   useEffect(() => {
     const dataChanged = JSON.stringify(companyData) !== JSON.stringify(originalCompanyData);
     setHasChanges(dataChanged);
   }, [companyData, originalCompanyData]);
 
+  // Check for changes in attendance settings
+  useEffect(() => {
+    const dataChanged = JSON.stringify(attendanceSettings) !== JSON.stringify(originalAttendanceSettings);
+    setAttendanceSettingsHasChanges(dataChanged);
+  }, [attendanceSettings, originalAttendanceSettings]);
+
   // Settings menu configuration
   const settingsMenu = [
     { id: 'company-info', label: 'Company', icon: Building },
+    { id: 'schedule', label: 'Schedule', icon: Calendar },
     { id: 'time-and-attendance', label: 'Time & Attendance', icon: Clock },
     { id: 'users', label: 'Users', icon: UserCheck },
     { id: 'billing', label: 'Billing', icon: DollarSign },
@@ -717,6 +849,602 @@ export default function CompanySettings() {
                 </div>
               </div>
             </div>
+      );
+    }
+
+    if (activeSection === 'schedule') {
+      const handleCreateSchedule = () => {
+        setNewScheduleName('');
+        setScheduleDays([
+          { day_of_week: 0, day_name: 'Sunday', is_working: false, start_time: '09:00', end_time: '17:00', break_minutes: 60 },
+          { day_of_week: 1, day_name: 'Monday', is_working: true, start_time: '09:00', end_time: '17:00', break_minutes: 60 },
+          { day_of_week: 2, day_name: 'Tuesday', is_working: true, start_time: '09:00', end_time: '17:00', break_minutes: 60 },
+          { day_of_week: 3, day_name: 'Wednesday', is_working: true, start_time: '09:00', end_time: '17:00', break_minutes: 60 },
+          { day_of_week: 4, day_name: 'Thursday', is_working: true, start_time: '09:00', end_time: '17:00', break_minutes: 60 },
+          { day_of_week: 5, day_name: 'Friday', is_working: true, start_time: '09:00', end_time: '17:00', break_minutes: 60 },
+          { day_of_week: 6, day_name: 'Saturday', is_working: false, start_time: '09:00', end_time: '17:00', break_minutes: 60 },
+        ]);
+        setEditingSchedule(null);
+        setShowCreateSchedule(true);
+      };
+
+      const handleEditSchedule = (schedule: any) => {
+        setNewScheduleName(schedule.name);
+        const days = schedule.fixed_schedule_days || [];
+        const dayMap = new Map(days.map((d: any) => [d.day_of_week, d]));
+        
+        const getDayData = (dayOfWeek: number) => {
+          const dayData = dayMap.get(dayOfWeek) as any;
+          return {
+            is_working: dayData?.is_working || false,
+            start_time: dayData?.start_time || '09:00',
+            end_time: dayData?.end_time || '17:00',
+            break_minutes: dayData?.break_minutes || 60
+          };
+        };
+        
+        setScheduleDays([
+          { day_of_week: 1, day_name: 'Monday', is_working: getDayData(1).is_working, start_time: getDayData(1).start_time, end_time: getDayData(1).end_time, break_minutes: getDayData(1).break_minutes },
+          { day_of_week: 2, day_name: 'Tuesday', is_working: getDayData(2).is_working, start_time: getDayData(2).start_time, end_time: getDayData(2).end_time, break_minutes: getDayData(2).break_minutes },
+          { day_of_week: 3, day_name: 'Wednesday', is_working: getDayData(3).is_working, start_time: getDayData(3).start_time, end_time: getDayData(3).end_time, break_minutes: getDayData(3).break_minutes },
+          { day_of_week: 4, day_name: 'Thursday', is_working: getDayData(4).is_working, start_time: getDayData(4).start_time, end_time: getDayData(4).end_time, break_minutes: getDayData(4).break_minutes },
+          { day_of_week: 5, day_name: 'Friday', is_working: getDayData(5).is_working, start_time: getDayData(5).start_time, end_time: getDayData(5).end_time, break_minutes: getDayData(5).break_minutes },
+          { day_of_week: 6, day_name: 'Saturday', is_working: getDayData(6).is_working, start_time: getDayData(6).start_time, end_time: getDayData(6).end_time, break_minutes: getDayData(6).break_minutes },
+          { day_of_week: 0, day_name: 'Sunday', is_working: getDayData(0).is_working, start_time: getDayData(0).start_time, end_time: getDayData(0).end_time, break_minutes: getDayData(0).break_minutes },
+        ]);
+        setEditingSchedule(schedule);
+        setShowCreateSchedule(true);
+      };
+
+      const handleDeleteSchedule = async (scheduleId: string) => {
+        if (!confirm('Are you sure you want to delete this schedule? This action cannot be undone.')) {
+          return;
+        }
+
+        try {
+          const { error } = await supabase
+            .from('fixed_schedules')
+            .delete()
+            .eq('id', scheduleId);
+
+          if (error) throw error;
+
+          setFixedSchedules(prev => prev.filter(s => s.id !== scheduleId));
+        } catch (err: any) {
+          console.error('Error deleting schedule:', err);
+          alert(`Failed to delete schedule: ${err.message || 'Unknown error'}`);
+        }
+      };
+
+      const handleSaveSchedule = async () => {
+        if (!currentCompany?.id || !newScheduleName.trim()) {
+          alert('Please enter a schedule name');
+          return;
+        }
+
+        try {
+          if (editingSchedule) {
+            // Update existing schedule
+            const { error: updateError } = await supabase
+              .from('fixed_schedules')
+              .update({ name: newScheduleName.trim() })
+              .eq('id', editingSchedule.id);
+
+            if (updateError) throw updateError;
+
+            // Delete existing days
+            const { error: deleteError } = await supabase
+              .from('fixed_schedule_days')
+              .delete()
+              .eq('fixed_schedule_id', editingSchedule.id);
+
+            if (deleteError) throw deleteError;
+
+            // Insert new days
+            const workingDays = scheduleDays.filter(d => d.is_working);
+            if (workingDays.length > 0) {
+              const { error: insertError } = await supabase
+                .from('fixed_schedule_days')
+                .insert(workingDays.map(d => ({
+                  fixed_schedule_id: editingSchedule.id,
+                  day_of_week: d.day_of_week,
+                  is_working: true,
+                  start_time: d.start_time,
+                  end_time: d.end_time,
+                  break_minutes: d.break_minutes
+                })));
+
+              if (insertError) throw insertError;
+            }
+
+            // Reload schedules
+            const { data, error: reloadError } = await supabase
+              .from('fixed_schedules')
+              .select(`
+                *,
+                fixed_schedule_days (
+                  id,
+                  day_of_week,
+                  is_working,
+                  start_time,
+                  end_time,
+                  break_minutes
+                )
+              `)
+              .eq('company_id', currentCompany.id)
+              .order('created_at', { ascending: false });
+
+            if (reloadError) throw reloadError;
+            setFixedSchedules(data || []);
+          } else {
+            // Create new schedule
+            const { data: newSchedule, error: createError } = await supabase
+              .from('fixed_schedules')
+              .insert({
+                company_id: currentCompany.id,
+                name: newScheduleName.trim(),
+                timezone: 'UTC'
+              })
+              .select()
+              .single();
+
+            if (createError) throw createError;
+
+            // Insert days
+            const workingDays = scheduleDays.filter(d => d.is_working);
+            if (workingDays.length > 0) {
+              const { error: insertError } = await supabase
+                .from('fixed_schedule_days')
+                .insert(workingDays.map(d => ({
+                  fixed_schedule_id: newSchedule.id,
+                  day_of_week: d.day_of_week,
+                  is_working: true,
+                  start_time: d.start_time,
+                  end_time: d.end_time,
+                  break_minutes: d.break_minutes
+                })));
+
+              if (insertError) throw insertError;
+            }
+
+            // Reload schedules
+            const { data, error: reloadError } = await supabase
+              .from('fixed_schedules')
+              .select(`
+                *,
+                fixed_schedule_days (
+                  id,
+                  day_of_week,
+                  is_working,
+                  start_time,
+                  end_time,
+                  break_minutes
+                )
+              `)
+              .eq('company_id', currentCompany.id)
+              .order('created_at', { ascending: false });
+
+            if (reloadError) throw reloadError;
+            setFixedSchedules(data || []);
+          }
+
+          setShowCreateSchedule(false);
+          setEditingSchedule(null);
+          setNewScheduleName('');
+        } catch (err: any) {
+          console.error('Error saving schedule:', err);
+          alert(`Failed to save schedule: ${err.message || 'Unknown error'}`);
+        }
+      };
+
+      const formatTime = (time: string) => {
+        if (!time) return '--';
+        return time.slice(0, 5); // HH:MM
+      };
+
+      const formatDuration = (minutes: number) => {
+        const hours = Math.floor(minutes / 60);
+        const mins = minutes % 60;
+        if (hours === 0) return `${mins}m`;
+        if (mins === 0) return `${hours}h`;
+        return `${hours}h ${mins}m`;
+      };
+
+      return (
+        <div className="space-y-6">
+          {/* Fixed Schedules List */}
+          <div className="bg-white border border-gray-200 rounded-lg p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Fixed Schedules</h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  Create reusable schedule templates that can be assigned to multiple workers.
+                </p>
+              </div>
+              <button
+                onClick={handleCreateSchedule}
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Create Fixed Schedule
+              </button>
+            </div>
+
+            {fixedSchedulesLoading ? (
+              <div className="text-center py-8 text-gray-500">Loading schedules...</div>
+            ) : fixedSchedules.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <p>No fixed schedules created yet.</p>
+                <p className="text-sm text-gray-400 mt-1">Create your first schedule template to get started.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {fixedSchedules.map((schedule) => {
+                  const days = schedule.fixed_schedule_days || [];
+                  // Order: Monday (1) to Sunday (0)
+                  const dayOrder = [1, 2, 3, 4, 5, 6, 0];
+                  const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+                  
+                  return (
+                    <div key={schedule.id} className="border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-base font-medium text-gray-900">{schedule.name}</h4>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleEditSchedule(schedule)}
+                            className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                            title="Edit schedule"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteSchedule(schedule.id)}
+                            className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                            title="Delete schedule"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-7 gap-2 text-xs">
+                        {dayOrder.map((dayOfWeek, index) => {
+                          const dayData = days.find((d: any) => d.day_of_week === dayOfWeek);
+                          const isWorking = dayData?.is_working || false;
+                          const dayName = dayNames[index] || '';
+                          
+                          return (
+                            <div key={dayOfWeek} className={`p-2 rounded ${isWorking ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'}`}>
+                              <div className="font-medium text-gray-700 mb-1">{dayName.slice(0, 3)}</div>
+                              {isWorking ? (
+                                <>
+                                  <div className="text-gray-900">{formatTime(dayData.start_time)} - {formatTime(dayData.end_time)}</div>
+                                  {dayData.break_minutes > 0 && (
+                                    <div className="text-gray-600 mt-1">Break: {formatDuration(dayData.break_minutes)}</div>
+                                  )}
+                                </>
+                              ) : (
+                                <div className="text-gray-500">Off</div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Create/Edit Schedule Modal */}
+          {showCreateSchedule && (
+            <div className="bg-white border border-gray-200 rounded-lg p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {editingSchedule ? 'Edit Fixed Schedule' : 'Create Fixed Schedule'}
+                </h3>
+                <button
+                  onClick={() => {
+                    setShowCreateSchedule(false);
+                    setEditingSchedule(null);
+                    setNewScheduleName('');
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                {/* Schedule Name */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Schedule Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={newScheduleName}
+                    onChange={(e) => setNewScheduleName(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    placeholder="e.g., Regular 9-5, Night Shift"
+                  />
+                </div>
+
+                {/* Schedule Days */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">Working Days</label>
+                  <div className="space-y-3">
+                    {scheduleDays.map((day) => (
+                      <div key={day.day_of_week} className="flex items-center gap-4 p-3 border border-gray-200 rounded-lg">
+                        <div className="flex items-center gap-3 w-32">
+                          <input
+                            type="checkbox"
+                            checked={day.is_working}
+                            onChange={(e) => {
+                              setScheduleDays(prev => prev.map(d => 
+                                d.day_of_week === day.day_of_week 
+                                  ? { ...d, is_working: e.target.checked }
+                                  : d
+                              ));
+                            }}
+                            className="w-4 h-4 text-primary focus:ring-primary border-gray-300 rounded"
+                          />
+                          <span className="text-sm font-medium text-gray-700 w-20">{day.day_name}</span>
+                        </div>
+                        
+                        {day.is_working && (
+                          <div className="flex items-center gap-3 flex-1">
+                            <div className="flex items-center gap-2">
+                              <label className="text-xs text-gray-600">Start:</label>
+                              <input
+                                type="time"
+                                value={day.start_time}
+                                onChange={(e) => {
+                                  setScheduleDays(prev => prev.map(d => 
+                                    d.day_of_week === day.day_of_week 
+                                      ? { ...d, start_time: e.target.value }
+                                      : d
+                                  ));
+                                }}
+                                className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <label className="text-xs text-gray-600">End:</label>
+                              <input
+                                type="time"
+                                value={day.end_time}
+                                onChange={(e) => {
+                                  setScheduleDays(prev => prev.map(d => 
+                                    d.day_of_week === day.day_of_week 
+                                      ? { ...d, end_time: e.target.value }
+                                      : d
+                                  ));
+                                }}
+                                className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <label className="text-xs text-gray-600">Break:</label>
+                              <input
+                                type="number"
+                                min="0"
+                                max="480"
+                                value={day.break_minutes}
+                                onChange={(e) => {
+                                  setScheduleDays(prev => prev.map(d => 
+                                    d.day_of_week === day.day_of_week 
+                                      ? { ...d, break_minutes: parseInt(e.target.value) || 0 }
+                                      : d
+                                  ));
+                                }}
+                                className="w-20 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                                placeholder="60"
+                              />
+                              <span className="text-xs text-gray-500">min</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 pt-4 border-t border-gray-200">
+                  <button
+                    onClick={handleSaveSchedule}
+                    disabled={!newScheduleName.trim()}
+                    className={`px-6 py-2 rounded-md font-medium transition-colors ${
+                      newScheduleName.trim()
+                        ? 'bg-primary text-white hover:bg-primary/90'
+                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    {editingSchedule ? 'Update Schedule' : 'Create Schedule'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowCreateSchedule(false);
+                      setEditingSchedule(null);
+                      setNewScheduleName('');
+                    }}
+                    className="px-6 py-2 rounded-md font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (activeSection === 'time-and-attendance') {
+      const handleAttendanceSettingChange = (
+        field: 'late_tolerance_minutes' | 'early_leave_tolerance_minutes' | 'early_arrival_tolerance_minutes' | 'late_departure_tolerance_minutes', 
+        value: number
+      ) => {
+        setAttendanceSettings(prev => ({ ...prev, [field]: value }));
+      };
+
+      const handleSaveAttendanceSettings = async () => {
+        if (!currentCompany?.id) return;
+
+        try {
+          const { error } = await supabase
+            .from('company_attendance_settings')
+            .upsert({
+              company_id: currentCompany.id,
+              late_tolerance_minutes: attendanceSettings.late_tolerance_minutes,
+              early_leave_tolerance_minutes: attendanceSettings.early_leave_tolerance_minutes,
+              early_arrival_tolerance_minutes: attendanceSettings.early_arrival_tolerance_minutes,
+              late_departure_tolerance_minutes: attendanceSettings.late_departure_tolerance_minutes
+            }, {
+              onConflict: 'company_id'
+            });
+
+          if (error) throw error;
+
+          setOriginalAttendanceSettings(attendanceSettings);
+          setAttendanceSettingsHasChanges(false);
+        } catch (err: any) {
+          console.error('Error saving attendance settings:', err);
+          alert(`Failed to save attendance settings: ${err.message || 'Unknown error'}`);
+        }
+      };
+
+      const handleCancelAttendanceSettings = () => {
+        setAttendanceSettings(originalAttendanceSettings);
+        setAttendanceSettingsHasChanges(false);
+      };
+
+      return (
+        <div className="bg-white border border-gray-200 rounded-lg p-6">
+          <div className="space-y-8">
+            <div>
+              <h3 className="text-sm font-medium text-gray-900 mb-4">Tolerance Settings</h3>
+              <p className="text-sm text-gray-600 mb-6">
+                Configure the tolerance minutes for arrivals and departures. These settings determine when attendance flags are triggered.
+              </p>
+
+              <div className="space-y-6">
+                {/* Early Arrival Tolerance */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Early Arrival Tolerance (minutes)
+                  </label>
+                  <div className="flex items-center gap-4">
+                    <input
+                      type="number"
+                      min="0"
+                      max="60"
+                      value={attendanceSettings.early_arrival_tolerance_minutes}
+                      onChange={(e) => handleAttendanceSettingChange('early_arrival_tolerance_minutes', parseInt(e.target.value) || 0)}
+                      className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      placeholder="0"
+                    />
+                    <p className="text-sm text-gray-500">
+                      Workers arriving within this many minutes before their scheduled start time will not be flagged as early arrival.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Late Arrival Tolerance */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Late Arrival Tolerance (minutes)
+                  </label>
+                  <div className="flex items-center gap-4">
+                    <input
+                      type="number"
+                      min="0"
+                      max="60"
+                      value={attendanceSettings.late_tolerance_minutes}
+                      onChange={(e) => handleAttendanceSettingChange('late_tolerance_minutes', parseInt(e.target.value) || 0)}
+                      className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      placeholder="5"
+                    />
+                    <p className="text-sm text-gray-500">
+                      Workers arriving within this many minutes after their scheduled start time will not be flagged as late.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Early Departure Tolerance */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Early Departure Tolerance (minutes)
+                  </label>
+                  <div className="flex items-center gap-4">
+                    <input
+                      type="number"
+                      min="0"
+                      max="60"
+                      value={attendanceSettings.early_leave_tolerance_minutes}
+                      onChange={(e) => handleAttendanceSettingChange('early_leave_tolerance_minutes', parseInt(e.target.value) || 0)}
+                      className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      placeholder="5"
+                    />
+                    <p className="text-sm text-gray-500">
+                      Workers leaving within this many minutes before their scheduled end time will not be flagged as early departure.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Late Departure Tolerance */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Late Departure Tolerance (minutes)
+                  </label>
+                  <div className="flex items-center gap-4">
+                    <input
+                      type="number"
+                      min="0"
+                      max="60"
+                      value={attendanceSettings.late_departure_tolerance_minutes}
+                      onChange={(e) => handleAttendanceSettingChange('late_departure_tolerance_minutes', parseInt(e.target.value) || 0)}
+                      className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      placeholder="0"
+                    />
+                    <p className="text-sm text-gray-500">
+                      Workers leaving within this many minutes after their scheduled end time will not be flagged as late departure.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 pt-4 border-t border-gray-200">
+              <button
+                onClick={handleSaveAttendanceSettings}
+                disabled={!attendanceSettingsHasChanges || attendanceSettingsLoading}
+                className={`px-6 py-2 rounded-md font-medium transition-colors ${
+                  attendanceSettingsHasChanges && !attendanceSettingsLoading
+                    ? 'bg-primary text-white hover:bg-primary/90'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                Save Changes
+              </button>
+              <button
+                onClick={handleCancelAttendanceSettings}
+                disabled={!attendanceSettingsHasChanges}
+                className={`px-6 py-2 rounded-md font-medium transition-colors ${
+                  attendanceSettingsHasChanges
+                    ? 'border border-gray-300 text-gray-700 hover:bg-gray-50'
+                    : 'border border-gray-200 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       );
     }
 

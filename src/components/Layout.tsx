@@ -25,6 +25,7 @@ import {
   Users, 
   User,
   Clock, 
+  Calendar,
   Settings, 
   Home, 
   Bell, 
@@ -112,6 +113,9 @@ NavigationItem.displayName = 'NavigationItem';
 
 const baseNavigation = [
   { name: 'Dashboard', href: '/dashboard', icon: Home }, // Will be handled dynamically based on view mode
+  { name: 'Workers', href: '/workers', icon: Users },
+  { name: 'Sites', href: '/sites', icon: Building2 },
+  { name: 'Schedule', href: '/schedule/schedule', icon: Calendar },
   { name: 'Time & Attendance', href: '/time-and-attendance/whos-working', icon: Clock },
 ];
 
@@ -219,13 +223,15 @@ function Layout({ children }: LayoutProps) {
 
   // Memoized navigation items for management view
   const navigation = useMemo(() => {
-    // Create navigation with order: Dashboard, Time & Attendance, Workers, Sites, Reports
-    const dashboardItem = baseNavigation[0]; // Dashboard
-    const timeAttendanceItem = baseNavigation[1]; // Time & Attendance
-    
-    const workersItem = { name: 'Workers', href: '/workers', icon: Users };
-    const sitesItem = { name: 'Sites', href: '/sites', icon: Building2 };
-    return [dashboardItem, timeAttendanceItem, workersItem, sitesItem, { name: 'Reports', href: '/reports/company-reports', icon: Printer }];
+    // Create navigation with order: Dashboard, Workers, Sites, Schedule, Time & Attendance, Reports
+    return [
+      baseNavigation[0], // Dashboard
+      baseNavigation[1], // Workers
+      baseNavigation[2], // Sites
+      baseNavigation[3], // Schedule
+      baseNavigation[4], // Time & Attendance
+      { name: 'Reports', href: '/reports/company-reports', icon: Printer }
+    ];
   }, []);
 
   const dashboardItem = useMemo(() => 
