@@ -97,8 +97,9 @@ export default function WhosWorking() {
     // Register submodule tabs for time and attendance section
     registerSubmodules('Time & Attendance', [
       { id: 'whos-working', label: "Who's Working", href: '/time-and-attendance/whos-working', icon: Users },
-      // { id: 'schedule', label: 'Schedule', href: '/time-and-attendance/schedule', icon: Calendar }, // Hidden for future use
-      { id: 'attendance', label: 'Attendance', href: '/time-and-attendance/attendance', icon: Clock },
+      { id: 'schedule', label: 'Schedule', href: '/time-and-attendance/schedule', icon: Calendar },
+      { id: 'team-attendance', label: 'Team Attendance', href: '/time-and-attendance/team-attendance', icon: Clock },
+      { id: 'team-attendance3', label: 'Team Attendance 3', href: '/time-and-attendance/team-attendance3', icon: Clock },
       { id: 'attendance-flags', label: 'Attendance Flags', href: '/time-and-attendance/attendance-flags', icon: Flag }
     ]);
   }, [registerSubmodules]);

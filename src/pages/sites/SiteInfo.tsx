@@ -201,8 +201,8 @@ export default function SiteInfo() {
 
       // Update map immediately
           if (map) {
-        map.setCenter({ lat, lng });
-        map.setZoom(15);
+            map.setCenter({ lat, lng });
+            map.setZoom(15);
           }
     };
 

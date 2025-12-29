@@ -1080,11 +1080,11 @@ export default function Sites() {
                   )}
                 </div>
               ) : (
-                <div className="h-[432px] bg-gray-100 flex items-center justify-center">
-                  <div className="text-center">
-                    <Map className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+            <div className="h-[432px] bg-gray-100 flex items-center justify-center">
+              <div className="text-center">
+                <Map className="w-12 h-12 text-gray-400 mx-auto mb-3" />
                     <p className="text-sm text-gray-600">No sites with coordinates to display</p>
-                  </div>
+              </div>
                 </div>
               )}
             </div>

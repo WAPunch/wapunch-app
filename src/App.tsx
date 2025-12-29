@@ -88,9 +88,14 @@ const Schedule = lazy(() => {
   return import('./pages/time-and-attendance/TeamSchedule');
 });
 
-const Attendance = lazy(() => {
-  logger.debug('Loading Attendance component');
-  return import('./pages/time-and-attendance/Attendance');
+const TeamAttendance = lazy(() => {
+  logger.debug('Loading TeamAttendance component');
+  return import('./pages/time-and-attendance/TeamAttendance');
+});
+
+const TeamAttendance3 = lazy(() => {
+  logger.debug('Loading TeamAttendance3 component');
+  return import('./pages/time-and-attendance/TeamAttendance3');
 });
 
 const AttendanceFlags = lazy(() => {
@@ -294,8 +299,9 @@ function App() {
     
     // Time & Attendance routes
     router.addRoute('/time-and-attendance/whos-working', () => setCurrentPage('whos-working'));
-    // router.addRoute('/time-and-attendance/schedule', () => setCurrentPage('schedule')); // Hidden for future use
-    router.addRoute('/time-and-attendance/attendance', () => setCurrentPage('attendance'));
+    router.addRoute('/time-and-attendance/schedule', () => setCurrentPage('schedule'));
+    router.addRoute('/time-and-attendance/team-attendance', () => setCurrentPage('team-attendance'));
+    router.addRoute('/time-and-attendance/team-attendance3', () => setCurrentPage('team-attendance3'));
     router.addRoute('/time-and-attendance/attendance-flags', () => setCurrentPage('attendance-flags'));
     router.addRoute('/time-and-attendance/worker-timesheet/:slug', () => setCurrentPage('worker-timesheet'));
     router.addRoute('/time-and-attendance/worker-timesheet', () => setCurrentPage('worker-timesheet'));
@@ -391,10 +397,12 @@ function App() {
         return <CompanyReports />;
       case 'whos-working':
         return <WhosWorking />;
-      // case 'schedule':
-      //   return <Schedule />; // Hidden for future use
-      case 'attendance':
-        return <Attendance />;
+      case 'schedule':
+        return <Schedule />;
+      case 'team-attendance':
+        return <TeamAttendance />;
+      case 'team-attendance3':
+        return <TeamAttendance3 />;
       case 'attendance-flags':
         return <AttendanceFlags />;
       case 'worker-timesheet':
