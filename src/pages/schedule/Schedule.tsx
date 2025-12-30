@@ -175,6 +175,8 @@ export default function Schedule() {
   const [isUnpublishing, setIsUnpublishing] = useState(false);
   const [showEraseDraftsConfirm, setShowEraseDraftsConfirm] = useState(false);
   const [isErasingDrafts, setIsErasingDrafts] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeletingShift, setIsDeletingShift] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
@@ -1010,12 +1012,24 @@ export default function Schedule() {
     }
   };
 
-  // Handle delete shift (create draft delete intent)
+  // Handle delete shift - show confirmation modal for both published and draft shifts
+  const handleDeleteShiftClick = () => {
+    if (!editingShiftId) return;
+
+    const shiftToDelete = shifts.find(s => s.id === editingShiftId);
+    if (!shiftToDelete) return;
+
+    // Hide shift modal and show confirmation modal for both published and draft shifts
+    setShowCreateShift(false); // Hide shift modal
+    setShowDeleteConfirm(true); // Show confirmation modal
+  };
+
+  // Handle delete shift (delete directly)
   const handleDeleteShift = async () => {
     if (!currentCompany?.id || !editingShiftId) return;
 
     try {
-      setIsCreatingShift(true);
+      setIsDeletingShift(true);
       setShiftFormError(null);
 
       // Get the shift being deleted
@@ -1025,31 +1039,16 @@ export default function Schedule() {
         return;
       }
 
-      // If it's already a draft delete intent, just delete it
-      if (shiftToDelete.isDelete) {
-        const { error } = await supabase
-          .from('planned_shifts')
-          .delete()
-          .eq('id', editingShiftId);
+      // Delete directly (both published and draft)
+      const { error } = await supabase
+        .from('planned_shifts')
+        .delete()
+        .eq('id', editingShiftId);
 
-        if (error) throw error;
-      } else if (shiftToDelete.status === 'published') {
-        // Mark published shift with is_delete = true (it will be deleted on publish)
-        const { error } = await supabase
-          .from('planned_shifts')
-          .update({ is_delete: true })
-          .eq('id', editingShiftId);
+      if (error) throw error;
 
-        if (error) throw error;
-      } else if (shiftToDelete.status === 'draft' && !shiftToDelete.isDelete) {
-        // If it's a regular draft, just delete it
-        const { error } = await supabase
-          .from('planned_shifts')
-          .delete()
-          .eq('id', editingShiftId);
-
-        if (error) throw error;
-      }
+      // Close confirmation modal if open
+      setShowDeleteConfirm(false);
 
       // Reset form and close modal
       setShiftForm({
@@ -1076,7 +1075,7 @@ export default function Schedule() {
       logger.error('Error deleting shift', err);
       setShiftFormError(err?.message || 'Error deleting shift');
     } finally {
-      setIsCreatingShift(false);
+      setIsDeletingShift(false);
     }
   };
 
@@ -2562,8 +2561,9 @@ export default function Schedule() {
                   });
                   const shiftCount = allShiftsForDay.length;
                   const cellHeight = shiftCount > 0 ? 40 * shiftCount : 40; // 40px per shift
-                  // Apply gray background for fixed schedule without shifts OR no work rule without shifts
-                  const shouldShowGrayBackground = ((isFixedScheduleForDate || noWorkRuleForDate) && dayShifts.length === 0);
+                  // Apply gray background ONLY when cell is completely empty (no planned shifts AND no fixed schedule shifts)
+                  // If there's any content (planned or fixed schedule), use white background
+                  const shouldShowGrayBackground = ((isFixedScheduleForDate || noWorkRuleForDate) && allShiftsForDay.length === 0);
                   
                   return (
                       <div 
@@ -2577,9 +2577,9 @@ export default function Schedule() {
                             const isFixedScheduleShift = shift.id.startsWith('fixed-');
                             const style = isFixedScheduleShift 
                               ? {
-                                  bgColor: 'bg-gray-50',
-                                  textColor: 'text-gray-700',
-                                  borderColorHex: '#9CA3AF', // gray-400
+                                  bgColor: 'bg-green-50',
+                                  textColor: 'text-green-700',
+                                  borderColorHex: '#059669', // primary green
                                   borderStyle: 'solid',
                                   opacity: '',
                                 }
@@ -2631,7 +2631,8 @@ export default function Schedule() {
                           {/* Add button that appears on hover - available for all workers */}
                           <button 
                               title={`Add shift for ${employee.name}`}
-                            className="absolute top-1/2 left-1 transform -translate-y-1/2 w-4 h-4 bg-white border border-gray-200 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-gray-50 z-10"
+                            className="absolute top-1/2 left-1 transform -translate-y-1/2 w-4 h-4 border border-gray-200 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-white z-20"
+                            style={{ backgroundColor: 'white', zIndex: 20 }}
                             onClick={() => {
                                 setSelectedEmployee(employee.id);
                                 // Preselect the employee and date in the form
@@ -2653,7 +2654,7 @@ export default function Schedule() {
                           {/* Add button that appears on hover - available for all workers */}
                           <button 
                               title={`Add shift for ${employee.name}`}
-                              className="opacity-0 group-hover:opacity-100 w-6 h-6 border border-gray-200 rounded flex items-center justify-center transition-all duration-200 hover:bg-gray-50"
+                              className="opacity-0 group-hover:opacity-100 w-6 h-6 bg-white border border-gray-200 rounded flex items-center justify-center transition-opacity duration-200 hover:bg-white"
                             onClick={() => {
                                   setSelectedEmployee(employee.id);
                                   // Preselect the employee and date in the form
@@ -3020,11 +3021,11 @@ export default function Schedule() {
               {/* Delete button - only show when editing */}
               {editingShiftId && (
                 <button
-                  onClick={handleDeleteShift}
-                  disabled={isCreatingShift}
-                  className="px-4 py-2 text-sm font-medium text-red-700 bg-white border border-red-300 rounded-lg hover:bg-red-50 transition-colors"
+                  onClick={handleDeleteShiftClick}
+                  disabled={isCreatingShift || isDeletingShift}
+                  className="px-4 py-2 text-sm font-medium text-red-700 bg-white border border-red-300 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isCreatingShift ? 'Deleting...' : 'Delete'}
+                  {isDeletingShift ? 'Deleting...' : 'Delete'}
                 </button>
               )}
               
@@ -3312,10 +3313,77 @@ export default function Schedule() {
                 disabled={isErasingDrafts}
                 className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{
-                  backgroundColor: isErasingDrafts ? '#9CA3AF' : 'var(--primary-brand-hex)',
+                  backgroundColor: isErasingDrafts ? '#9CA3AF' : '#EF4444', // red-500
                 }}
               >
                 {isErasingDrafts ? 'Erasing...' : 'Confirm Erase'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Shift Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-yellow-50 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-yellow-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    Delete Shift
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    This action cannot be undone
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setShowCreateShift(true); // Restore shift modal
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Close modal"
+                disabled={isDeletingShift}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6">
+              <p className="text-sm text-gray-700 mb-4">
+                Are you sure you want to delete this shift? 
+                This shift will be permanently deleted. This action cannot be undone.
+              </p>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setShowCreateShift(true); // Restore shift modal
+                }}
+                disabled={isDeletingShift}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteShift}
+                disabled={isDeletingShift}
+                className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ 
+                  backgroundColor: isDeletingShift ? '#9CA3AF' : '#EF4444', // red-500
+                }}
+              >
+                {isDeletingShift ? 'Deleting...' : 'Confirm Delete'}
               </button>
             </div>
           </div>
@@ -3373,7 +3441,7 @@ export default function Schedule() {
                 disabled={isUnpublishing}
                 className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{
-                  backgroundColor: isUnpublishing ? '#9CA3AF' : 'var(--primary-brand-hex)',
+                  backgroundColor: isUnpublishing ? '#9CA3AF' : '#EF4444', // red-500
                 }}
               >
                 {isUnpublishing ? 'Deleting...' : 'Confirm Delete'}
