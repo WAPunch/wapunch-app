@@ -134,6 +134,7 @@ type WorkerWorkRuleRow = {
   rule_type: string | null;
   fixed_schedule_id: string | null;
   start_date: string | null;
+  end_date: string | null;
 };
 
 type FixedScheduleRow = {
@@ -229,6 +230,7 @@ export default function Schedule() {
   const [sitesById, setSitesById] = useState<Record<string, string>>({});
   const [workRuleTypeByWorkerId, setWorkRuleTypeByWorkerId] = useState<Record<string, string>>({});
   const [fixedScheduleIdByWorkerId, setFixedScheduleIdByWorkerId] = useState<Record<string, string>>({});
+  const [workRuleDateRangeByWorkerId, setWorkRuleDateRangeByWorkerId] = useState<Record<string, { start_date: string | null; end_date: string | null }>>({});
   const [fixedSchedules, setFixedSchedules] = useState<FixedScheduleRow[]>([]);
   
   // Multi-select filter states
@@ -348,7 +350,7 @@ export default function Schedule() {
           .order('created_at', { ascending: false }),
         supabase
           .from('worker_work_rules')
-          .select('worker_id, rule_type, fixed_schedule_id, start_date')
+          .select('worker_id, rule_type, fixed_schedule_id, start_date, end_date')
           .eq('company_id', currentCompany.id)
           .order('start_date', { ascending: false }),
         supabase
@@ -370,7 +372,7 @@ export default function Schedule() {
           .eq('company_id', currentCompany.id),
         supabase
           .from('planned_shifts')
-          .select('id, company_id, worker_id, site_id, shift_date, start_time, end_time, status, published_at, created_at, break_minutes, is_overtime_allowed, notes, is_delete, edited_published_shift_id')
+          .select('id, company_id, worker_id, site_id, shift_date, start_time, end_time, shift_type, status, published_at, created_at, break_minutes, is_overtime_allowed, notes, is_delete, edited_published_shift_id')
           .eq('company_id', currentCompany.id)
           .gte('shift_date', weekRange.startISO)
           .lte('shift_date', weekRange.endISO)
@@ -393,14 +395,30 @@ export default function Schedule() {
       // Pick the latest rule per worker (rules are ordered by start_date DESC).
       const ruleMap: Record<string, string> = {};
       const fixedScheduleMap: Record<string, string> = {};
+      const dateRangeMap: Record<string, { start_date: string | null; end_date: string | null }> = {};
       for (const r of (rulesRes.data || []) as WorkerWorkRuleRow[]) {
         if (!r?.worker_id) continue;
         if (ruleMap[r.worker_id]) continue;
-        if (r.rule_type) ruleMap[r.worker_id] = r.rule_type;
+        if (r.rule_type) {
+          // Normalize rule_type: ensure it's one of the valid enum values
+          let normalizedRuleType = r.rule_type;
+          // Fix any incorrect values (e.g., "fixed_schedule" -> "fixed")
+          if (normalizedRuleType === 'fixed_schedule' || normalizedRuleType === 'fixedSchedule') {
+            normalizedRuleType = 'fixed';
+          }
+          // Only set if it's a valid enum value
+          if (normalizedRuleType === 'fixed' || normalizedRuleType === 'planned' || normalizedRuleType === 'open') {
+            ruleMap[r.worker_id] = normalizedRuleType;
+            dateRangeMap[r.worker_id] = { start_date: r.start_date ?? null, end_date: r.end_date ?? null };
+          } else {
+            console.warn(`Invalid rule_type value for worker ${r.worker_id}: ${r.rule_type}, skipping`);
+          }
+        }
         if (r.fixed_schedule_id) fixedScheduleMap[r.worker_id] = r.fixed_schedule_id;
       }
       setWorkRuleTypeByWorkerId(ruleMap);
       setFixedScheduleIdByWorkerId(fixedScheduleMap);
+      setWorkRuleDateRangeByWorkerId(dateRangeMap);
 
       const mappedEmployees: Employee[] = ((workersRes.data || []) as WorkerRow[])
         .filter(w => Boolean(w?.id))
@@ -619,7 +637,7 @@ export default function Schedule() {
     }
   };
 
-  // Handle Unpublish Week: convert all published shifts of the week to drafts (only for filtered workers)
+  // Handle Unpublish Week: delete all published shifts of the week (only for filtered workers)
   const handleUnpublishWeek = async () => {
     if (!currentCompany?.id) return;
 
@@ -644,14 +662,11 @@ export default function Schedule() {
         return;
       }
 
-      // Convert all published shifts to drafts
+      // Delete all published shifts
       const shiftIds = publishedShifts.map(s => s.id);
       const { error } = await supabase
         .from('planned_shifts')
-        .update({ 
-          status: 'draft',
-          published_at: null
-        })
+        .delete()
         .in('id', shiftIds);
 
       if (error) throw error;
@@ -776,6 +791,31 @@ export default function Schedule() {
     return !ruleType || ruleType === null || ruleType === undefined;
   };
 
+  const isDateWithinWorkRuleRange = (workerId: string, dateISO: string): boolean => {
+    const range = workRuleDateRangeByWorkerId[workerId];
+    if (!range) return false;
+    const start = range.start_date;
+    const end = range.end_date;
+    // Dates are YYYY-MM-DD, string compare works lexicographically.
+    if (start && dateISO < start) return false;
+    if (end && dateISO > end) return false;
+    return true;
+  };
+
+  const getActiveWorkRuleTypeForDate = (workerId: string, dateISO: string): string | undefined => {
+    const ruleType = workRuleTypeByWorkerId[workerId];
+    if (!ruleType) return undefined;
+    if (!isDateWithinWorkRuleRange(workerId, dateISO)) return undefined;
+    return ruleType;
+  };
+
+  const getActiveFixedScheduleIdForDate = (workerId: string, dateISO: string): string | undefined => {
+    const ruleType = getActiveWorkRuleTypeForDate(workerId, dateISO);
+    if (ruleType !== 'fixed') return undefined;
+    const fixedScheduleId = fixedScheduleIdByWorkerId[workerId];
+    return fixedScheduleId || undefined;
+  };
+
   // Get employees that can have shifts planned
   const employeesWithPlannedRule = useMemo(() => {
     return employees.filter(emp => canPlanShiftsForWorker(emp.id));
@@ -867,6 +907,7 @@ export default function Schedule() {
           .update({
             worker_id: shiftForm.workerId,
             site_id: shiftForm.siteId,
+            shift_type: 'work',
             shift_date: shiftForm.shiftDate,
             start_time: startTimeFormatted,
             end_time: endTimeFormatted,
@@ -887,6 +928,7 @@ export default function Schedule() {
             company_id: currentCompany.id,
             worker_id: shiftForm.workerId,
             site_id: shiftForm.siteId,
+            shift_type: 'work',
             shift_date: shiftForm.shiftDate,
             start_time: startTimeFormatted,
             end_time: endTimeFormatted,
@@ -907,6 +949,7 @@ export default function Schedule() {
           .update({
             worker_id: shiftForm.workerId,
             site_id: shiftForm.siteId,
+            shift_type: 'work',
             shift_date: shiftForm.shiftDate,
             start_time: startTimeFormatted,
             end_time: endTimeFormatted,
@@ -925,6 +968,7 @@ export default function Schedule() {
           .update({
             worker_id: shiftForm.workerId,
             site_id: shiftForm.siteId,
+            shift_type: 'work',
             shift_date: shiftForm.shiftDate,
             start_time: startTimeFormatted,
             end_time: endTimeFormatted,
@@ -1087,6 +1131,7 @@ export default function Schedule() {
         company_id: currentCompany.id,
         worker_id: shiftForm.workerId,
         site_id: shiftForm.siteId,
+        shift_type: 'work' as const,
         start_time: startTimeFormatted,
         end_time: endTimeFormatted,
         status: 'draft' as const,
@@ -1152,7 +1197,18 @@ export default function Schedule() {
       await loadScheduleData();
     } catch (err: any) {
       logger.error('Error creating shift', err);
-      setShiftFormError(err?.message || 'Error creating shift');
+      // Extract error message from Supabase/Postgres error
+      let errorMessage = 'Error creating shift';
+      if (err?.message) {
+        errorMessage = err.message;
+      } else if (err?.error?.message) {
+        errorMessage = err.error.message;
+      } else if (err?.details) {
+        errorMessage = err.details;
+      } else if (typeof err === 'string') {
+        errorMessage = err;
+      }
+      setShiftFormError(errorMessage);
     } finally {
       setIsCreatingShift(false);
     }
@@ -1188,6 +1244,7 @@ export default function Schedule() {
         company_id: currentCompany.id,
         worker_id: row.workerId,
         site_id: row.siteId,
+        shift_type: 'work' as const,
         shift_date: row.shiftDate,
         start_time: `${row.startTime}:00`,
         end_time: `${row.endTime}:00`,
@@ -1201,7 +1258,18 @@ export default function Schedule() {
         .from('planned_shifts')
         .insert(shiftsToInsert);
 
-      if (error) throw error;
+      if (error) {
+        // Extract error message from Supabase/Postgres error
+        let errorMessage = 'Error creating shifts';
+        if (error.message) {
+          errorMessage = error.message;
+        } else if (error.details) {
+          errorMessage = error.details;
+        } else if (error.hint) {
+          errorMessage = error.hint;
+        }
+        throw new Error(errorMessage);
+      }
 
       // Reset form and close modal
       setMultipleShifts([{
@@ -1222,7 +1290,18 @@ export default function Schedule() {
       await loadScheduleData();
     } catch (err: any) {
       logger.error('Error creating multiple shifts', err);
-      setMultipleShiftsError(err?.message || 'Error creating multiple shifts');
+      // Extract error message from Supabase/Postgres error
+      let errorMessage = 'Error creating multiple shifts';
+      if (err?.message) {
+        errorMessage = err.message;
+      } else if (err?.error?.message) {
+        errorMessage = err.error.message;
+      } else if (err?.details) {
+        errorMessage = err.details;
+      } else if (typeof err === 'string') {
+        errorMessage = err;
+      }
+      setMultipleShiftsError(errorMessage);
     } finally {
       setIsCreatingMultipleShifts(false);
     }
@@ -1613,7 +1692,10 @@ export default function Schedule() {
 
   // Generate virtual fixed schedule shifts for a worker on a specific date
   const getFixedScheduleShiftsForDate = (workerId: string, date: Date): Shift[] => {
-    const fixedScheduleId = fixedScheduleIdByWorkerId[workerId];
+    const dateStr = date.toISOString().split('T')[0];
+    if (!dateStr) return [];
+
+    const fixedScheduleId = getActiveFixedScheduleIdForDate(workerId, dateStr);
     if (!fixedScheduleId) return [];
 
     const fixedSchedule = fixedSchedules.find(fs => fs.id === fixedScheduleId);
@@ -1628,17 +1710,6 @@ export default function Schedule() {
     );
 
     if (!scheduleDay) return [];
-
-    // Check if there's already a planned shift for this worker on this date
-    const dateStr = date.toISOString().split('T')[0];
-    if (!dateStr) return [];
-    
-    const hasPlannedShift = shifts.some(
-      shift => shift.workerId === workerId && shift.date === dateStr
-    );
-
-    // If there's a planned shift, don't show the fixed schedule
-    if (hasPlannedShift) return [];
 
     // Create virtual shift
     const startTime = scheduleDay.start_time ? normalizeTime(scheduleDay.start_time) : '';
@@ -1755,11 +1826,27 @@ export default function Schedule() {
     );
   }, [allShiftsRaw, filteredEmployees, weekRange.startISO, weekRange.endISO]);
   
-  const canPublish = (currentCompanyUser?.role === 'super_admin' || 
-                      currentCompanyUser?.role === 'admin' || 
-                      currentCompanyUser?.role === 'supervisor') && 
-                      pendingChangesCount > 0 && 
-                      hasPublishedShiftsInView;
+  const canPublish = useMemo(() => {
+    const hasRole = currentCompanyUser?.role === 'super_admin' || 
+                    currentCompanyUser?.role === 'admin' || 
+                    currentCompanyUser?.role === 'supervisor';
+    const hasChanges = pendingChangesCount > 0;
+    
+    if (import.meta.env.DEV) {
+      console.log('canPublish debug:', {
+        role: currentCompanyUser?.role,
+        hasRole,
+        pendingChangesCount,
+        draftCount,
+        publishedDeleteCount,
+        legacyDeleteIntentCount,
+        hasChanges,
+        canPublish: hasRole && hasChanges
+      });
+    }
+    
+    return hasRole && hasChanges;
+  }, [currentCompanyUser?.role, pendingChangesCount, draftCount, publishedDeleteCount, legacyDeleteIntentCount]);
 
   return (
     <div className="p-6">
@@ -2258,7 +2345,7 @@ export default function Schedule() {
                       className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
                     >
                       <EyeOff className="w-4 h-4" />
-                      Unpublish week
+                      Delete published shifts
                     </button>
                     <button 
                       onClick={() => {
@@ -2384,7 +2471,6 @@ export default function Schedule() {
             </div>
             
             {/* Publish Button */}
-            {canPublish !== undefined && (
             <button
                 onClick={handlePublish}
                 disabled={!canPublish || isLoadingData}
@@ -2399,7 +2485,6 @@ export default function Schedule() {
               <div className="w-px h-4 bg-white/30"></div>
               <Bell className="w-4 h-4" />
             </button>
-            )}
           </div>
         </div>
         </div>
@@ -2464,13 +2549,21 @@ export default function Schedule() {
                 {weekDates.map((date, dayIndex) => {
                   const dayShifts = getShiftsForDate(date).filter(shift => shift.workerId === employee.id);
                   const fixedScheduleShifts = getFixedScheduleShiftsForDate(employee.id, date);
-                  const isFixedSchedule = hasFixedSchedule(employee.id);
-                  const noWorkRule = hasNoWorkRule(employee.id);
-                  const allShiftsForDay = [...dayShifts, ...fixedScheduleShifts];
+                  const dateStr = date.toISOString().split('T')[0] || '';
+                  const activeRuleType = dateStr ? getActiveWorkRuleTypeForDate(employee.id, dateStr) : undefined;
+                  const isFixedScheduleForDate = activeRuleType === 'fixed';
+                  const noWorkRuleForDate = !activeRuleType;
+                  // Combine and sort all shifts by start time so they display in chronological order
+                  const allShiftsForDay = [...dayShifts, ...fixedScheduleShifts].sort((a, b) => {
+                    // Compare start times (HH:MM format)
+                    if (a.startTime < b.startTime) return -1;
+                    if (a.startTime > b.startTime) return 1;
+                    return 0;
+                  });
                   const shiftCount = allShiftsForDay.length;
                   const cellHeight = shiftCount > 0 ? 40 * shiftCount : 40; // 40px per shift
                   // Apply gray background for fixed schedule without shifts OR no work rule without shifts
-                  const shouldShowGrayBackground = ((isFixedSchedule || noWorkRule) && dayShifts.length === 0);
+                  const shouldShowGrayBackground = ((isFixedScheduleForDate || noWorkRuleForDate) && dayShifts.length === 0);
                   
                   return (
                       <div 
@@ -2484,9 +2577,9 @@ export default function Schedule() {
                             const isFixedScheduleShift = shift.id.startsWith('fixed-');
                             const style = isFixedScheduleShift 
                               ? {
-                                  bgColor: 'bg-green-50',
-                                  textColor: 'text-green-700',
-                                  borderColorHex: '#059669', // primary green
+                                  bgColor: 'bg-gray-50',
+                                  textColor: 'text-gray-700',
+                                  borderColorHex: '#9CA3AF', // gray-400
                                   borderStyle: 'solid',
                                   opacity: '',
                                 }
@@ -2499,9 +2592,9 @@ export default function Schedule() {
                             return (
                               <div
                                 key={shift.id}
-                                className={`absolute text-xs flex flex-col justify-center ${style.bgColor} ${style.textColor} ${style.opacity} left-0 right-0 ${
+                                className={`absolute text-xs flex flex-col justify-center ${style.bgColor} ${style.textColor} ${style.opacity} left-0 right-0 transition-all duration-200 group-hover:left-6 ${
                                   shiftIndex < shiftCount - 1 ? 'border-b border-gray-300' : ''
-                                } ${isFixedScheduleShift ? '' : 'cursor-pointer transition-all duration-200 group-hover:left-6'}`}
+                                } ${isFixedScheduleShift ? 'pointer-events-none' : 'cursor-pointer'}`}
                                 onClick={() => {
                                   if (!isFixedScheduleShift) {
                                     handleEditShift(shift.id);
@@ -2513,6 +2606,7 @@ export default function Schedule() {
                                   borderLeftColor: style.borderColorHex,
                                   top: `${topPercent}%`,
                                   height: `${shiftHeightPercent}%`,
+                                  zIndex: 1, // Same z-index for all shifts so they stack properly
                               }}
                             >
                               <div className="px-1.5 py-0.5">
@@ -2534,22 +2628,11 @@ export default function Schedule() {
                             </div>
                             );
                           })}
-                          {/* Add button that appears on hover - only for planned/planner workers, not flexible, not no work rule */}
-                          {!hasFixedSchedule(employee.id) && !hasFlexibleSchedule(employee.id) && !hasNoWorkRule(employee.id) && (
+                          {/* Add button that appears on hover - available for all workers */}
                           <button 
-                              disabled={!canPlanShiftsForWorker(employee.id)}
-                              title={
-                                canPlanShiftsForWorker(employee.id)
-                                  ? `Add shift for ${employee.name}`
-                                  : 'This worker is not configured for planner-based scheduling'
-                              }
-                              className={`absolute top-1/2 left-1 transform -translate-y-1/2 w-4 h-4 bg-white border border-gray-200 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 ${
-                                canPlanShiftsForWorker(employee.id)
-                                  ? 'hover:bg-gray-50'
-                                  : 'cursor-not-allowed opacity-0 group-hover:opacity-30'
-                              }`}
+                              title={`Add shift for ${employee.name}`}
+                            className="absolute top-1/2 left-1 transform -translate-y-1/2 w-4 h-4 bg-white border border-gray-200 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-gray-50 z-10"
                             onClick={() => {
-                                if (!canPlanShiftsForWorker(employee.id)) return;
                                 setSelectedEmployee(employee.id);
                                 // Preselect the employee and date in the form
                                 const dateStr = date.toISOString().slice(0, 10);
@@ -2564,30 +2647,14 @@ export default function Schedule() {
                           >
                             <Plus className="w-2.5 h-2.5 text-gray-400" />
                           </button>
-                          )}
                         </>
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
-                          {/* Show "Flexible" label for flexible schedule workers */}
-                          {hasFlexibleSchedule(employee.id) ? (
-                            <div className="text-xs text-gray-400 italic">Flexible</div>
-                          ) : (
-                            /* Only show Add button for planned/planner workers, not for fixed schedule workers or no work rule */
-                            !hasFixedSchedule(employee.id) && !hasNoWorkRule(employee.id) && (
+                          {/* Add button that appears on hover - available for all workers */}
                           <button 
-                                disabled={!canPlanShiftsForWorker(employee.id)}
-                                title={
-                                  canPlanShiftsForWorker(employee.id)
-                                    ? `Add shift for ${employee.name}`
-                                    : 'This worker is not configured for planner-based scheduling'
-                                }
-                                className={`opacity-0 group-hover:opacity-100 w-6 h-6 border border-gray-200 rounded flex items-center justify-center transition-all duration-200 ${
-                                  canPlanShiftsForWorker(employee.id)
-                                    ? 'hover:bg-gray-50'
-                                    : 'cursor-not-allowed opacity-0 group-hover:opacity-30'
-                                }`}
+                              title={`Add shift for ${employee.name}`}
+                              className="opacity-0 group-hover:opacity-100 w-6 h-6 border border-gray-200 rounded flex items-center justify-center transition-all duration-200 hover:bg-gray-50"
                             onClick={() => {
-                                  if (!canPlanShiftsForWorker(employee.id)) return;
                                   setSelectedEmployee(employee.id);
                                   // Preselect the employee and date in the form
                                   const dateStr = date.toISOString().slice(0, 10);
@@ -2602,8 +2669,6 @@ export default function Schedule() {
                           >
                             <Plus className="w-3 h-3 text-gray-400" />
                           </button>
-                            )
-                          )}
                         </div>
                       )}
                     </div>
@@ -2758,14 +2823,14 @@ export default function Schedule() {
                   onChange={(e) => setShiftForm(prev => ({ ...prev, workerId: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
                   disabled={isCreatingShift}
-                >
-                  <option value="">Select a worker</option>
-                  {employeesWithPlannedRule.map(emp => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.name} {emp.role ? `- ${emp.role}` : ''}
-                    </option>
-                  ))}
-                </select>
+                  >
+                    <option value="">Select a worker</option>
+                    {employees.map(emp => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.name} {emp.role ? `- ${emp.role}` : ''}
+                      </option>
+                    ))}
+                  </select>
               </div>
 
               {/* Date Selection */}
@@ -3052,7 +3117,7 @@ export default function Schedule() {
                             disabled={isCreatingMultipleShifts}
                           >
                             <option value="">Select...</option>
-                            {employeesWithPlannedRule.map(emp => (
+                            {employees.map(emp => (
                               <option key={emp.id} value={emp.id}>
                                 {emp.name}
                               </option>
@@ -3257,7 +3322,7 @@ export default function Schedule() {
         </div>
       )}
 
-      {/* Unpublish Week Confirmation Modal */}
+      {/* Delete Published Shifts Confirmation Modal */}
       {showUnpublishConfirm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200] p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
@@ -3269,7 +3334,7 @@ export default function Schedule() {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">
-                    Unpublish Week
+                    Delete Published Shifts
                   </h3>
                   <p className="text-sm text-gray-500">
                     This action cannot be undone
@@ -3289,8 +3354,8 @@ export default function Schedule() {
             {/* Content */}
             <div className="p-6">
               <p className="text-sm text-gray-700 mb-4">
-                Are you sure you want to unpublish all published shifts for the currently filtered workers in this week? 
-                All published shifts for the displayed workers will be converted to drafts. This action cannot be undone.
+                Are you sure you want to delete all published shifts for the currently filtered workers in this week? 
+                All published shifts for the displayed workers will be permanently deleted. This action cannot be undone.
               </p>
             </div>
 
@@ -3311,7 +3376,7 @@ export default function Schedule() {
                   backgroundColor: isUnpublishing ? '#9CA3AF' : 'var(--primary-brand-hex)',
                 }}
               >
-                {isUnpublishing ? 'Unpublishing...' : 'Confirm Unpublish'}
+                {isUnpublishing ? 'Deleting...' : 'Confirm Delete'}
               </button>
             </div>
           </div>

@@ -465,7 +465,22 @@ export default function WorkerInfo() {
 
         if (data && data.length > 0) {
           const rule = data[0];
-          const ruleType = rule.rule_type as 'fixed' | 'planned' | 'open';
+          // Normalize rule_type: ensure it's one of the valid enum values
+          let ruleType: 'fixed' | 'planned' | 'open' | '' = '';
+          const rawRuleType = rule.rule_type as string | null;
+          
+          if (rawRuleType) {
+            // Fix any incorrect values (e.g., "fixed_schedule" -> "fixed")
+            if (rawRuleType === 'fixed_schedule' || rawRuleType === 'fixedSchedule') {
+              ruleType = 'fixed';
+            } else if (rawRuleType === 'fixed' || rawRuleType === 'planned' || rawRuleType === 'open') {
+              ruleType = rawRuleType;
+            } else {
+              console.warn(`Invalid rule_type value: ${rawRuleType}, defaulting to empty`);
+              ruleType = '';
+            }
+          }
+          
           const scheduleId = (rule as any).fixed_schedule_id || '';
           const startDate = rule.start_date || new Date().toISOString().slice(0, 10);
           const endDate = rule.end_date || '';
@@ -1033,10 +1048,18 @@ export default function WorkerInfo() {
           .limit(1)
           .maybeSingle();
 
+        // Ensure workRuleType is a valid enum value before saving
+        if (workRuleType !== 'fixed' && workRuleType !== 'planned' && workRuleType !== 'open') {
+          console.error(`Invalid workRuleType: ${workRuleType}`);
+          setErrors({ workRules: 'Invalid work rule type' });
+          setIsSaving(false);
+          return;
+        }
+
         const workRuleData: any = {
           company_id: currentCompany.id,
           worker_id: savedWorker.id,
-          rule_type: workRuleType,
+          rule_type: workRuleType, // This should now always be 'fixed', 'planned', or 'open'
           start_date: workRuleStartDate,
           end_date: workRuleEndDate || null,
         };
