@@ -2004,7 +2004,7 @@ export default function Schedule3() {
             {/* Header Row */}
             <div className="flex border-b border-gray-200">
             {/* Worker Column Header */}
-              <div className="w-64 p-3 pl-6 border-r border-gray-200 bg-gray-50">
+              <div className="w-64 py-2 px-3 pl-4 border-r border-gray-200 bg-gray-50">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8"></div>
               <span className="text-sm font-medium text-gray-700">Worker</span>
@@ -2013,7 +2013,7 @@ export default function Schedule3() {
             
             {/* Day Headers */}
             {weekDates.map((date, index) => (
-                <div key={index} className={`flex-1 p-3 bg-gray-50 flex items-center justify-center ${index < weekDates.length - 1 ? 'border-r border-gray-200' : ''}`}>
+                <div key={index} className={`flex-1 py-2 px-2 bg-gray-50 flex items-center justify-center ${index < weekDates.length - 1 ? 'border-r border-gray-200' : ''}`}>
                   <div className="flex items-center justify-center gap-1">
                 <div className="text-sm font-medium text-gray-700">
                   {date.toLocaleDateString('en-US', { weekday: 'short' })}
@@ -2030,7 +2030,7 @@ export default function Schedule3() {
             {paginatedEmployees.map((employee, employeeIndex) => (
               <div key={employee.id} className="flex">
                 {/* Employee Info */}
-                <div className={`w-64 p-3 pl-6 border-r border-gray-200 border-l-4 ${getWorkRuleBorderColor(workRuleTypeByWorkerId[employee.id])} flex items-center gap-3 ${employeeIndex < paginatedEmployees.length - 1 ? 'border-b border-gray-200' : ''}`}>
+                <div className={`w-64 py-2 px-3 pl-4 border-r border-gray-200 border-l-4 ${getWorkRuleBorderColor(workRuleTypeByWorkerId[employee.id])} flex items-center gap-2 ${employeeIndex < paginatedEmployees.length - 1 ? 'border-b border-gray-200' : ''}`}>
                   <div className="relative">
                     <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center text-white text-sm font-medium">
                       {generateAvatarInitials(employee.name.split(' ')[0] || '', employee.name.split(' ')[1] || '')}
@@ -2058,8 +2058,15 @@ export default function Schedule3() {
                   const fixedScheduleShifts = getFixedScheduleShiftsForDate(employee.id, date);
                   const isFixedSchedule = hasFixedSchedule(employee.id);
                   const allShiftsForDay = [...dayShifts, ...fixedScheduleShifts];
+                  const shiftCount = allShiftsForDay.length;
+                  const cellHeight = shiftCount > 0 ? 40 * shiftCount : 40; // 40px per shift
+                  
                   return (
-                      <div key={dayIndex} className={`group flex-1 min-h-[60px] relative ${dayIndex < weekDates.length - 1 ? 'border-r border-gray-200' : ''} ${employeeIndex < paginatedEmployees.length - 1 ? 'border-b border-gray-200' : ''} ${isFixedSchedule && dayShifts.length === 0 ? 'bg-gray-50' : ''}`}>
+                      <div 
+                        key={dayIndex} 
+                        className={`group flex-1 relative ${dayIndex < weekDates.length - 1 ? 'border-r border-gray-200' : ''} ${employeeIndex < paginatedEmployees.length - 1 ? 'border-b border-gray-200' : ''} ${isFixedSchedule && dayShifts.length === 0 ? 'bg-gray-50' : ''}`}
+                        style={{ minHeight: `${cellHeight}px` }}
+                      >
                       {allShiftsForDay.length > 0 ? (
                         <>
                           {allShiftsForDay.map((shift, shiftIndex) => {
@@ -2073,15 +2080,16 @@ export default function Schedule3() {
                                   opacity: '',
                                 }
                               : getStatusStyle(shift.status, shift.isDelete);
+                            
+                            // Calculate position: each shift gets equal height
+                            const shiftHeightPercent = 100 / shiftCount;
+                            const topPercent = (shiftIndex * 100) / shiftCount;
+                            
                             return (
                               <div
                                 key={shift.id}
-                                className={`absolute text-xs flex flex-col justify-center ${style.bgColor} ${style.textColor} ${style.opacity} ${
-                                  allShiftsForDay.length > 1 
-                                    ? shiftIndex === 0 
-                                      ? 'top-0 bottom-1/2 border-b border-gray-300 left-0 right-0' 
-                                      : 'top-1/2 bottom-0 left-0 right-0'
-                                    : 'inset-0'
+                                className={`absolute text-xs flex flex-col justify-center ${style.bgColor} ${style.textColor} ${style.opacity} left-0 right-0 ${
+                                  shiftIndex < shiftCount - 1 ? 'border-b border-gray-300' : ''
                                 } ${isFixedScheduleShift ? '' : 'cursor-pointer transition-all duration-200 group-hover:left-6'}`}
                                 onClick={() => {
                                   if (!isFixedScheduleShift) {
@@ -2092,10 +2100,12 @@ export default function Schedule3() {
                               style={{ 
                                   borderLeft: `3px ${style.borderStyle}`,
                                   borderLeftColor: style.borderColorHex,
+                                  top: `${topPercent}%`,
+                                  height: `${shiftHeightPercent}%`,
                               }}
                             >
-                              <div className="px-2">
-                                  <div className="flex items-center gap-1 mb-0.5">
+                              <div className="px-1.5 py-0.5">
+                                  <div className="flex items-center gap-1 mb-0">
                                     <div className={`font-medium text-xs leading-tight truncate flex-1 ${shift.isDelete ? 'line-through' : ''}`}>
                                       {shift.role}
                                     </div>
@@ -2111,7 +2121,7 @@ export default function Schedule3() {
                                 <div className={`text-xs leading-tight flex items-center gap-1 ${shift.isDelete ? 'opacity-50' : 'opacity-75'}`}>
                                   <Clock className="w-2.5 h-2.5" />
                                   <span className={shift.isDelete ? 'line-through' : ''}>
-                                    {shift.startTime} – {shift.endTime}
+                                  {shift.startTime} – {shift.endTime}
                                   </span>
                                 </div>
                               </div>
