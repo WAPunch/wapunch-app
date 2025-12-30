@@ -1233,13 +1233,13 @@ export default function WhosWorking() {
                   {googleMapsLoadError ? (
                     <div className="h-full bg-gray-100 flex items-center justify-center">
                       <div className="text-center max-w-sm px-6">
-                        <Map className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                <Map className="w-12 h-12 text-gray-400 mx-auto mb-3" />
                         <p className="text-sm text-gray-600 font-medium">Google Maps failed to load</p>
                         <p className="text-xs text-gray-500 mt-1">
                           Please verify your `VITE_GOOGLE_MAPS_API_KEY` and allowed domains.
-                        </p>
-                      </div>
-                    </div>
+                </p>
+              </div>
+            </div>
                   ) : !isGoogleMapsLoaded ? (
                     <div className="h-full bg-gray-100 flex items-center justify-center">
                       <div className="text-center">

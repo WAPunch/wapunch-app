@@ -159,7 +159,7 @@ function normalizeTime(value: string): string {
   return value;
 }
 
-export default function Schedule3() {
+export default function Schedule() {
   const { registerSubmodules } = useSubmoduleNav();
   const { currentCompany, currentCompanyUser } = useCompany();
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -255,11 +255,10 @@ export default function Schedule3() {
 
   useEffect(() => {
     // Register submodule tabs for Schedule
-    registerSubmodules('Schedule', [
-      { id: 'schedule', label: 'Schedule', href: '/schedule/schedule', icon: Calendar },
-      { id: 'schedule3', label: 'Schedule 3', href: '/schedule/schedule3', icon: Calendar },
-      { id: 'time-off', label: 'Time Off', href: '/schedule/time-off', icon: Calendar },
-    ]);
+      registerSubmodules('Schedule', [
+        { id: 'schedule', label: 'Schedule', href: '/schedule/schedule', icon: Calendar },
+        { id: 'time-off', label: 'Time Off', href: '/schedule/time-off', icon: Calendar },
+      ]);
   }, [registerSubmodules]);
 
   const weekRange = useMemo(() => {

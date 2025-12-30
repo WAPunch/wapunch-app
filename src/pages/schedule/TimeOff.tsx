@@ -6,10 +6,10 @@ export default function TimeOff() {
   const { registerSubmodules } = useSubmoduleNav();
 
   useEffect(() => {
-    registerSubmodules('Schedule', [
-      { id: 'schedule', label: 'Schedule', href: '/schedule/schedule', icon: Calendar },
-      { id: 'time-off', label: 'Time Off', href: '/schedule/time-off', icon: Calendar },
-    ]);
+      registerSubmodules('Schedule', [
+        { id: 'schedule', label: 'Schedule', href: '/schedule/schedule', icon: Calendar },
+        { id: 'time-off', label: 'Time Off', href: '/schedule/time-off', icon: Calendar },
+      ]);
   }, [registerSubmodules]);
 
   return (

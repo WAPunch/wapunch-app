@@ -1,6 +1,9 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
 import { getCurrentStatusDotColor } from '../../hooks/useWorkers';
+import { useCompany } from '../../hooks/useCompany';
+import { supabase } from '../../lib/supabase';
+import { logger } from '../../lib/logger';
 import { 
   Clock, 
   Calendar, 
@@ -35,7 +38,8 @@ import {
   Eye,
   Flag,
   SortAsc,
-  SortDesc
+  SortDesc,
+  X
 } from 'lucide-react';
 
 // Function to generate avatar initials
@@ -88,18 +92,139 @@ interface Shift {
   endTime: string;
   role: string;
   location: string;
-  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled';
+  status: 'draft' | 'published';
   notes?: string;
+  breakMinutes?: number;
+  isOvertimeAllowed?: boolean;
+  isDelete?: boolean; // Draft delete intent
+  originalPublishedId?: string; // ID of the published shift this delete intent targets
 }
 
-export default function TeamSchedule() {
+type PlannedShiftRow = {
+  id: string;
+  company_id: string;
+  worker_id: string;
+  site_id: string | null;
+  shift_date: string;
+  start_time: string;
+  end_time: string;
+  status: 'draft' | 'published';
+  published_at: string | null;
+  created_at: string;
+  break_minutes?: number | null;
+  is_overtime_allowed?: boolean | null;
+  notes?: string | null;
+  is_delete?: boolean | null;
+};
+
+type WorkerRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  is_active: boolean | null;
+  archived: boolean | null;
+  job_title?: { name: string } | { name: string }[] | null;
+};
+
+type SiteRow = { id: string; site_name: string | null };
+
+type WorkerWorkRuleRow = {
+  worker_id: string;
+  rule_type: string | null;
+  fixed_schedule_id: string | null;
+  start_date: string | null;
+};
+
+type FixedScheduleRow = {
+  id: string;
+  company_id: string;
+  name: string;
+  fixed_schedule_days?: FixedScheduleDayRow[];
+};
+
+type FixedScheduleDayRow = {
+  id: string;
+  fixed_schedule_id: string;
+  day_of_week: number; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  is_working: boolean;
+  start_time: string | null;
+  end_time: string | null;
+  break_minutes: number;
+};
+
+function normalizeTime(value: string): string {
+  // Supabase time columns often come back as "HH:MM:SS". UI expects "HH:MM".
+  if (!value) return '';
+  if (value.length >= 5 && value[2] === ':') return value.slice(0, 5);
+  return value;
+}
+
+export default function Schedule() {
   const { registerSubmodules } = useSubmoduleNav();
+  const { currentCompany, currentCompanyUser } = useCompany();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [showCreateShift, setShowCreateShift] = useState(false);
+  const [showMultipleShifts, setShowMultipleShifts] = useState(false);
+  const [isLoadingData, setIsLoadingData] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
+  
+  // Create shift modal form state (Single Shift)
+  const [shiftForm, setShiftForm] = useState({
+    workerId: '',
+    shiftDate: '',
+    startTime: '',
+    endTime: '',
+    siteId: '',
+    shiftTitle: '',
+    notes: '',
+    breakMinutes: 0,
+    isOvertimeAllowed: false,
+    isRepeating: false,
+    repeatFrequency: 'weekly' as 'daily' | 'weekly' | 'monthly',
+    repeatEndDate: '',
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  });
+  const [isCreatingShift, setIsCreatingShift] = useState(false);
+  const [shiftFormError, setShiftFormError] = useState<string | null>(null);
+  
+  // Multiple shifts form state
+  const [multipleShifts, setMultipleShifts] = useState<Array<{
+    id: string;
+    workerId: string;
+    shiftDate: string;
+    startTime: string;
+    endTime: string;
+    siteId: string;
+    shiftTitle: string;
+    notes: string;
+    breakMinutes: number;
+    isOvertimeAllowed: boolean;
+  }>>([{
+    id: `row-${Date.now()}`,
+    workerId: '',
+    shiftDate: '',
+    startTime: '',
+    endTime: '',
+    siteId: '',
+    shiftTitle: '',
+    notes: '',
+    breakMinutes: 0,
+    isOvertimeAllowed: false,
+  }]);
+  const [isCreatingMultipleShifts, setIsCreatingMultipleShifts] = useState(false);
+  const [multipleShiftsError, setMultipleShiftsError] = useState<string | null>(null);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [allShiftsRaw, setAllShiftsRaw] = useState<PlannedShiftRow[]>([]); // All shifts including cancelled for counting
+  const [sitesById, setSitesById] = useState<Record<string, string>>({});
+  const [workRuleTypeByWorkerId, setWorkRuleTypeByWorkerId] = useState<Record<string, string>>({});
+  const [fixedScheduleIdByWorkerId, setFixedScheduleIdByWorkerId] = useState<Record<string, string>>({});
+  const [fixedSchedules, setFixedSchedules] = useState<FixedScheduleRow[]>([]);
   
   // Multi-select filter states
   const [selectedDepartment, setSelectedDepartment] = useState<string[]>([]);
@@ -130,12 +255,208 @@ export default function TeamSchedule() {
 
   useEffect(() => {
     // Register submodule tabs for Schedule
-    registerSubmodules('Schedule', [
-      { id: 'schedule', label: 'Schedule', href: '/schedule/schedule', icon: Calendar },
-      { id: 'schedule3', label: 'Schedule 3', href: '/schedule/schedule3', icon: Calendar },
-      { id: 'time-off', label: 'Time Off', href: '/schedule/time-off', icon: Calendar },
+      registerSubmodules('Schedule', [
+        { id: 'schedule', label: 'Schedule', href: '/schedule/schedule', icon: Calendar },
+        { id: 'time-off', label: 'Time Off', href: '/schedule/time-off', icon: Calendar },
     ]);
   }, [registerSubmodules]);
+
+  const weekRange = useMemo(() => {
+    const start = new Date(currentDate);
+    const day = start.getDay();
+    const diff = start.getDate() - day + (day === 0 ? -6 : 1); // Monday start, Sunday end
+    start.setDate(diff);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
+
+    return {
+      startISO: start.toISOString().slice(0, 10),
+      endISO: end.toISOString().slice(0, 10),
+    };
+  }, [currentDate]);
+
+  // Extract load function to be reusable
+  const loadScheduleData = useCallback(async () => {
+    if (!currentCompany?.id) {
+      setEmployees([]);
+      setShifts([]);
+      setAllShiftsRaw([]);
+      setSitesById({});
+      setWorkRuleTypeByWorkerId({});
+      setLoadError(null);
+      setIsLoadingData(false);
+      return;
+    }
+
+    setIsLoadingData(true);
+    setLoadError(null);
+
+    try {
+      const [workersRes, sitesRes, rulesRes, fixedSchedulesRes, shiftsRes] = await Promise.all([
+        supabase
+          .from('workers')
+          .select('id, first_name, last_name, is_active, archived, job_title:job_titles(name)')
+          .eq('company_id', currentCompany.id)
+          .eq('is_deleted', false)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('sites')
+          .select('id, site_name')
+          .eq('company_id', currentCompany.id)
+          .eq('is_deleted', false)
+          .eq('archived', false)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('worker_work_rules')
+          .select('worker_id, rule_type, fixed_schedule_id, start_date')
+          .eq('company_id', currentCompany.id)
+          .order('start_date', { ascending: false }),
+        supabase
+          .from('fixed_schedules')
+          .select(`
+            id,
+            company_id,
+            name,
+            fixed_schedule_days (
+              id,
+              fixed_schedule_id,
+              day_of_week,
+              is_working,
+              start_time,
+              end_time,
+              break_minutes
+            )
+          `)
+          .eq('company_id', currentCompany.id),
+        supabase
+          .from('planned_shifts')
+          .select('id, company_id, worker_id, site_id, shift_date, start_time, end_time, status, published_at, created_at, break_minutes, is_overtime_allowed, notes, is_delete')
+          .eq('company_id', currentCompany.id)
+          .gte('shift_date', weekRange.startISO)
+          .lte('shift_date', weekRange.endISO)
+          .order('shift_date', { ascending: true })
+          .order('start_time', { ascending: true }),
+      ]);
+
+      if (workersRes.error) throw workersRes.error;
+      if (sitesRes.error) throw sitesRes.error;
+      if (rulesRes.error) throw rulesRes.error;
+      if (fixedSchedulesRes.error) throw fixedSchedulesRes.error;
+      if (shiftsRes.error) throw shiftsRes.error;
+
+      const siteMap: Record<string, string> = {};
+      for (const s of (sitesRes.data || []) as SiteRow[]) {
+        if (s?.id && s?.site_name) siteMap[s.id] = s.site_name;
+      }
+      setSitesById(siteMap);
+
+      // Pick the latest rule per worker (rules are ordered by start_date DESC).
+      const ruleMap: Record<string, string> = {};
+      const fixedScheduleMap: Record<string, string> = {};
+      for (const r of (rulesRes.data || []) as WorkerWorkRuleRow[]) {
+        if (!r?.worker_id) continue;
+        if (ruleMap[r.worker_id]) continue;
+        if (r.rule_type) ruleMap[r.worker_id] = r.rule_type;
+        if (r.fixed_schedule_id) fixedScheduleMap[r.worker_id] = r.fixed_schedule_id;
+      }
+      setWorkRuleTypeByWorkerId(ruleMap);
+      setFixedScheduleIdByWorkerId(fixedScheduleMap);
+
+      const mappedEmployees: Employee[] = ((workersRes.data || []) as WorkerRow[])
+        .filter(w => Boolean(w?.id))
+        .filter(w => (w.is_active ?? false) && !(w.archived ?? false))
+        .map(w => {
+          const first = (w.first_name || '').trim();
+          const last = (w.last_name || '').trim();
+          const fullName = `${first} ${last}`.trim();
+          const jobTitleObj = w.job_title as any;
+          const jobTitle = Array.isArray(jobTitleObj) 
+            ? (jobTitleObj[0]?.name || '')
+            : (jobTitleObj?.name || '');
+
+          return {
+            id: w.id,
+            name: fullName || 'Unnamed worker',
+            role: jobTitle,
+            department: '',
+            status: 'absent',
+            current_status: 'out',
+            availability: {
+              monday: [],
+              tuesday: [],
+              wednesday: [],
+              thursday: [],
+              friday: [],
+              saturday: [],
+              sunday: [],
+            },
+            qualifications: [],
+            hourlyRate: 0,
+            maxHoursPerWeek: 0,
+          };
+        });
+      setEmployees(mappedEmployees);
+
+      // Store fixed schedules
+      setFixedSchedules((fixedSchedulesRes.data || []) as unknown as FixedScheduleRow[]);
+
+      // Filter shifts by role: admin/supervisor see drafts+published, employee only published
+      const userRole = currentCompanyUser?.role;
+      const canSeeDrafts = userRole === 'super_admin' || userRole === 'admin' || userRole === 'supervisor';
+      
+      const allShifts = (shiftsRes.data || []) as PlannedShiftRow[];
+      setAllShiftsRaw(allShifts); // Store all shifts for counting
+      
+      // For calendar display: show published and drafts
+      // Published shifts with is_delete = true are shown as delete intents (red)
+      // Draft delete intents (legacy) are also shown
+      const shiftsForCalendar = canSeeDrafts
+        ? allShifts // Admin/supervisor: show published and drafts (including delete intents)
+        : allShifts.filter(s => s.status === 'published' && !s.is_delete); // Employee: only published, no delete intents
+      
+      // Map shifts and identify delete intents
+      // Delete intents can be:
+      // 1. Published shifts with is_delete = true (marked for deletion)
+      // 2. Draft shifts with is_delete = true (legacy, should be cleaned up)
+      const mappedShifts: Shift[] = shiftsForCalendar.map((s) => {
+        const siteName = (s.site_id && siteMap[s.site_id]) || 'Unassigned site';
+        const isDeleteIntent = s.is_delete === true; // Can be published or draft
+        
+        return {
+          id: s.id,
+          workerId: s.worker_id,
+          date: s.shift_date,
+          startTime: normalizeTime(s.start_time),
+          endTime: normalizeTime(s.end_time),
+          role: siteName,
+          location: siteName,
+          status: s.status || 'draft',
+          notes: s.notes || undefined,
+          breakMinutes: s.break_minutes || 0,
+          isOvertimeAllowed: s.is_overtime_allowed || false,
+          isDelete: isDeleteIntent,
+        };
+      });
+      setShifts(mappedShifts);
+    } catch (err: any) {
+      logger.error('Error loading schedule data', err);
+      setLoadError(err?.message || 'Error loading schedule data');
+      setEmployees([]);
+      setShifts([]);
+      setAllShiftsRaw([]);
+      setSitesById({});
+      setWorkRuleTypeByWorkerId({});
+    } finally {
+      setIsLoadingData(false);
+    }
+  }, [currentCompany?.id, currentCompanyUser?.role, weekRange.startISO, weekRange.endISO]);
+
+  useEffect(() => {
+    loadScheduleData();
+  }, [loadScheduleData]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -153,6 +474,130 @@ export default function TeamSchedule() {
     };
   }, []);
 
+  // Handle Publish: drafts → published, delete published shifts with delete intents, remove delete intents
+  const handlePublish = async () => {
+    if (!currentCompany?.id || pendingChangesCount === 0) return;
+
+    try {
+      setIsLoadingData(true);
+      
+      // Separate regular drafts from delete intents (legacy draft delete intents)
+      const allDrafts = allShiftsRaw.filter(s => s.status === 'draft');
+      const legacyDeleteIntents = allDrafts.filter(s => s.is_delete === true);
+      const regularDrafts = allDrafts.filter(s => !s.is_delete);
+      
+      // Get published shifts that will be replaced by regular drafts
+      const publishedShiftsToDelete: string[] = [];
+      for (const draft of regularDrafts) {
+        const matchingPublished = allShiftsRaw.find(s => 
+          s.status === 'published' &&
+          s.worker_id === draft.worker_id &&
+          s.shift_date === draft.shift_date &&
+          normalizeTime(s.start_time) === normalizeTime(draft.start_time) &&
+          normalizeTime(s.end_time) === normalizeTime(draft.end_time) &&
+          !s.is_delete
+        );
+        if (matchingPublished) {
+          publishedShiftsToDelete.push(matchingPublished.id);
+        }
+      }
+
+      // Get published shifts marked for deletion (is_delete = true)
+      const publishedShiftsMarkedForDeletion = allShiftsRaw
+        .filter(s => s.status === 'published' && s.is_delete === true)
+        .map(s => s.id);
+
+      // Delete published shifts that are being replaced or marked for deletion
+      const allPublishedToDelete = [...new Set([...publishedShiftsToDelete, ...publishedShiftsMarkedForDeletion])];
+      if (allPublishedToDelete.length > 0) {
+        const { error } = await supabase
+          .from('planned_shifts')
+          .delete()
+          .in('id', allPublishedToDelete);
+        
+        if (error) throw error;
+      }
+
+      // Update regular drafts to published
+      const regularDraftIds = regularDrafts.map(s => s.id);
+      if (regularDraftIds.length > 0) {
+        const { error } = await supabase
+          .from('planned_shifts')
+          .update({ 
+            status: 'published',
+            published_at: new Date().toISOString(),
+            is_delete: false // Ensure new published shifts don't have is_delete
+          })
+          .in('id', regularDraftIds);
+        
+        if (error) throw error;
+      }
+
+      // Delete legacy draft delete intents (they've served their purpose)
+      const legacyDeleteIntentIds = legacyDeleteIntents.map(s => s.id);
+      if (legacyDeleteIntentIds.length > 0) {
+        const { error } = await supabase
+          .from('planned_shifts')
+          .delete()
+          .in('id', legacyDeleteIntentIds);
+        
+        if (error) throw error;
+      }
+
+      // Reload data using the shared function
+      await loadScheduleData();
+    } catch (err: any) {
+      logger.error('Error publishing shifts', err);
+      setLoadError(err?.message || 'Error publishing shifts');
+    } finally {
+      setIsLoadingData(false);
+    }
+  };
+
+  // Handle Cancel: delete all drafts and restore published shifts marked for deletion
+  const handleCancel = async () => {
+    if (!currentCompany?.id || pendingChangesCount === 0) return;
+
+    try {
+      setIsLoadingData(true);
+      
+      // Delete all drafts (both regular drafts and legacy delete intents)
+      const draftShifts = allShiftsRaw.filter(s => s.status === 'draft');
+      const draftIds = draftShifts.map(s => s.id);
+      
+      if (draftIds.length > 0) {
+        const { error } = await supabase
+          .from('planned_shifts')
+          .delete()
+          .in('id', draftIds);
+
+        if (error) throw error;
+      }
+
+      // Restore published shifts marked for deletion (set is_delete = false)
+      const publishedShiftsMarkedForDeletion = allShiftsRaw
+        .filter(s => s.status === 'published' && s.is_delete === true)
+        .map(s => s.id);
+
+      if (publishedShiftsMarkedForDeletion.length > 0) {
+        const { error } = await supabase
+          .from('planned_shifts')
+          .update({ is_delete: false })
+          .in('id', publishedShiftsMarkedForDeletion);
+
+        if (error) throw error;
+      }
+
+      // Reload data using the shared function
+      await loadScheduleData();
+    } catch (err: any) {
+      logger.error('Error cancelling drafts', err);
+      setLoadError(err?.message || 'Error cancelling drafts');
+    } finally {
+      setIsLoadingData(false);
+    }
+  };
+
   // Helper function to map status to current_status
   const mapStatusToCurrentStatus = (status: string): 'out' | 'in' | 'on_break' | 'on_transfer' => {
     switch (status) {
@@ -167,1265 +612,571 @@ export default function TeamSchedule() {
     }
   };
 
-  // Mock data
-  const employees: Employee[] = [
-    {
-      id: '1',
-      name: 'Sarah Johnson',
-      role: 'Senior Developer',
-      department: 'Engineering',
-      status: 'present',
-      current_status: 'in',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '17:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['JavaScript', 'React', 'Node.js'],
-      hourlyRate: 75,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '2',
-      name: 'Mike Chen',
-      role: 'UX Designer',
-      department: 'Design',
-      status: 'on-break',
-      current_status: 'on_break',
-      availability: {
-        monday: ['08:00', '17:00'],
-        tuesday: ['08:00', '17:00'],
-        wednesday: ['08:00', '17:00'],
-        thursday: ['08:00', '17:00'],
-        friday: ['08:00', '16:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Figma', 'Sketch', 'Adobe Creative Suite'],
-      hourlyRate: 65,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '3',
-      name: 'Alex Rodriguez',
-      role: 'Project Manager',
-      department: 'Management',
-      status: 'present',
-      current_status: 'in',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '17:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Agile', 'Scrum', 'Project Management'],
-      hourlyRate: 85,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '4',
-      name: 'David Kim',
-      role: 'Frontend Developer',
-      department: 'Engineering',
-      status: 'on-transfer',
-      current_status: 'on_transfer',
-      availability: {
-        monday: ['10:00', '19:00'],
-        tuesday: ['10:00', '19:00'],
-        wednesday: ['10:00', '19:00'],
-        thursday: ['10:00', '19:00'],
-        friday: ['10:00', '19:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Vue.js', 'JavaScript', 'CSS'],
-      hourlyRate: 70,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '5',
-      name: 'Lisa Wang',
-      role: 'Backend Developer',
-      department: 'Engineering',
-      status: 'present',
-      current_status: 'in',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Python', 'Django', 'PostgreSQL'],
-      hourlyRate: 80,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '6',
-      name: 'James Wilson',
-      role: 'DevOps Engineer',
-      department: 'Engineering',
-      status: 'absent',
-      availability: {
-        monday: ['08:00', '17:00'],
-        tuesday: ['08:00', '17:00'],
-        wednesday: ['08:00', '17:00'],
-        thursday: ['08:00', '17:00'],
-        friday: ['08:00', '17:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['AWS', 'Docker', 'Kubernetes'],
-      hourlyRate: 90,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '7',
-      name: 'Maria Garcia',
-      role: 'UI Designer',
-      department: 'Design',
-      status: 'on-leave',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Adobe XD', 'InVision', 'Prototyping'],
-      hourlyRate: 60,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '8',
-      name: 'Robert Taylor',
-      role: 'Product Manager',
-      department: 'Management',
-      status: 'present',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Product Strategy', 'User Research', 'Analytics'],
-      hourlyRate: 95,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '9',
-      name: 'Jennifer Brown',
-      role: 'QA Engineer',
-      department: 'Engineering',
-      status: 'on-break',
-      availability: {
-        monday: ['10:00', '19:00'],
-        tuesday: ['10:00', '19:00'],
-        wednesday: ['10:00', '19:00'],
-        thursday: ['10:00', '19:00'],
-        friday: ['10:00', '19:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Selenium', 'Jest', 'Manual Testing'],
-      hourlyRate: 65,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '10',
-      name: 'Christopher Lee',
-      role: 'Full Stack Developer',
-      department: 'Engineering',
-      status: 'present',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['React', 'Node.js', 'MongoDB'],
-      hourlyRate: 85,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '11',
-      name: 'Amanda Davis',
-      role: 'Marketing Manager',
-      department: 'Marketing',
-      status: 'present',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Digital Marketing', 'SEO', 'Analytics'],
-      hourlyRate: 70,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '12',
-      name: 'Kevin Martinez',
-      role: 'Sales Representative',
-      department: 'Sales',
-      status: 'on-break',
-      availability: {
-        monday: ['08:00', '17:00'],
-        tuesday: ['08:00', '17:00'],
-        wednesday: ['08:00', '17:00'],
-        thursday: ['08:00', '17:00'],
-        friday: ['08:00', '17:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['CRM', 'Lead Generation', 'Negotiation'],
-      hourlyRate: 55,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '13',
-      name: 'Rachel Green',
-      role: 'Content Writer',
-      department: 'Marketing',
-      status: 'on-transfer',
-      availability: {
-        monday: ['10:00', '19:00'],
-        tuesday: ['10:00', '19:00'],
-        wednesday: ['10:00', '19:00'],
-        thursday: ['10:00', '19:00'],
-        friday: ['10:00', '19:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Copywriting', 'SEO Writing', 'Content Strategy'],
-      hourlyRate: 50,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '14',
-      name: 'Thomas Anderson',
-      role: 'Data Analyst',
-      department: 'Analytics',
-      status: 'present',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['SQL', 'Python', 'Tableau'],
-      hourlyRate: 75,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '15',
-      name: 'Nicole White',
-      role: 'HR Specialist',
-      department: 'Human Resources',
-      status: 'absent',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Recruitment', 'Employee Relations', 'HRIS'],
-      hourlyRate: 60,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '16',
-      name: 'Daniel Clark',
-      role: 'Mobile Developer',
-      department: 'Engineering',
-      status: 'on-leave',
-      availability: {
-        monday: ['10:00', '19:00'],
-        tuesday: ['10:00', '19:00'],
-        wednesday: ['10:00', '19:00'],
-        thursday: ['10:00', '19:00'],
-        friday: ['10:00', '19:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['React Native', 'iOS', 'Android'],
-      hourlyRate: 80,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '17',
-      name: 'Samantha Turner',
-      role: 'Graphic Designer',
-      department: 'Design',
-      status: 'present',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Photoshop', 'Illustrator', 'Brand Design'],
-      hourlyRate: 55,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '18',
-      name: 'Mark Johnson',
-      role: 'System Administrator',
-      department: 'IT',
-      status: 'on-break',
-      availability: {
-        monday: ['08:00', '17:00'],
-        tuesday: ['08:00', '17:00'],
-        wednesday: ['08:00', '17:00'],
-        thursday: ['08:00', '17:00'],
-        friday: ['08:00', '17:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Windows Server', 'Linux', 'Network Security'],
-      hourlyRate: 70,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '19',
-      name: 'Laura Miller',
-      role: 'Business Analyst',
-      department: 'Analytics',
-      status: 'present',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Requirements Analysis', 'Process Improvement', 'Documentation'],
-      hourlyRate: 65,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '20',
-      name: 'Alex Thompson',
-      role: 'Customer Success Manager',
-      department: 'Customer Success',
-      status: 'on-transfer',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Customer Relations', 'Account Management', 'Retention'],
-      hourlyRate: 60,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '21',
-      name: 'Jessica Adams',
-      role: 'Financial Analyst',
-      department: 'Finance',
-      status: 'present',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Financial Modeling', 'Excel', 'Budgeting'],
-      hourlyRate: 70,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '22',
-      name: 'Ryan Cooper',
-      role: 'Security Engineer',
-      department: 'IT',
-      status: 'absent',
-      availability: {
-        monday: ['10:00', '19:00'],
-        tuesday: ['10:00', '19:00'],
-        wednesday: ['10:00', '19:00'],
-        thursday: ['10:00', '19:00'],
-        friday: ['10:00', '19:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Cybersecurity', 'Penetration Testing', 'Compliance'],
-      hourlyRate: 95,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '23',
-      name: 'Michelle Lewis',
-      role: 'Operations Manager',
-      department: 'Operations',
-      status: 'on-leave',
-      availability: {
-        monday: ['08:00', '17:00'],
-        tuesday: ['08:00', '17:00'],
-        wednesday: ['08:00', '17:00'],
-        thursday: ['08:00', '17:00'],
-        friday: ['08:00', '17:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Process Optimization', 'Supply Chain', 'Quality Control'],
-      hourlyRate: 75,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '24',
-      name: 'Brandon Wright',
-      role: 'Technical Writer',
-      department: 'Engineering',
-      status: 'present',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Technical Documentation', 'API Documentation', 'User Guides'],
-      hourlyRate: 55,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '25',
-      name: 'Stephanie Hall',
-      role: 'Training Coordinator',
-      department: 'Human Resources',
-      status: 'on-break',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Training Development', 'LMS', 'Employee Onboarding'],
-      hourlyRate: 50,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '26',
-      name: 'Elena Rodriguez',
-      role: 'Senior UX Designer',
-      department: 'Design',
-      status: 'present',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['User Research', 'Prototyping', 'Design Systems'],
-      hourlyRate: 75,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '27',
-      name: 'Marcus Thompson',
-      role: 'DevOps Lead',
-      department: 'Engineering',
-      status: 'on-break',
-      availability: {
-        monday: ['08:00', '17:00'],
-        tuesday: ['08:00', '17:00'],
-        wednesday: ['08:00', '17:00'],
-        thursday: ['08:00', '17:00'],
-        friday: ['08:00', '17:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['AWS', 'Terraform', 'CI/CD'],
-      hourlyRate: 100,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '28',
-      name: 'Sophie Chen',
-      role: 'Product Designer',
-      department: 'Design',
-      status: 'on-transfer',
-      availability: {
-        monday: ['10:00', '19:00'],
-        tuesday: ['10:00', '19:00'],
-        wednesday: ['10:00', '19:00'],
-        thursday: ['10:00', '19:00'],
-        friday: ['10:00', '19:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Figma', 'Design Thinking', 'User Testing'],
-      hourlyRate: 70,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '29',
-      name: 'Carlos Mendez',
-      role: 'Senior Backend Developer',
-      department: 'Engineering',
-      status: 'absent',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Java', 'Spring Boot', 'Microservices'],
-      hourlyRate: 90,
-      maxHoursPerWeek: 40
-    },
-    {
-      id: '30',
-      name: 'Isabella Foster',
-      role: 'Content Marketing Manager',
-      department: 'Marketing',
-      status: 'on-leave',
-      availability: {
-        monday: ['09:00', '18:00'],
-        tuesday: ['09:00', '18:00'],
-        wednesday: ['09:00', '18:00'],
-        thursday: ['09:00', '18:00'],
-        friday: ['09:00', '18:00'],
-        saturday: [],
-        sunday: []
-      },
-      qualifications: ['Content Strategy', 'SEO', 'Social Media'],
-      hourlyRate: 65,
-      maxHoursPerWeek: 40
-    }
-  ];
+  const canPlanShiftsForWorker = (workerId: string) => {
+    const ruleType = workRuleTypeByWorkerId[workerId];
+    // Backwards/forwards compat: codebase currently uses "planned"; user spec says "planner".
+    return ruleType === 'planned' || ruleType === 'planner';
+  };
 
-  // Get current week dates for shift data
-  const getCurrentWeekDates = (): string[] => {
-    const today = new Date();
-    const start = new Date(today);
-    const day = start.getDay();
-    const diff = start.getDate() - day + (day === 0 ? -6 : 1);
-    start.setDate(diff);
-    
-    const week: string[] = [];
-    for (let i = 0; i < 7; i++) {
-      const day = new Date(start);
-      day.setDate(start.getDate() + i);
-      const dateStr = day.toISOString().split('T')[0];
-      if (dateStr) {
-        week.push(dateStr);
+  const hasFixedSchedule = (workerId: string) => {
+    const ruleType = workRuleTypeByWorkerId[workerId];
+    return ruleType === 'fixed';
+  };
+
+  const hasFlexibleSchedule = (workerId: string) => {
+    const ruleType = workRuleTypeByWorkerId[workerId];
+    return ruleType === 'flexible' || ruleType === 'open';
+  };
+
+  // Get employees that can have shifts planned
+  const employeesWithPlannedRule = useMemo(() => {
+    return employees.filter(emp => canPlanShiftsForWorker(emp.id));
+  }, [employees, workRuleTypeByWorkerId]);
+
+  // Get sites list for dropdown
+  const sitesList = useMemo(() => {
+    return Object.entries(sitesById).map(([id, name]) => ({ id, name }));
+  }, [sitesById]);
+
+  // Open shift for editing
+  const handleEditShift = (shiftId: string) => {
+    const shift = shifts.find(s => s.id === shiftId);
+    if (!shift) return;
+
+    // Extract notes/title from notes field if available
+    const notes = shift.notes || '';
+    const shiftTitle = notes.split('\n')[0] || '';
+    const notesOnly = notes.includes('\n') ? notes.split('\n').slice(1).join('\n') : '';
+
+    setShiftForm({
+      workerId: shift.workerId,
+      shiftDate: shift.date,
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+      siteId: Object.keys(sitesById).find(id => sitesById[id] === shift.location) || '',
+      shiftTitle: shiftTitle,
+      notes: notesOnly || notes, // Use remaining notes or full notes if no title
+      breakMinutes: shift.breakMinutes || 0,
+      isOvertimeAllowed: shift.isOvertimeAllowed || false,
+      isRepeating: false,
+      repeatFrequency: 'weekly',
+      repeatEndDate: '',
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+    setEditingShiftId(shiftId);
+    setShowCreateShift(true);
+  };
+
+  // Handle update shift
+  const handleUpdateShift = async () => {
+    if (!currentCompany?.id || !editingShiftId) return;
+
+    // Validation (same as create)
+    if (!shiftForm.workerId) {
+      setShiftFormError('Please select a worker');
+      return;
+    }
+    if (!shiftForm.shiftDate) {
+      setShiftFormError('Please select a date');
+      return;
+    }
+    if (!shiftForm.startTime) {
+      setShiftFormError('Please specify start time');
+      return;
+    }
+    if (!shiftForm.endTime) {
+      setShiftFormError('Please specify end time');
+      return;
+    }
+    if (!shiftForm.siteId) {
+      setShiftFormError('Please select a site');
+      return;
+    }
+
+    if (shiftForm.startTime >= shiftForm.endTime) {
+      setShiftFormError('End time must be after start time');
+      return;
+    }
+
+    try {
+      setIsCreatingShift(true);
+      setShiftFormError(null);
+
+      // Format time to HH:MM:SS for Supabase
+      const startTimeFormatted = `${shiftForm.startTime}:00`;
+      const endTimeFormatted = `${shiftForm.endTime}:00`;
+
+      // Get the original shift to check if it was published or a delete intent
+      const originalShift = shifts.find(s => s.id === editingShiftId);
+      const wasPublished = originalShift?.status === 'published';
+      const wasDeleteIntent = originalShift?.isDelete === true;
+
+      // If it was published with is_delete = true, restore it and update
+      if (wasPublished && wasDeleteIntent) {
+        // Restore the published shift (remove delete mark) and update it
+        const { error } = await supabase
+          .from('planned_shifts')
+          .update({
+            worker_id: shiftForm.workerId,
+            site_id: shiftForm.siteId,
+            shift_date: shiftForm.shiftDate,
+            start_time: startTimeFormatted,
+            end_time: endTimeFormatted,
+            is_delete: false, // Restore from delete intent
+            break_minutes: shiftForm.breakMinutes || 0,
+            is_overtime_allowed: shiftForm.isOvertimeAllowed || false,
+            notes: shiftForm.notes || shiftForm.shiftTitle || null,
+          })
+          .eq('id', editingShiftId);
+
+        if (error) throw error;
+      } else if (wasPublished && !wasDeleteIntent) {
+        // If it was published (not marked for deletion), create a new draft instead of updating
+        const { error } = await supabase
+          .from('planned_shifts')
+          .insert({
+            company_id: currentCompany.id,
+            worker_id: shiftForm.workerId,
+            site_id: shiftForm.siteId,
+            shift_date: shiftForm.shiftDate,
+            start_time: startTimeFormatted,
+            end_time: endTimeFormatted,
+            status: 'draft',
+            is_delete: false, // Explicitly set to false
+            break_minutes: shiftForm.breakMinutes || 0,
+            is_overtime_allowed: shiftForm.isOvertimeAllowed || false,
+            notes: shiftForm.notes || shiftForm.shiftTitle || null,
+          });
+
+        if (error) throw error;
+        // Original published shift remains unchanged until publish
+      } else if (wasDeleteIntent && !wasPublished) {
+        // If editing a draft delete intent (legacy), convert it to a regular draft
+        const { error } = await supabase
+          .from('planned_shifts')
+          .update({
+            worker_id: shiftForm.workerId,
+            site_id: shiftForm.siteId,
+            shift_date: shiftForm.shiftDate,
+            start_time: startTimeFormatted,
+            end_time: endTimeFormatted,
+            is_delete: false, // Convert from delete intent to regular draft
+            break_minutes: shiftForm.breakMinutes || 0,
+            is_overtime_allowed: shiftForm.isOvertimeAllowed || false,
+            notes: shiftForm.notes || shiftForm.shiftTitle || null,
+          })
+          .eq('id', editingShiftId);
+
+        if (error) throw error;
+      } else {
+        // If it was already a regular draft, just update it
+        const { error } = await supabase
+          .from('planned_shifts')
+          .update({
+            worker_id: shiftForm.workerId,
+            site_id: shiftForm.siteId,
+            shift_date: shiftForm.shiftDate,
+            start_time: startTimeFormatted,
+            end_time: endTimeFormatted,
+            break_minutes: shiftForm.breakMinutes || 0,
+            is_overtime_allowed: shiftForm.isOvertimeAllowed || false,
+            notes: shiftForm.notes || shiftForm.shiftTitle || null,
+          })
+          .eq('id', editingShiftId);
+
+        if (error) throw error;
+      }
+
+      // Reset form and close modal
+      setShiftForm({
+        workerId: '',
+        shiftDate: '',
+        startTime: '',
+        endTime: '',
+        siteId: '',
+        shiftTitle: '',
+        notes: '',
+        breakMinutes: 0,
+        isOvertimeAllowed: false,
+        isRepeating: false,
+        repeatFrequency: 'weekly',
+        repeatEndDate: '',
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      });
+      setEditingShiftId(null);
+      setShowCreateShift(false);
+
+      // Reload data
+      await loadScheduleData();
+    } catch (err: any) {
+      logger.error('Error updating shift', err);
+      setShiftFormError(err?.message || 'Error updating shift');
+    } finally {
+      setIsCreatingShift(false);
+    }
+  };
+
+  // Handle delete shift (create draft delete intent)
+  const handleDeleteShift = async () => {
+    if (!currentCompany?.id || !editingShiftId) return;
+
+    try {
+      setIsCreatingShift(true);
+      setShiftFormError(null);
+
+      // Get the shift being deleted
+      const shiftToDelete = shifts.find(s => s.id === editingShiftId);
+      if (!shiftToDelete) {
+        setShiftFormError('Shift not found');
+        return;
+      }
+
+      // If it's already a draft delete intent, just delete it
+      if (shiftToDelete.isDelete) {
+        const { error } = await supabase
+          .from('planned_shifts')
+          .delete()
+          .eq('id', editingShiftId);
+
+        if (error) throw error;
+      } else if (shiftToDelete.status === 'published') {
+        // Mark published shift with is_delete = true (it will be deleted on publish)
+        const { error } = await supabase
+          .from('planned_shifts')
+          .update({ is_delete: true })
+          .eq('id', editingShiftId);
+
+        if (error) throw error;
+      } else if (shiftToDelete.status === 'draft' && !shiftToDelete.isDelete) {
+        // If it's a regular draft, just delete it
+        const { error } = await supabase
+          .from('planned_shifts')
+          .delete()
+          .eq('id', editingShiftId);
+
+        if (error) throw error;
+      }
+
+      // Reset form and close modal
+      setShiftForm({
+        workerId: '',
+        shiftDate: '',
+        startTime: '',
+        endTime: '',
+        siteId: '',
+        shiftTitle: '',
+        notes: '',
+        breakMinutes: 0,
+        isOvertimeAllowed: false,
+        isRepeating: false,
+        repeatFrequency: 'weekly',
+        repeatEndDate: '',
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      });
+      setEditingShiftId(null);
+      setShowCreateShift(false);
+
+      // Reload data
+      await loadScheduleData();
+    } catch (err: any) {
+      logger.error('Error deleting shift', err);
+      setShiftFormError(err?.message || 'Error deleting shift');
+    } finally {
+      setIsCreatingShift(false);
+    }
+  };
+
+  // Handle create shift (single or repeating)
+  const handleCreateShift = async () => {
+    if (!currentCompany?.id) return;
+
+    // Validation
+    if (!shiftForm.workerId) {
+      setShiftFormError('Please select a worker');
+      return;
+    }
+    if (!shiftForm.shiftDate) {
+      setShiftFormError('Please select a date');
+      return;
+    }
+    if (!shiftForm.startTime) {
+      setShiftFormError('Please specify start time');
+      return;
+    }
+    if (!shiftForm.endTime) {
+      setShiftFormError('Please specify end time');
+      return;
+    }
+    if (!shiftForm.siteId) {
+      setShiftFormError('Please select a site');
+      return;
+    }
+
+    // Validate time format and logic
+    if (shiftForm.startTime >= shiftForm.endTime) {
+      setShiftFormError('End time must be after start time');
+      return;
+    }
+
+    // Validate repeating shift
+    if (shiftForm.isRepeating && !shiftForm.repeatEndDate) {
+      setShiftFormError('Please select an end date for repeating shift');
+      return;
+    }
+
+    try {
+      setIsCreatingShift(true);
+      setShiftFormError(null);
+
+      // Format time to HH:MM:SS for Supabase
+      const startTimeFormatted = `${shiftForm.startTime}:00`;
+      const endTimeFormatted = `${shiftForm.endTime}:00`;
+
+      // Prepare base shift data
+      const baseShiftData = {
+        company_id: currentCompany.id,
+        worker_id: shiftForm.workerId,
+        site_id: shiftForm.siteId,
+        start_time: startTimeFormatted,
+        end_time: endTimeFormatted,
+        status: 'draft' as const,
+        break_minutes: shiftForm.breakMinutes || 0,
+        is_overtime_allowed: shiftForm.isOvertimeAllowed || false,
+        notes: shiftForm.notes || shiftForm.shiftTitle || null,
+      };
+
+      // Generate dates for repeating shifts
+      const datesToCreate: string[] = [];
+      if (shiftForm.isRepeating) {
+        const startDate = new Date(shiftForm.shiftDate);
+        const endDate = new Date(shiftForm.repeatEndDate);
+        const currentDate = new Date(startDate);
+
+        while (currentDate <= endDate) {
+          datesToCreate.push(currentDate.toISOString().slice(0, 10));
+          
+          // Increment based on frequency
+          if (shiftForm.repeatFrequency === 'daily') {
+            currentDate.setDate(currentDate.getDate() + 1);
+          } else if (shiftForm.repeatFrequency === 'weekly') {
+            currentDate.setDate(currentDate.getDate() + 7);
+          } else if (shiftForm.repeatFrequency === 'monthly') {
+            currentDate.setMonth(currentDate.getMonth() + 1);
+          }
+        }
+      } else {
+        datesToCreate.push(shiftForm.shiftDate);
+      }
+
+      // Insert all shifts
+      const shiftsToInsert = datesToCreate.map(date => ({
+        ...baseShiftData,
+        shift_date: date,
+      }));
+
+      const { error } = await supabase
+        .from('planned_shifts')
+        .insert(shiftsToInsert);
+
+      if (error) throw error;
+
+      // Reset form and close modal
+      setShiftForm({
+        workerId: '',
+        shiftDate: '',
+        startTime: '',
+        endTime: '',
+        siteId: '',
+        shiftTitle: '',
+        notes: '',
+        breakMinutes: 0,
+        isOvertimeAllowed: false,
+        isRepeating: false,
+        repeatFrequency: 'weekly',
+        repeatEndDate: '',
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      });
+      setShowCreateShift(false);
+
+      // Reload data using the shared function
+      await loadScheduleData();
+    } catch (err: any) {
+      logger.error('Error creating shift', err);
+      setShiftFormError(err?.message || 'Error creating shift');
+    } finally {
+      setIsCreatingShift(false);
+    }
+  };
+
+  // Handle create multiple shifts
+  const handleCreateMultipleShifts = async () => {
+    if (!currentCompany?.id) return;
+
+    // Validate all rows
+    const validRows = multipleShifts.filter(row => 
+      row.workerId && row.shiftDate && row.startTime && row.endTime && row.siteId
+    );
+
+    if (validRows.length === 0) {
+      setMultipleShiftsError('Please fill at least one complete shift row');
+      return;
+    }
+
+    // Validate times for each row
+    for (const row of validRows) {
+      if (row.startTime >= row.endTime) {
+        setMultipleShiftsError(`Row with date ${row.shiftDate}: End time must be after start time`);
+        return;
       }
     }
-    return week;
-  };
 
-  const currentWeekDates = getCurrentWeekDates();
-  // Ensure we have all 7 dates, use fallback if needed
-  const getDate = (index: number): string => {
-    const date = currentWeekDates[index];
-    if (date) return date;
-    const fallback = new Date().toISOString().split('T')[0];
-    return fallback || '';
-  };
+    try {
+      setIsCreatingMultipleShifts(true);
+      setMultipleShiftsError(null);
 
-  const shifts: Shift[] = [
-    // Monday shifts
-    {
-      id: '1',
-      workerId: '1',
-      date: getDate(0), // Monday
-      startTime: '09:00',
-      endTime: '17:00',
-      role: 'Senior Developer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '2',
-      workerId: '2',
-      date: getDate(0), // Monday
-      startTime: '08:00',
-      endTime: '16:00',
-      role: 'UX Designer',
-      location: 'Main Office',
-      status: 'confirmed'
-    },
-    {
-      id: '3',
-      workerId: '3',
-      date: getDate(0), // Monday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Project Manager',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    {
-      id: '4',
-      workerId: '4',
-      date: getDate(0), // Monday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'Frontend Developer',
-      location: 'Remote',
-      status: 'cancelled'
-    },
-    {
-      id: '5',
-      workerId: '5',
-      date: getDate(0), // Monday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Backend Developer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '6',
-      workerId: '6',
-      date: getDate(0), // Monday
-      startTime: '08:00',
-      endTime: '17:00',
-      role: 'DevOps Engineer',
-      location: 'Data Center',
-      status: 'confirmed'
-    },
-    {
-      id: '7',
-      workerId: '7',
-      date: getDate(0), // Monday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'UI Designer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '8',
-      workerId: '8',
-      date: getDate(0), // Monday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Product Manager',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    {
-      id: '9',
-      workerId: '9',
-      date: getDate(0), // Monday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'QA Engineer',
-      location: 'Testing Lab',
-      status: 'scheduled'
-    },
-    {
-      id: '10',
-      workerId: '10',
-      date: getDate(0), // Monday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Full Stack Developer',
-      location: 'Main Office',
-      status: 'confirmed'
-    },
-    // Additional Monday shifts for more variety
-    {
-      id: '56',
-      workerId: '11',
-      date: getDate(0), // Monday
-      startTime: '09:00',
-      endTime: '13:00',
-      role: 'Marketing Manager',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '56b',
-      workerId: '11',
-      date: getDate(0), // Monday
-      startTime: '14:00',
-      endTime: '18:00',
-      role: 'Marketing Manager',
-      location: 'Client Site',
-      status: 'confirmed'
-    },
-    {
-      id: '57',
-      workerId: '12',
-      date: getDate(0), // Monday
-      startTime: '08:00',
-      endTime: '17:00',
-      role: 'Sales Representative',
-      location: 'Remote',
-      status: 'confirmed'
-    },
-    {
-      id: '58',
-      workerId: '14',
-      date: getDate(0), // Monday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'Data Analyst',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '59',
-      workerId: '17',
-      date: getDate(0), // Monday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Graphic Designer',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    {
-      id: '60',
-      workerId: '21',
-      date: getDate(0), // Monday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Financial Analyst',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    // Tuesday shifts
-    {
-      id: '11',
-      workerId: '1',
-      date: getDate(1), // Tuesday
-      startTime: '09:00',
-      endTime: '17:00',
-      role: 'Senior Developer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '12',
-      workerId: '2',
-      date: getDate(1), // Tuesday
-      startTime: '08:00',
-      endTime: '16:00',
-      role: 'UX Designer',
-      location: 'Main Office',
-      status: 'confirmed'
-    },
-    {
-      id: '13',
-      workerId: '3',
-      date: getDate(1), // Tuesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Project Manager',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '14',
-      workerId: '4',
-      date: getDate(1), // Tuesday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'Frontend Developer',
-      location: 'Remote',
-      status: 'cancelled'
-    },
-    {
-      id: '15',
-      workerId: '5',
-      date: getDate(1), // Tuesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Backend Developer',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    {
-      id: '16',
-      workerId: '6',
-      date: getDate(1), // Tuesday
-      startTime: '08:00',
-      endTime: '17:00',
-      role: 'DevOps Engineer',
-      location: 'Data Center',
-      status: 'scheduled'
-    },
-    {
-      id: '17',
-      workerId: '7',
-      date: getDate(1), // Tuesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'UI Designer',
-      location: 'Main Office',
-      status: 'confirmed'
-    },
-    {
-      id: '18',
-      workerId: '8',
-      date: getDate(1), // Tuesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Product Manager',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '19',
-      workerId: '9',
-      date: getDate(1), // Tuesday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'QA Engineer',
-      location: 'Testing Lab',
-      status: 'completed'
-    },
-    {
-      id: '20',
-      workerId: '10',
-      date: getDate(1), // Tuesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Full Stack Developer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    // Additional Tuesday shifts
-    {
-      id: '61',
-      workerId: '13',
-      date: getDate(1), // Tuesday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'Content Writer',
-      location: 'Remote',
-      status: 'confirmed'
-    },
-    {
-      id: '62',
-      workerId: '15',
-      date: getDate(1), // Tuesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'HR Specialist',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '63',
-      workerId: '19',
-      date: getDate(1), // Tuesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Business Analyst',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    // Wednesday shifts
-    {
-      id: '21',
-      workerId: '1',
-      date: getDate(2), // Wednesday
-      startTime: '09:00',
-      endTime: '17:00',
-      role: 'Senior Developer',
-      location: 'Main Office',
-      status: 'confirmed'
-    },
-    {
-      id: '22',
-      workerId: '2',
-      date: getDate(2), // Wednesday
-      startTime: '08:00',
-      endTime: '16:00',
-      role: 'UX Designer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '23',
-      workerId: '3',
-      date: getDate(2), // Wednesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Project Manager',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    {
-      id: '24',
-      workerId: '4',
-      date: getDate(2), // Wednesday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'Frontend Developer',
-      location: 'Remote',
-      status: 'scheduled'
-    },
-    {
-      id: '25',
-      workerId: '5',
-      date: getDate(2), // Wednesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Backend Developer',
-      location: 'Main Office',
-      status: 'confirmed'
-    },
-    {
-      id: '26',
-      workerId: '6',
-      date: getDate(2), // Wednesday
-      startTime: '08:00',
-      endTime: '17:00',
-      role: 'DevOps Engineer',
-      location: 'Data Center',
-      status: 'cancelled'
-    },
-    {
-      id: '27',
-      workerId: '7',
-      date: getDate(2), // Wednesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'UI Designer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '28',
-      workerId: '8',
-      date: getDate(2), // Wednesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Product Manager',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    {
-      id: '29',
-      workerId: '9',
-      date: getDate(2), // Wednesday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'QA Engineer',
-      location: 'Testing Lab',
-      status: 'scheduled'
-    },
-    {
-      id: '30',
-      workerId: '10',
-      date: getDate(2), // Wednesday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Full Stack Developer',
-      location: 'Main Office',
-      status: 'confirmed'
-    },
-    // Thursday shifts
-    {
-      id: '31',
-      workerId: '1',
-      date: getDate(3), // Thursday
-      startTime: '09:00',
-      endTime: '17:00',
-      role: 'Senior Developer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '32',
-      workerId: '2',
-      date: getDate(3), // Thursday
-      startTime: '08:00',
-      endTime: '16:00',
-      role: 'UX Designer',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    {
-      id: '33',
-      workerId: '3',
-      date: getDate(3), // Thursday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Project Manager',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '34',
-      workerId: '4',
-      date: getDate(3), // Thursday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'Frontend Developer',
-      location: 'Remote',
-      status: 'confirmed'
-    },
-    {
-      id: '35',
-      workerId: '5',
-      date: getDate(3), // Thursday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Backend Developer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '36',
-      workerId: '6',
-      date: getDate(3), // Thursday
-      startTime: '08:00',
-      endTime: '17:00',
-      role: 'DevOps Engineer',
-      location: 'Data Center',
-      status: 'completed'
-    },
-    {
-      id: '37',
-      workerId: '7',
-      date: getDate(3), // Thursday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'UI Designer',
-      location: 'Main Office',
-      status: 'cancelled'
-    },
-    {
-      id: '38',
-      workerId: '8',
-      date: getDate(3), // Thursday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Product Manager',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '39',
-      workerId: '9',
-      date: getDate(3), // Thursday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'QA Engineer',
-      location: 'Testing Lab',
-      status: 'confirmed'
-    },
-    {
-      id: '40',
-      workerId: '10',
-      date: getDate(3), // Thursday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Full Stack Developer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    // Friday shifts
-    {
-      id: '41',
-      workerId: '1',
-      date: getDate(4), // Friday
-      startTime: '09:00',
-      endTime: '17:00',
-      role: 'Senior Developer',
-      location: 'Main Office',
-      status: 'confirmed'
-    },
-    {
-      id: '42',
-      workerId: '2',
-      date: getDate(4), // Friday
-      startTime: '08:00',
-      endTime: '16:00',
-      role: 'UX Designer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '43',
-      workerId: '3',
-      date: getDate(4), // Friday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Project Manager',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    {
-      id: '44',
-      workerId: '4',
-      date: getDate(4), // Friday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'Frontend Developer',
-      location: 'Remote',
-      status: 'scheduled'
-    },
-    {
-      id: '45',
-      workerId: '5',
-      date: getDate(4), // Friday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Backend Developer',
-      location: 'Main Office',
-      status: 'confirmed'
-    },
-    {
-      id: '46',
-      workerId: '6',
-      date: getDate(4), // Friday
-      startTime: '08:00',
-      endTime: '17:00',
-      role: 'DevOps Engineer',
-      location: 'Data Center',
-      status: 'scheduled'
-    },
-    {
-      id: '47',
-      workerId: '7',
-      date: getDate(4), // Friday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'UI Designer',
-      location: 'Main Office',
-      status: 'completed'
-    },
-    {
-      id: '48',
-      workerId: '8',
-      date: getDate(4), // Friday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Product Manager',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    {
-      id: '49',
-      workerId: '9',
-      date: getDate(4), // Friday
-      startTime: '10:00',
-      endTime: '19:00',
-      role: 'QA Engineer',
-      location: 'Testing Lab',
-      status: 'confirmed'
-    },
-    {
-      id: '50',
-      workerId: '10',
-      date: getDate(4), // Friday
-      startTime: '09:00',
-      endTime: '18:00',
-      role: 'Full Stack Developer',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    // Saturday shifts (some employees work weekends)
-    {
-      id: '51',
-      workerId: '1',
-      date: getDate(5), // Saturday
-      startTime: '10:00',
-      endTime: '16:00',
-      role: 'Senior Developer',
-      location: 'Remote',
-      status: 'scheduled'
-    },
-    {
-      id: '52',
-      workerId: '6',
-      date: getDate(5), // Saturday
-      startTime: '09:00',
-      endTime: '15:00',
-      role: 'DevOps Engineer',
-      location: 'Data Center',
-      status: 'confirmed'
-    },
-    {
-      id: '53',
-      workerId: '18',
-      date: getDate(5), // Saturday
-      startTime: '08:00',
-      endTime: '14:00',
-      role: 'System Administrator',
-      location: 'Main Office',
-      status: 'scheduled'
-    },
-    // Sunday shifts
-    {
-      id: '54',
-      workerId: '6',
-      date: getDate(6), // Sunday
-      startTime: '10:00',
-      endTime: '16:00',
-      role: 'DevOps Engineer',
-      location: 'Data Center',
-      status: 'confirmed'
-    },
-    {
-      id: '55',
-      workerId: '22',
-      date: getDate(6), // Sunday
-      startTime: '09:00',
-      endTime: '15:00',
-      role: 'Security Engineer',
-      location: 'Main Office',
-      status: 'scheduled'
+      const shiftsToInsert = validRows.map(row => ({
+        company_id: currentCompany.id,
+        worker_id: row.workerId,
+        site_id: row.siteId,
+        shift_date: row.shiftDate,
+        start_time: `${row.startTime}:00`,
+        end_time: `${row.endTime}:00`,
+        status: 'draft' as const,
+        break_minutes: row.breakMinutes || 0,
+        is_overtime_allowed: row.isOvertimeAllowed || false,
+        notes: row.notes || row.shiftTitle || null,
+      }));
+
+      const { error } = await supabase
+        .from('planned_shifts')
+        .insert(shiftsToInsert);
+
+      if (error) throw error;
+
+      // Reset form and close modal
+      setMultipleShifts([{
+        id: `row-${Date.now()}`,
+        workerId: '',
+        shiftDate: '',
+        startTime: '',
+        endTime: '',
+        siteId: '',
+        shiftTitle: '',
+        notes: '',
+        breakMinutes: 0,
+        isOvertimeAllowed: false,
+      }]);
+      setShowMultipleShifts(false);
+
+      // Reload data
+      await loadScheduleData();
+    } catch (err: any) {
+      logger.error('Error creating multiple shifts', err);
+      setMultipleShiftsError(err?.message || 'Error creating multiple shifts');
+    } finally {
+      setIsCreatingMultipleShifts(false);
     }
-  ];
+  };
+
+  // Handle close single shift modal
+  const handleCloseCreateShiftModal = () => {
+    setShowCreateShift(false);
+    setEditingShiftId(null);
+    setShiftForm({
+      workerId: '',
+      shiftDate: '',
+      startTime: '',
+      endTime: '',
+      siteId: '',
+      shiftTitle: '',
+      notes: '',
+      breakMinutes: 0,
+      isOvertimeAllowed: false,
+      isRepeating: false,
+      repeatFrequency: 'weekly',
+      repeatEndDate: '',
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+    setShiftFormError(null);
+  };
+
+  // Handle close multiple shifts modal
+  const handleCloseMultipleShiftsModal = () => {
+    setShowMultipleShifts(false);
+    setMultipleShifts([{
+      id: `row-${Date.now()}`,
+      workerId: '',
+      shiftDate: '',
+      startTime: '',
+      endTime: '',
+      siteId: '',
+      shiftTitle: '',
+      notes: '',
+      breakMinutes: 0,
+      isOvertimeAllowed: false,
+    }]);
+    setMultipleShiftsError(null);
+  };
+
+  // Add row to multiple shifts table
+  const addMultipleShiftRow = () => {
+    setMultipleShifts([...multipleShifts, {
+      id: `row-${Date.now()}-${Math.random()}`,
+      workerId: '',
+      shiftDate: '',
+      startTime: '',
+      endTime: '',
+      siteId: '',
+      shiftTitle: '',
+      notes: '',
+      breakMinutes: 0,
+      isOvertimeAllowed: false,
+    }]);
+  };
+
+  // Remove row from multiple shifts table
+  const removeMultipleShiftRow = (id: string) => {
+    if (multipleShifts.length > 1) {
+      setMultipleShifts(multipleShifts.filter(row => row.id !== id));
+    }
+  };
+
+  // Update multiple shift row
+  const updateMultipleShiftRow = (id: string, field: string, value: any) => {
+    setMultipleShifts(multipleShifts.map(row => 
+      row.id === id ? { ...row, [field]: value } : row
+    ));
+  };
+
+  const getWorkRuleTypeLabel = (ruleType: string | undefined): string => {
+    if (!ruleType) return 'No work rule';
+    switch (ruleType) {
+      case 'fixed':
+        return 'Fixed schedule';
+      case 'planned':
+      case 'planner':
+        return 'Planner-based';
+      case 'open':
+        return 'Flexible / No expected hours';
+      default:
+        return ruleType.charAt(0).toUpperCase() + ruleType.slice(1);
+    }
+  };
+
+  const getWorkRuleBorderColor = (ruleType: string | undefined): string => {
+    if (!ruleType) return 'border-l-gray-400';
+    switch (ruleType) {
+      case 'fixed':
+        return 'border-l-blue-500';
+      case 'planned':
+      case 'planner':
+        return 'border-l-green-500';
+      case 'open':
+        return 'border-l-yellow-500';
+      default:
+        return 'border-l-gray-400';
+    }
+  };
 
   // Clear all filters
   const clearAllFilters = () => {
@@ -1492,17 +1243,13 @@ export default function TeamSchedule() {
 
   // Filter options based on search terms
   const getFilteredDepartmentOptions = () => {
-    const departments = [...new Set(employees.map(e => e.department))];
-    return departments.filter(dept => 
-      dept.toLowerCase().includes(departmentSearchTerm.toLowerCase())
-    );
+    const departments = [...new Set(employees.map(e => e.department).filter(Boolean))];
+    return departments.filter(dept => dept.toLowerCase().includes(departmentSearchTerm.toLowerCase()));
   };
 
   const getFilteredRoleOptions = () => {
-    const roles = [...new Set(employees.map(e => e.role))];
-    return roles.filter(role => 
-      role.toLowerCase().includes(roleSearchTerm.toLowerCase())
-    );
+    const roles = [...new Set(employees.map(e => e.role).filter(Boolean))];
+    return roles.filter(role => role.toLowerCase().includes(roleSearchTerm.toLowerCase()));
   };
 
   const getFilteredStatusOptions = () => {
@@ -1599,15 +1346,107 @@ export default function TeamSchedule() {
     return shifts.filter(shift => shift.date === dateStr);
   };
 
-  const getStatusColor = (status: string) => {
+  // Generate virtual fixed schedule shifts for a worker on a specific date
+  const getFixedScheduleShiftsForDate = (workerId: string, date: Date): Shift[] => {
+    const fixedScheduleId = fixedScheduleIdByWorkerId[workerId];
+    if (!fixedScheduleId) return [];
+
+    const fixedSchedule = fixedSchedules.find(fs => fs.id === fixedScheduleId);
+    if (!fixedSchedule || !fixedSchedule.fixed_schedule_days) return [];
+
+    // Get day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
+    const dayOfWeek = date.getDay();
+    
+    // Find the schedule day for this day of week
+    const scheduleDay = fixedSchedule.fixed_schedule_days.find(
+      day => day.day_of_week === dayOfWeek && day.is_working && day.start_time && day.end_time
+    );
+
+    if (!scheduleDay) return [];
+
+    // Check if there's already a planned shift for this worker on this date
+    const dateStr = date.toISOString().split('T')[0];
+    if (!dateStr) return [];
+    
+    const hasPlannedShift = shifts.some(
+      shift => shift.workerId === workerId && shift.date === dateStr
+    );
+
+    // If there's a planned shift, don't show the fixed schedule
+    if (hasPlannedShift) return [];
+
+    // Create virtual shift
+    const startTime = scheduleDay.start_time ? normalizeTime(scheduleDay.start_time) : '';
+    const endTime = scheduleDay.end_time ? normalizeTime(scheduleDay.end_time) : '';
+    
+    if (!startTime || !endTime) return [];
+
+    return [{
+      id: `fixed-${workerId}-${dateStr}`, // Virtual ID
+      workerId,
+      date: dateStr,
+      startTime,
+      endTime,
+      role: (fixedSchedule.name || 'Fixed Schedule'),
+      location: 'Fixed Schedule',
+      status: 'published' as const, // Virtual status for rendering
+    }];
+  };
+
+  // Status to style mapping
+  const getStatusStyle = (status: 'draft' | 'published', isDelete?: boolean) => {
+    if (isDelete) {
+      // Delete intent styling: faded, strikethrough appearance
+      return {
+        bgColor: 'bg-red-50',
+        textColor: 'text-red-400',
+        borderColorHex: '#EF4444', // red-500
+        borderStyle: 'dashed',
+        opacity: 'opacity-50',
+      };
+    }
+    
     switch (status) {
-      case 'scheduled': return 'bg-blue-50 text-status-blue';
-      case 'confirmed': return 'bg-green-50 text-status-green';
-      case 'completed': return 'bg-green-50 text-status-green';
-      case 'cancelled': return 'bg-red-50 text-status-red';
-      default: return 'bg-gray-50 text-status-gray';
+      case 'draft':
+        return {
+          bgColor: 'bg-yellow-50',
+          textColor: 'text-yellow-700',
+          borderColorHex: '#FACC15', // yellow-400
+          borderStyle: 'dashed',
+          opacity: '',
+        };
+      case 'published':
+        return {
+          bgColor: 'bg-blue-50',
+          textColor: 'text-blue-700',
+          borderColorHex: '#3B82F6', // blue-500
+          borderStyle: 'solid',
+          opacity: '',
+        };
+      default:
+        return {
+          bgColor: 'bg-gray-50',
+          textColor: 'text-gray-700',
+          borderColorHex: '#9CA3AF', // gray-400
+          borderStyle: 'solid',
+          opacity: '',
+        };
     }
   };
+
+  const getStatusColor = (status: string, isDelete?: boolean) => {
+    const style = getStatusStyle(status as 'draft' | 'published', isDelete);
+    return `${style.bgColor} ${style.textColor} ${style.opacity}`;
+  };
+
+  // Count drafts and published shifts marked for deletion for Publish button
+  const draftCount = allShiftsRaw.filter(s => s.status === 'draft' && !s.is_delete).length;
+  const publishedDeleteCount = allShiftsRaw.filter(s => s.status === 'published' && s.is_delete === true).length;
+  const legacyDeleteIntentCount = allShiftsRaw.filter(s => s.status === 'draft' && s.is_delete === true).length;
+  const pendingChangesCount = draftCount + publishedDeleteCount + legacyDeleteIntentCount; // Total changes pending publish
+  const canPublish = (currentCompanyUser?.role === 'super_admin' || 
+                      currentCompanyUser?.role === 'admin' || 
+                      currentCompanyUser?.role === 'supervisor') && pendingChangesCount > 0;
 
   return (
     <div className="p-6">
@@ -1619,19 +1458,25 @@ export default function TeamSchedule() {
         </div>
       </div>
 
+      {loadError && (
+        <div className="mb-4 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+          {loadError}
+        </div>
+      )}
+
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <div className="flex items-center gap-3">
             <Users className="h-5 w-5 text-teal-600" />
-            <div className="text-2xl font-bold text-gray-900">{employees.length}</div>
+            <div className="text-2xl font-bold text-gray-900">{isLoadingData ? '—' : employees.length}</div>
               <div className="text-sm text-muted-foreground">Total Employees</div>
           </div>
         </div>
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <div className="flex items-center gap-3">
             <Calendar className="h-5 w-5 text-blue-600" />
-            <div className="text-2xl font-bold text-gray-900">{shifts.length}</div>
+            <div className="text-2xl font-bold text-gray-900">{isLoadingData ? '—' : shifts.length}</div>
               <div className="text-sm text-muted-foreground">Scheduled Shifts</div>
           </div>
         </div>
@@ -1639,9 +1484,9 @@ export default function TeamSchedule() {
           <div className="flex items-center gap-3">
             <CheckCircle className="h-5 w-5 text-green-600" />
             <div className="text-2xl font-bold text-gray-900">
-                {shifts.filter(s => s.status === 'confirmed').length}
+                {shifts.filter(s => s.status === 'published').length}
               </div>
-              <div className="text-sm text-muted-foreground">Confirmed</div>
+              <div className="text-sm text-muted-foreground">Published</div>
           </div>
         </div>
         <div className="bg-white border border-gray-200 rounded-lg p-4">
@@ -1970,7 +1815,7 @@ export default function TeamSchedule() {
               aria-label="Next week"
             >
               <ChevronRight className="w-5 h-5" />
-            </button>
+          </button>
           </div>
           
           {/* Action Buttons */}
@@ -2009,6 +1854,18 @@ export default function TeamSchedule() {
                     <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
                       <EyeOff className="w-4 h-4" />
                       Unpublish week
+                    </button>
+                    <button 
+                      onClick={handleCancel}
+                      disabled={pendingChangesCount === 0}
+                      className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 ${
+                        pendingChangesCount === 0
+                          ? 'text-gray-400 cursor-not-allowed'
+                          : 'text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Erase Drafts
                     </button>
                     <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
                       <UserX className="w-4 h-4" />
@@ -2075,11 +1932,24 @@ export default function TeamSchedule() {
                 <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded shadow-lg z-10">
                   <div className="py-1">
                     {/* Shifts section */}
-                    <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                    <button 
+                      onClick={() => {
+                        setShiftForm(prev => ({ ...prev, workerId: '' })); // Reset worker selection
+                        setShowCreateShift(true);
+                        setShowAddDropdown(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                    >
                       <Plus className="w-4 h-4" />
                       Add single shift
                     </button>
-                    <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                    <button 
+                      onClick={() => {
+                        setShowMultipleShifts(true);
+                        setShowAddDropdown(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                    >
                       <Plus className="w-4 h-4" />
                       Add multiple shifts
                     </button>
@@ -2110,14 +1980,22 @@ export default function TeamSchedule() {
             </div>
             
             {/* Publish Button */}
+            {canPublish !== undefined && (
             <button
-              className="flex items-center gap-2 px-2 py-1 rounded text-sm text-white transition-colors"
-              style={{ backgroundColor: 'var(--primary-brand-hex)' }}
-            >
-              <span>Publish (4)</span>
+                onClick={handlePublish}
+                disabled={!canPublish || isLoadingData}
+                className={`flex items-center gap-2 px-2 py-1 rounded text-sm text-white transition-colors ${
+                  canPublish && !isLoadingData
+                    ? 'hover:opacity-90'
+                    : 'opacity-50 cursor-not-allowed'
+                }`}
+                style={{ backgroundColor: canPublish && !isLoadingData ? 'var(--primary-brand-hex)' : '#9CA3AF' }}
+              >
+                <span>Publish ({pendingChangesCount})</span>
               <div className="w-px h-4 bg-white/30"></div>
               <Bell className="w-4 h-4" />
             </button>
+            )}
           </div>
         </div>
         </div>
@@ -2129,17 +2007,17 @@ export default function TeamSchedule() {
           <div>
             {/* Header Row */}
             <div className="flex border-b border-gray-200">
-            {/* Employee Column Header */}
-              <div className="w-64 p-3 pl-6 border-r border-gray-200 bg-gray-50">
+            {/* Worker Column Header */}
+              <div className="w-64 py-2 px-3 pl-4 border-r border-gray-200 bg-gray-50">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8"></div>
-              <span className="text-sm font-medium text-gray-700">Employee</span>
+              <span className="text-sm font-medium text-gray-700">Worker</span>
                 </div>
             </div>
             
             {/* Day Headers */}
             {weekDates.map((date, index) => (
-                <div key={index} className={`flex-1 p-3 bg-gray-50 flex items-center justify-center ${index < weekDates.length - 1 ? 'border-r border-gray-200' : ''}`}>
+                <div key={index} className={`flex-1 py-2 px-2 bg-gray-50 flex items-center justify-center ${index < weekDates.length - 1 ? 'border-r border-gray-200' : ''}`}>
                   <div className="flex items-center justify-center gap-1">
                 <div className="text-sm font-medium text-gray-700">
                   {date.toLocaleDateString('en-US', { weekday: 'short' })}
@@ -2156,7 +2034,7 @@ export default function TeamSchedule() {
             {paginatedEmployees.map((employee, employeeIndex) => (
               <div key={employee.id} className="flex">
                 {/* Employee Info */}
-                <div className={`w-64 p-3 pl-6 border-r border-gray-200 flex items-center gap-3 ${employeeIndex < paginatedEmployees.length - 1 ? 'border-b border-gray-200' : ''}`}>
+                <div className={`w-64 py-2 px-3 pl-4 border-r border-gray-200 border-l-4 ${getWorkRuleBorderColor(workRuleTypeByWorkerId[employee.id])} flex items-center gap-2 ${employeeIndex < paginatedEmployees.length - 1 ? 'border-b border-gray-200' : ''}`}>
                   <div className="relative">
                     <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center text-white text-sm font-medium">
                       {generateAvatarInitials(employee.name.split(' ')[0] || '', employee.name.split(' ')[1] || '')}
@@ -2170,71 +2048,160 @@ export default function TeamSchedule() {
                     <div className="text-sm font-medium text-gray-900 truncate">
                       {employee.name}
                     </div>
+                    {employee.role && (
                     <div className="text-xs text-gray-500 truncate">
                       {employee.role}
                     </div>
+                    )}
                   </div>
                 </div>
                 
                 {/* Day Cells */}
                 {weekDates.map((date, dayIndex) => {
                   const dayShifts = getShiftsForDate(date).filter(shift => shift.workerId === employee.id);
+                  const fixedScheduleShifts = getFixedScheduleShiftsForDate(employee.id, date);
+                  const isFixedSchedule = hasFixedSchedule(employee.id);
+                  const allShiftsForDay = [...dayShifts, ...fixedScheduleShifts];
+                  const shiftCount = allShiftsForDay.length;
+                  const cellHeight = shiftCount > 0 ? 40 * shiftCount : 40; // 40px per shift
+                  
                   return (
-                      <div key={dayIndex} className={`group flex-1 min-h-[60px] relative ${dayIndex < weekDates.length - 1 ? 'border-r border-gray-200' : ''} ${employeeIndex < paginatedEmployees.length - 1 ? 'border-b border-gray-200' : ''}`}>
-                      {dayShifts.length > 0 ? (
+                      <div 
+                        key={dayIndex} 
+                        className={`group flex-1 relative ${dayIndex < weekDates.length - 1 ? 'border-r border-gray-200' : ''} ${employeeIndex < paginatedEmployees.length - 1 ? 'border-b border-gray-200' : ''} ${isFixedSchedule && dayShifts.length === 0 ? 'bg-gray-50' : ''}`}
+                        style={{ minHeight: `${cellHeight}px` }}
+                      >
+                      {allShiftsForDay.length > 0 ? (
                         <>
-                          {dayShifts.map((shift, shiftIndex) => (
+                          {allShiftsForDay.map((shift, shiftIndex) => {
+                            const isFixedScheduleShift = shift.id.startsWith('fixed-');
+                            const style = isFixedScheduleShift 
+                              ? {
+                                  bgColor: 'bg-gray-100',
+                                  textColor: 'text-gray-600',
+                                  borderColorHex: '#9CA3AF', // gray-400
+                                  borderStyle: 'solid',
+                                  opacity: '',
+                                }
+                              : getStatusStyle(shift.status, shift.isDelete);
+                            
+                            // Calculate position: each shift gets equal height
+                            const shiftHeightPercent = 100 / shiftCount;
+                            const topPercent = (shiftIndex * 100) / shiftCount;
+                            
+                            return (
                               <div
                                 key={shift.id}
-                                className={`absolute text-xs cursor-pointer transition-all duration-200 flex flex-col justify-center group-hover:left-6 ${getStatusColor(shift.status)} ${
-                                  dayShifts.length > 1 
-                                    ? shiftIndex === 0 
-                                      ? 'top-0 bottom-1/2 border-b border-gray-300 left-0 right-0' 
-                                      : 'top-1/2 bottom-0 left-0 right-0'
-                                    : 'inset-0'
-                                }`}
-                                onClick={() => setSelectedEmployee(employee.id)}
+                                className={`absolute text-xs flex flex-col justify-center ${style.bgColor} ${style.textColor} ${style.opacity} left-0 right-0 ${
+                                  shiftIndex < shiftCount - 1 ? 'border-b border-gray-300' : ''
+                                } ${isFixedScheduleShift ? '' : 'cursor-pointer transition-all duration-200 group-hover:left-6'}`}
+                                onClick={() => {
+                                  if (!isFixedScheduleShift) {
+                                    handleEditShift(shift.id);
+                                  }
+                                }}
+                                title={isFixedScheduleShift ? 'Fixed schedule - managed from Worker Settings' : shift.isDelete ? 'To be deleted on publish' : undefined}
                               style={{ 
-                                borderLeft: '3px solid',
-                                borderLeftColor: shift.status === 'scheduled' ? 'var(--status-blue)' : 
-                                                shift.status === 'confirmed' ? 'var(--status-green)' : 
-                                                shift.status === 'completed' ? 'var(--status-green)' : 
-                                                shift.status === 'cancelled' ? 'var(--status-red)' : 'var(--status-gray)'
+                                  borderLeft: `3px ${style.borderStyle}`,
+                                  borderLeftColor: style.borderColorHex,
+                                  top: `${topPercent}%`,
+                                  height: `${shiftHeightPercent}%`,
                               }}
                             >
-                              <div className="px-2">
-                                <div className="font-medium text-xs leading-tight truncate">{shift.role}</div>
-                                <div className="text-xs opacity-75 leading-tight flex items-center gap-1">
+                              <div className="px-1.5 py-0.5">
+                                  <div className="flex items-center gap-1 mb-0">
+                                    <div className={`font-medium text-xs leading-tight truncate flex-1 ${shift.isDelete ? 'line-through' : ''}`}>
+                                      {shift.role}
+                                    </div>
+                                    {!isFixedScheduleShift && shift.isDelete && (
+                                      <Trash2 className="w-3 h-3 text-red-500 flex-shrink-0" />
+                                    )}
+                                    {!isFixedScheduleShift && shift.status === 'draft' && !shift.isDelete && (
+                                      <span className="px-1 py-0.5 text-[10px] font-medium bg-yellow-200 text-yellow-800 rounded flex-shrink-0">
+                                        Draft
+                                      </span>
+                                    )}
+                                  </div>
+                                <div className={`text-xs leading-tight flex items-center gap-1 ${shift.isDelete ? 'opacity-50' : 'opacity-75'}`}>
                                   <Clock className="w-2.5 h-2.5" />
+                                  <span className={shift.isDelete ? 'line-through' : ''}>
                                   {shift.startTime} – {shift.endTime}
+                                  </span>
                                 </div>
                               </div>
                             </div>
-                          ))}
-                          {/* Add button that appears on hover */}
+                            );
+                          })}
+                          {/* Add button that appears on hover - only for planned/planner workers, not flexible */}
+                          {!hasFixedSchedule(employee.id) && !hasFlexibleSchedule(employee.id) && (
                           <button 
-                            className="absolute top-1/2 left-1 transform -translate-y-1/2 w-4 h-4 bg-white border border-gray-200 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-gray-50"
+                              disabled={!canPlanShiftsForWorker(employee.id)}
+                              title={
+                                canPlanShiftsForWorker(employee.id)
+                                  ? `Add shift for ${employee.name}`
+                                  : 'This worker is not configured for planner-based scheduling'
+                              }
+                              className={`absolute top-1/2 left-1 transform -translate-y-1/2 w-4 h-4 bg-white border border-gray-200 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 ${
+                                canPlanShiftsForWorker(employee.id)
+                                  ? 'hover:bg-gray-50'
+                                  : 'cursor-not-allowed opacity-0 group-hover:opacity-30'
+                              }`}
                             onClick={() => {
-                              // TODO: Add shift functionality
-                              console.log('Add shift for', employee.name, 'on', date.toDateString());
+                                if (!canPlanShiftsForWorker(employee.id)) return;
+                                setSelectedEmployee(employee.id);
+                                // Preselect the employee and date in the form
+                                const dateStr = date.toISOString().slice(0, 10);
+                                setShiftForm(prev => ({ 
+                                  ...prev, 
+                                  workerId: employee.id,
+                                  shiftDate: dateStr
+                                }));
+                                setShowCreateShift(true);
                             }}
                             aria-label={`Add shift for ${employee.name}`}
                           >
                             <Plus className="w-2.5 h-2.5 text-gray-400" />
                           </button>
+                          )}
                         </>
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
-                          <button 
-                            className="opacity-0 group-hover:opacity-100 w-6 h-6 border border-gray-200 rounded flex items-center justify-center hover:bg-gray-50 transition-all duration-200"
-                            onClick={() => {
-                              // TODO: Add shift functionality
-                              console.log('Add shift for', employee.name, 'on', date.toDateString());
-                            }}
-                            aria-label={`Add shift for ${employee.name}`}
-                          >
-                            <Plus className="w-3 h-3 text-gray-400" />
-                          </button>
+                          {/* Show "Flexible" label for flexible schedule workers */}
+                          {hasFlexibleSchedule(employee.id) ? (
+                            <div className="text-xs text-gray-400 italic">Flexible</div>
+                          ) : (
+                            /* Only show Add button for planned/planner workers, not for fixed schedule workers */
+                            !hasFixedSchedule(employee.id) && (
+                              <button 
+                                disabled={!canPlanShiftsForWorker(employee.id)}
+                                title={
+                                  canPlanShiftsForWorker(employee.id)
+                                    ? `Add shift for ${employee.name}`
+                                    : 'This worker is not configured for planner-based scheduling'
+                                }
+                                className={`opacity-0 group-hover:opacity-100 w-6 h-6 border border-gray-200 rounded flex items-center justify-center transition-all duration-200 ${
+                                  canPlanShiftsForWorker(employee.id)
+                                    ? 'hover:bg-gray-50'
+                                    : 'cursor-not-allowed opacity-0 group-hover:opacity-30'
+                                }`}
+                                onClick={() => {
+                                  if (!canPlanShiftsForWorker(employee.id)) return;
+                                  setSelectedEmployee(employee.id);
+                                  // Preselect the employee and date in the form
+                                  const dateStr = date.toISOString().slice(0, 10);
+                                  setShiftForm(prev => ({ 
+                                    ...prev, 
+                                    workerId: employee.id,
+                                    shiftDate: dateStr
+                                  }));
+                                  setShowCreateShift(true);
+                                }}
+                                aria-label={`Add shift for ${employee.name}`}
+                              >
+                                <Plus className="w-3 h-3 text-gray-400" />
+                              </button>
+                            )
+                          )}
                         </div>
                       )}
                     </div>
@@ -2338,6 +2305,494 @@ export default function TeamSchedule() {
           )}
               </div>
             </div>
+
+      {/* Create Single Shift Modal */}
+      {showCreateShift && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200] p-4 overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full my-8 max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 sticky top-0 bg-white z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center">
+                  <Plus className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    {editingShiftId ? 'Edit Shift' : 'Add Single Shift'}
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    {editingShiftId 
+                      ? 'Edit this shift (changes will create a draft)' 
+                      : 'Create a new shift (will be created as draft)'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleCloseCreateShiftModal}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Close modal"
+                disabled={isCreatingShift}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <div className="p-6 space-y-4">
+              {shiftFormError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                  {shiftFormError}
+                </div>
+              )}
+
+              {/* Worker Selection */}
+              <div>
+                <label htmlFor="worker-select" className="block text-sm font-medium text-gray-700 mb-2">
+                  Users <span className="text-red-500">*</span>
+                </label>
+                <select
+                  id="worker-select"
+                  value={shiftForm.workerId}
+                  onChange={(e) => setShiftForm(prev => ({ ...prev, workerId: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                  disabled={isCreatingShift}
+                >
+                  <option value="">Select a worker</option>
+                  {employeesWithPlannedRule.map(emp => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.name} {emp.role ? `- ${emp.role}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Date Selection */}
+              <div>
+                <label htmlFor="shift-date" className="block text-sm font-medium text-gray-700 mb-2">
+                  Date <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  id="shift-date"
+                  value={shiftForm.shiftDate}
+                  onChange={(e) => setShiftForm(prev => ({ ...prev, shiftDate: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                  disabled={isCreatingShift}
+                />
+              </div>
+
+              {/* Time Selection */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="start-time" className="block text-sm font-medium text-gray-700 mb-2">
+                    Start Time <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="time"
+                    id="start-time"
+                    value={shiftForm.startTime}
+                    onChange={(e) => setShiftForm(prev => ({ ...prev, startTime: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                    disabled={isCreatingShift}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="end-time" className="block text-sm font-medium text-gray-700 mb-2">
+                    End Time <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="time"
+                    id="end-time"
+                    value={shiftForm.endTime}
+                    onChange={(e) => setShiftForm(prev => ({ ...prev, endTime: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                    disabled={isCreatingShift}
+                  />
+                </div>
+              </div>
+
+              {/* Repeating Shift - Only available when creating, not editing */}
+              {!editingShiftId && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="is-repeating"
+                    checked={shiftForm.isRepeating}
+                    onChange={(e) => setShiftForm(prev => ({ ...prev, isRepeating: e.target.checked }))}
+                    className="rounded border-gray-300 text-primary focus:ring-primary/20"
+                    disabled={isCreatingShift}
+                  />
+                  <label htmlFor="is-repeating" className="text-sm font-medium text-gray-700">
+                    Set it as a repeating shift
+                  </label>
+                </div>
+              )}
+
+              {shiftForm.isRepeating && (
+                <div className="pl-6 space-y-4 border-l-2 border-gray-200">
+                  <div>
+                    <label htmlFor="repeat-frequency" className="block text-sm font-medium text-gray-700 mb-2">
+                      Repeat Frequency
+                    </label>
+                    <select
+                      id="repeat-frequency"
+                      value={shiftForm.repeatFrequency}
+                      onChange={(e) => setShiftForm(prev => ({ ...prev, repeatFrequency: e.target.value as 'daily' | 'weekly' | 'monthly' }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                      disabled={isCreatingShift}
+                    >
+                      <option value="daily">Daily</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="repeat-end-date" className="block text-sm font-medium text-gray-700 mb-2">
+                      End Date <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      id="repeat-end-date"
+                      value={shiftForm.repeatEndDate}
+                      onChange={(e) => setShiftForm(prev => ({ ...prev, repeatEndDate: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                      disabled={isCreatingShift}
+                      min={shiftForm.shiftDate}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Site Selection */}
+              <div>
+                <label htmlFor="site-select" className="block text-sm font-medium text-gray-700 mb-2">
+                  Location <span className="text-red-500">*</span>
+                </label>
+                <select
+                  id="site-select"
+                  value={shiftForm.siteId}
+                  onChange={(e) => setShiftForm(prev => ({ ...prev, siteId: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                  disabled={isCreatingShift}
+                >
+                  <option value="">Select a site</option>
+                  {sitesList.map(site => (
+                    <option key={site.id} value={site.id}>
+                      {site.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Shift Title */}
+              <div>
+                <label htmlFor="shift-title" className="block text-sm font-medium text-gray-700 mb-2">
+                  Shift Title
+                </label>
+                <input
+                  type="text"
+                  id="shift-title"
+                  value={shiftForm.shiftTitle}
+                  onChange={(e) => setShiftForm(prev => ({ ...prev, shiftTitle: e.target.value }))}
+                  placeholder="e.g., Morning Shift, Client Name, etc."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                  disabled={isCreatingShift}
+                />
+              </div>
+
+              {/* Break Minutes */}
+              <div>
+                <label htmlFor="break-minutes" className="block text-sm font-medium text-gray-700 mb-2">
+                  Break Minutes
+                </label>
+                <input
+                  type="number"
+                  id="break-minutes"
+                  value={shiftForm.breakMinutes}
+                  onChange={(e) => setShiftForm(prev => ({ ...prev, breakMinutes: parseInt(e.target.value) || 0 }))}
+                  min="0"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                  disabled={isCreatingShift}
+                />
+              </div>
+
+              {/* Overtime Allowed */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="overtime-allowed"
+                  checked={shiftForm.isOvertimeAllowed}
+                  onChange={(e) => setShiftForm(prev => ({ ...prev, isOvertimeAllowed: e.target.checked }))}
+                  className="rounded border-gray-300 text-primary focus:ring-primary/20"
+                  disabled={isCreatingShift}
+                />
+                <label htmlFor="overtime-allowed" className="text-sm font-medium text-gray-700">
+                  Overtime Allowed
+                </label>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-2">
+                  Note
+                </label>
+                <textarea
+                  id="notes"
+                  value={shiftForm.notes}
+                  onChange={(e) => setShiftForm(prev => ({ ...prev, notes: e.target.value }))}
+                  placeholder="Add any important information for this shift..."
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                  disabled={isCreatingShift}
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between p-6 border-t border-gray-200 sticky bottom-0 bg-white">
+              {/* Delete button - only show when editing */}
+              {editingShiftId && (
+                <button
+                  onClick={handleDeleteShift}
+                  disabled={isCreatingShift}
+                  className="px-4 py-2 text-sm font-medium text-red-700 bg-white border border-red-300 rounded-lg hover:bg-red-50 transition-colors"
+                >
+                  {isCreatingShift ? 'Deleting...' : 'Delete'}
+                </button>
+              )}
+              
+              {/* Right side buttons */}
+              <div className="flex items-center gap-3 ml-auto">
+                <button
+                  onClick={handleCloseCreateShiftModal}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  disabled={isCreatingShift}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={editingShiftId ? handleUpdateShift : handleCreateShift}
+                  disabled={isCreatingShift}
+                  className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+                  style={{ 
+                    backgroundColor: isCreatingShift ? '#9CA3AF' : 'var(--primary-brand-hex)',
+                    cursor: isCreatingShift ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {isCreatingShift 
+                    ? (editingShiftId ? 'Updating...' : 'Creating...') 
+                    : (editingShiftId ? 'Save Changes' : 'Add Shift')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Multiple Shifts Modal */}
+      {showMultipleShifts && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200] p-4 overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full my-8 max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 sticky top-0 bg-white z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center">
+                  <Plus className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Add Multiple Shifts</h3>
+                  <p className="text-sm text-gray-500">Create multiple shifts at once (will be created as drafts)</p>
+                </div>
+              </div>
+              <button
+                onClick={handleCloseMultipleShiftsModal}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Close modal"
+                disabled={isCreatingMultipleShifts}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <div className="p-6">
+              {multipleShiftsError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm mb-4">
+                  {multipleShiftsError}
+                </div>
+              )}
+
+              {/* Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Worker *</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Date *</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Start Time *</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">End Time *</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Location *</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Shift Title</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Break (min)</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Overtime</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Notes</th>
+                      <th className="px-3 py-2 text-center text-xs font-medium text-gray-700 w-12"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {multipleShifts.map((row, index) => (
+                      <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="px-3 py-2">
+                          <select
+                            value={row.workerId}
+                            onChange={(e) => updateMultipleShiftRow(row.id, 'workerId', e.target.value)}
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
+                            disabled={isCreatingMultipleShifts}
+                          >
+                            <option value="">Select...</option>
+                            {employeesWithPlannedRule.map(emp => (
+                              <option key={emp.id} value={emp.id}>
+                                {emp.name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="date"
+                            value={row.shiftDate}
+                            onChange={(e) => updateMultipleShiftRow(row.id, 'shiftDate', e.target.value)}
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
+                            disabled={isCreatingMultipleShifts}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="time"
+                            value={row.startTime}
+                            onChange={(e) => updateMultipleShiftRow(row.id, 'startTime', e.target.value)}
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
+                            disabled={isCreatingMultipleShifts}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="time"
+                            value={row.endTime}
+                            onChange={(e) => updateMultipleShiftRow(row.id, 'endTime', e.target.value)}
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
+                            disabled={isCreatingMultipleShifts}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <select
+                            value={row.siteId}
+                            onChange={(e) => updateMultipleShiftRow(row.id, 'siteId', e.target.value)}
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
+                            disabled={isCreatingMultipleShifts}
+                          >
+                            <option value="">Select...</option>
+                            {sitesList.map(site => (
+                              <option key={site.id} value={site.id}>
+                                {site.name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="text"
+                            value={row.shiftTitle}
+                            onChange={(e) => updateMultipleShiftRow(row.id, 'shiftTitle', e.target.value)}
+                            placeholder="Optional"
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
+                            disabled={isCreatingMultipleShifts}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="number"
+                            value={row.breakMinutes}
+                            onChange={(e) => updateMultipleShiftRow(row.id, 'breakMinutes', parseInt(e.target.value) || 0)}
+                            min="0"
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
+                            disabled={isCreatingMultipleShifts}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="checkbox"
+                            checked={row.isOvertimeAllowed}
+                            onChange={(e) => updateMultipleShiftRow(row.id, 'isOvertimeAllowed', e.target.checked)}
+                            className="rounded border-gray-300 text-primary focus:ring-primary/20"
+                            disabled={isCreatingMultipleShifts}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="text"
+                            value={row.notes}
+                            onChange={(e) => updateMultipleShiftRow(row.id, 'notes', e.target.value)}
+                            placeholder="Optional"
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
+                            disabled={isCreatingMultipleShifts}
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          {multipleShifts.length > 1 && (
+                            <button
+                              onClick={() => removeMultipleShiftRow(row.id)}
+                              className="text-red-500 hover:text-red-700 transition-colors"
+                              disabled={isCreatingMultipleShifts}
+                              aria-label="Remove row"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Add Row Button */}
+              <div className="mt-4">
+                <button
+                  onClick={addMultipleShiftRow}
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  disabled={isCreatingMultipleShifts}
+                >
+                  <Plus className="w-4 h-4" />
+                  Add Row
+                </button>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200 sticky bottom-0 bg-white">
+              <button
+                onClick={handleCloseMultipleShiftsModal}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={isCreatingMultipleShifts}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateMultipleShifts}
+                disabled={isCreatingMultipleShifts}
+                className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+                style={{ 
+                  backgroundColor: isCreatingMultipleShifts ? '#9CA3AF' : 'var(--primary-brand-hex)',
+                  cursor: isCreatingMultipleShifts ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {isCreatingMultipleShifts ? 'Creating...' : `Add ${multipleShifts.filter(r => r.workerId && r.shiftDate && r.startTime && r.endTime && r.siteId).length} Shifts`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
