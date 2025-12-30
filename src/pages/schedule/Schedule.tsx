@@ -2341,7 +2341,12 @@ export default function Schedule() {
                         setShowActionsDropdown(false);
                         setShowUnpublishConfirm(true);
                       }}
-                      className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                      disabled={!hasPublishedShiftsInView}
+                      className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 ${
+                        !hasPublishedShiftsInView
+                          ? 'text-gray-400 cursor-not-allowed'
+                          : 'text-gray-700 hover:bg-gray-50'
+                      }`}
                     >
                       <EyeOff className="w-4 h-4" />
                       Delete published shifts
