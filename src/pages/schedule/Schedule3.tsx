@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
 import { getCurrentStatusDotColor } from '../../hooks/useWorkers';
 import { useCompany } from '../../hooks/useCompany';
@@ -38,7 +38,8 @@ import {
   Eye,
   Flag,
   SortAsc,
-  SortDesc
+  SortDesc,
+  X
 } from 'lucide-react';
 
 // Function to generate avatar initials
@@ -91,7 +92,7 @@ interface Shift {
   endTime: string;
   role: string;
   location: string;
-  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled';
+  status: 'draft' | 'published' | 'cancelled';
   notes?: string;
 }
 
@@ -103,6 +104,8 @@ type PlannedShiftRow = {
   shift_date: string;
   start_time: string;
   end_time: string;
+  status: 'draft' | 'published' | 'cancelled';
+  published_at: string | null;
   created_at: string;
 };
 
@@ -120,7 +123,25 @@ type SiteRow = { id: string; site_name: string | null };
 type WorkerWorkRuleRow = {
   worker_id: string;
   rule_type: string | null;
+  fixed_schedule_id: string | null;
   start_date: string | null;
+};
+
+type FixedScheduleRow = {
+  id: string;
+  company_id: string;
+  name: string;
+  fixed_schedule_days?: FixedScheduleDayRow[];
+};
+
+type FixedScheduleDayRow = {
+  id: string;
+  fixed_schedule_id: string;
+  day_of_week: number; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  is_working: boolean;
+  start_time: string | null;
+  end_time: string | null;
+  break_minutes: number;
 };
 
 function normalizeTime(value: string): string {
@@ -132,7 +153,7 @@ function normalizeTime(value: string): string {
 
 export default function Schedule3() {
   const { registerSubmodules } = useSubmoduleNav();
-  const { currentCompany } = useCompany();
+  const { currentCompany, currentCompanyUser } = useCompany();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
@@ -141,10 +162,23 @@ export default function Schedule3() {
   const [showCreateShift, setShowCreateShift] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  
+  // Create shift modal form state
+  const [shiftForm, setShiftForm] = useState({
+    workerId: '',
+    shiftDate: '',
+    startTime: '',
+    endTime: '',
+    siteId: '',
+  });
+  const [isCreatingShift, setIsCreatingShift] = useState(false);
+  const [shiftFormError, setShiftFormError] = useState<string | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [sitesById, setSitesById] = useState<Record<string, string>>({});
   const [workRuleTypeByWorkerId, setWorkRuleTypeByWorkerId] = useState<Record<string, string>>({});
+  const [fixedScheduleIdByWorkerId, setFixedScheduleIdByWorkerId] = useState<Record<string, string>>({});
+  const [fixedSchedules, setFixedSchedules] = useState<FixedScheduleRow[]>([]);
   
   // Multi-select filter states
   const [selectedDepartment, setSelectedDepartment] = useState<string[]>([]);
@@ -199,134 +233,168 @@ export default function Schedule3() {
     };
   }, [currentDate]);
 
-  useEffect(() => {
-    const loadScheduleData = async () => {
-      if (!currentCompany?.id) {
-        setEmployees([]);
-        setShifts([]);
-        setSitesById({});
-        setWorkRuleTypeByWorkerId({});
-        setLoadError(null);
-        setIsLoadingData(false);
-        return;
-      }
-
-      setIsLoadingData(true);
+  // Extract load function to be reusable
+  const loadScheduleData = useCallback(async () => {
+    if (!currentCompany?.id) {
+      setEmployees([]);
+      setShifts([]);
+      setSitesById({});
+      setWorkRuleTypeByWorkerId({});
       setLoadError(null);
+      setIsLoadingData(false);
+      return;
+    }
 
-      try {
-        const [workersRes, sitesRes, rulesRes, shiftsRes] = await Promise.all([
-          supabase
-            .from('workers')
-            .select('id, first_name, last_name, is_active, archived, job_title:job_titles(name)')
-            .eq('company_id', currentCompany.id)
-            .eq('is_deleted', false)
-            .order('created_at', { ascending: false }),
-          supabase
-            .from('sites')
-            .select('id, site_name')
-            .eq('company_id', currentCompany.id)
-            .eq('is_deleted', false)
-            .eq('archived', false)
-            .order('created_at', { ascending: false }),
-          supabase
-            .from('worker_work_rules')
-            .select('worker_id, rule_type, start_date')
-            .eq('company_id', currentCompany.id)
-            .order('start_date', { ascending: false }),
-          supabase
-            .from('planned_shifts')
-            .select('id, company_id, worker_id, site_id, shift_date, start_time, end_time, created_at')
-            .eq('company_id', currentCompany.id)
-            .gte('shift_date', weekRange.startISO)
-            .lte('shift_date', weekRange.endISO)
-            .order('shift_date', { ascending: true })
-            .order('start_time', { ascending: true }),
-        ]);
+    setIsLoadingData(true);
+    setLoadError(null);
 
-        if (workersRes.error) throw workersRes.error;
-        if (sitesRes.error) throw sitesRes.error;
-        if (rulesRes.error) throw rulesRes.error;
-        if (shiftsRes.error) throw shiftsRes.error;
+    try {
+      const [workersRes, sitesRes, rulesRes, fixedSchedulesRes, shiftsRes] = await Promise.all([
+        supabase
+          .from('workers')
+          .select('id, first_name, last_name, is_active, archived, job_title:job_titles(name)')
+          .eq('company_id', currentCompany.id)
+          .eq('is_deleted', false)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('sites')
+          .select('id, site_name')
+          .eq('company_id', currentCompany.id)
+          .eq('is_deleted', false)
+          .eq('archived', false)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('worker_work_rules')
+          .select('worker_id, rule_type, fixed_schedule_id, start_date')
+          .eq('company_id', currentCompany.id)
+          .order('start_date', { ascending: false }),
+        supabase
+          .from('fixed_schedules')
+          .select(`
+            id,
+            company_id,
+            name,
+            fixed_schedule_days (
+              id,
+              fixed_schedule_id,
+              day_of_week,
+              is_working,
+              start_time,
+              end_time,
+              break_minutes
+            )
+          `)
+          .eq('company_id', currentCompany.id),
+        supabase
+          .from('planned_shifts')
+          .select('id, company_id, worker_id, site_id, shift_date, start_time, end_time, status, published_at, created_at')
+          .eq('company_id', currentCompany.id)
+          .gte('shift_date', weekRange.startISO)
+          .lte('shift_date', weekRange.endISO)
+          .order('shift_date', { ascending: true })
+          .order('start_time', { ascending: true }),
+      ]);
 
-        const siteMap: Record<string, string> = {};
-        for (const s of (sitesRes.data || []) as SiteRow[]) {
-          if (s?.id && s?.site_name) siteMap[s.id] = s.site_name;
-        }
-        setSitesById(siteMap);
+      if (workersRes.error) throw workersRes.error;
+      if (sitesRes.error) throw sitesRes.error;
+      if (rulesRes.error) throw rulesRes.error;
+      if (fixedSchedulesRes.error) throw fixedSchedulesRes.error;
+      if (shiftsRes.error) throw shiftsRes.error;
 
-        // Pick the latest rule per worker (rules are ordered by start_date DESC).
-        const ruleMap: Record<string, string> = {};
-        for (const r of (rulesRes.data || []) as WorkerWorkRuleRow[]) {
-          if (!r?.worker_id) continue;
-          if (ruleMap[r.worker_id]) continue;
-          if (r.rule_type) ruleMap[r.worker_id] = r.rule_type;
-        }
-        setWorkRuleTypeByWorkerId(ruleMap);
+      const siteMap: Record<string, string> = {};
+      for (const s of (sitesRes.data || []) as SiteRow[]) {
+        if (s?.id && s?.site_name) siteMap[s.id] = s.site_name;
+      }
+      setSitesById(siteMap);
 
-        const mappedEmployees: Employee[] = ((workersRes.data || []) as WorkerRow[])
-          .filter(w => Boolean(w?.id))
-          .filter(w => (w.is_active ?? false) && !(w.archived ?? false))
-          .map(w => {
-            const first = (w.first_name || '').trim();
-            const last = (w.last_name || '').trim();
-            const fullName = `${first} ${last}`.trim();
-            const jobTitleObj = w.job_title as any;
-            const jobTitle = Array.isArray(jobTitleObj) 
-              ? (jobTitleObj[0]?.name || '')
-              : (jobTitleObj?.name || '');
+      // Pick the latest rule per worker (rules are ordered by start_date DESC).
+      const ruleMap: Record<string, string> = {};
+      const fixedScheduleMap: Record<string, string> = {};
+      for (const r of (rulesRes.data || []) as WorkerWorkRuleRow[]) {
+        if (!r?.worker_id) continue;
+        if (ruleMap[r.worker_id]) continue;
+        if (r.rule_type) ruleMap[r.worker_id] = r.rule_type;
+        if (r.fixed_schedule_id) fixedScheduleMap[r.worker_id] = r.fixed_schedule_id;
+      }
+      setWorkRuleTypeByWorkerId(ruleMap);
+      setFixedScheduleIdByWorkerId(fixedScheduleMap);
 
-            return {
-              id: w.id,
-              name: fullName || 'Unnamed worker',
-              role: jobTitle,
-              department: '',
-              status: 'absent',
-              current_status: 'out',
-              availability: {
-                monday: [],
-                tuesday: [],
-                wednesday: [],
-                thursday: [],
-                friday: [],
-                saturday: [],
-                sunday: [],
-              },
-              qualifications: [],
-              hourlyRate: 0,
-              maxHoursPerWeek: 0,
-            };
-          });
-        setEmployees(mappedEmployees);
+      const mappedEmployees: Employee[] = ((workersRes.data || []) as WorkerRow[])
+        .filter(w => Boolean(w?.id))
+        .filter(w => (w.is_active ?? false) && !(w.archived ?? false))
+        .map(w => {
+          const first = (w.first_name || '').trim();
+          const last = (w.last_name || '').trim();
+          const fullName = `${first} ${last}`.trim();
+          const jobTitleObj = w.job_title as any;
+          const jobTitle = Array.isArray(jobTitleObj) 
+            ? (jobTitleObj[0]?.name || '')
+            : (jobTitleObj?.name || '');
 
-        const mappedShifts: Shift[] = ((shiftsRes.data || []) as PlannedShiftRow[]).map((s) => {
-          const siteName = (s.site_id && siteMap[s.site_id]) || 'Unassigned site';
           return {
-            id: s.id,
-            workerId: s.worker_id,
-            date: s.shift_date,
-            startTime: normalizeTime(s.start_time),
-            endTime: normalizeTime(s.end_time),
-            role: siteName,
-            location: siteName,
-            status: 'scheduled',
+            id: w.id,
+            name: fullName || 'Unnamed worker',
+            role: jobTitle,
+            department: '',
+            status: 'absent',
+            current_status: 'out',
+            availability: {
+              monday: [],
+              tuesday: [],
+              wednesday: [],
+              thursday: [],
+              friday: [],
+              saturday: [],
+              sunday: [],
+            },
+            qualifications: [],
+            hourlyRate: 0,
+            maxHoursPerWeek: 0,
           };
         });
-        setShifts(mappedShifts);
-      } catch (err: any) {
-        logger.error('Error loading schedule data', err);
-        setLoadError(err?.message || 'Error loading schedule data');
-        setEmployees([]);
-        setShifts([]);
-        setSitesById({});
-        setWorkRuleTypeByWorkerId({});
-      } finally {
-        setIsLoadingData(false);
-      }
-    };
+      setEmployees(mappedEmployees);
 
+      // Store fixed schedules
+      setFixedSchedules((fixedSchedulesRes.data || []) as unknown as FixedScheduleRow[]);
+
+      // Filter shifts by role: admin/supervisor see drafts+published, employee only published
+      const userRole = currentCompanyUser?.role;
+      const canSeeDrafts = userRole === 'super_admin' || userRole === 'admin' || userRole === 'supervisor';
+      
+      const allShifts = (shiftsRes.data || []) as PlannedShiftRow[];
+      const filteredShifts = canSeeDrafts
+        ? allShifts.filter(s => s.status !== 'cancelled') // Admin/supervisor: show published and drafts
+        : allShifts.filter(s => s.status === 'published'); // Employee: only published
+      
+      const mappedShifts: Shift[] = filteredShifts.map((s) => {
+        const siteName = (s.site_id && siteMap[s.site_id]) || 'Unassigned site';
+        return {
+          id: s.id,
+          workerId: s.worker_id,
+          date: s.shift_date,
+          startTime: normalizeTime(s.start_time),
+          endTime: normalizeTime(s.end_time),
+          role: siteName,
+          location: siteName,
+          status: s.status || 'draft',
+        };
+      });
+      setShifts(mappedShifts);
+    } catch (err: any) {
+      logger.error('Error loading schedule data', err);
+      setLoadError(err?.message || 'Error loading schedule data');
+      setEmployees([]);
+      setShifts([]);
+      setSitesById({});
+      setWorkRuleTypeByWorkerId({});
+    } finally {
+      setIsLoadingData(false);
+    }
+  }, [currentCompany?.id, currentCompanyUser?.role, weekRange.startISO, weekRange.endISO]);
+
+  useEffect(() => {
     loadScheduleData();
-  }, [currentCompany?.id, weekRange.startISO, weekRange.endISO]);
+  }, [loadScheduleData]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -343,6 +411,97 @@ export default function Schedule3() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
+
+  // Handle Publish: drafts → published, old published → cancelled
+  const handlePublish = async () => {
+    if (!currentCompany?.id || draftCount === 0) return;
+
+    try {
+      setIsLoadingData(true);
+      
+      // Get all draft shifts in the current week
+      const draftShifts = shifts.filter(s => s.status === 'draft');
+      const draftIds = draftShifts.map(s => s.id);
+      
+      // Get all published shifts that will be replaced (same worker_id, shift_date, start_time, end_time)
+      const publishedShiftsToCancel: string[] = [];
+      for (const draft of draftShifts) {
+        const matchingPublished = shifts.find(s => 
+          s.status === 'published' &&
+          s.workerId === draft.workerId &&
+          s.date === draft.date &&
+          s.startTime === draft.startTime &&
+          s.endTime === draft.endTime &&
+          s.id !== draft.id
+        );
+        if (matchingPublished) {
+          publishedShiftsToCancel.push(matchingPublished.id);
+        }
+      }
+
+      // Atomic transaction: update all drafts to published and cancel old published
+      
+      // Update drafts to published
+      if (draftIds.length > 0) {
+        const { error } = await supabase
+          .from('planned_shifts')
+          .update({ 
+            status: 'published',
+            published_at: new Date().toISOString()
+          })
+          .in('id', draftIds);
+        
+        if (error) throw error;
+      }
+
+      // Cancel old published shifts
+      if (publishedShiftsToCancel.length > 0) {
+        const { error } = await supabase
+          .from('planned_shifts')
+          .update({ status: 'cancelled' })
+          .in('id', publishedShiftsToCancel);
+        
+        if (error) throw error;
+      }
+
+      // Reload data using the shared function
+      await loadScheduleData();
+    } catch (err: any) {
+      logger.error('Error publishing shifts', err);
+      setLoadError(err?.message || 'Error publishing shifts');
+    } finally {
+      setIsLoadingData(false);
+    }
+  };
+
+  // Handle Cancel: delete all drafts
+  const handleCancel = async () => {
+    if (!currentCompany?.id || draftCount === 0) return;
+
+    try {
+      setIsLoadingData(true);
+      
+      const draftShifts = shifts.filter(s => s.status === 'draft');
+      const draftIds = draftShifts.map(s => s.id);
+      
+      if (draftIds.length > 0) {
+        const { error } = await supabase
+          .from('planned_shifts')
+          .delete()
+          .in('id', draftIds);
+
+        if (error) throw error;
+      }
+
+      // Reload data using the shared function
+      await loadScheduleData();
+    } catch (err: any) {
+      logger.error('Error cancelling drafts', err);
+      setLoadError(err?.message || 'Error cancelling drafts');
+    } finally {
+      setIsLoadingData(false);
+    }
+  };
 
   // Helper function to map status to current_status
   const mapStatusToCurrentStatus = (status: string): 'out' | 'in' | 'on_break' | 'on_transfer' => {
@@ -362,6 +521,108 @@ export default function Schedule3() {
     const ruleType = workRuleTypeByWorkerId[workerId];
     // Backwards/forwards compat: codebase currently uses "planned"; user spec says "planner".
     return ruleType === 'planned' || ruleType === 'planner';
+  };
+
+  const hasFixedSchedule = (workerId: string) => {
+    const ruleType = workRuleTypeByWorkerId[workerId];
+    return ruleType === 'fixed';
+  };
+
+  // Get employees that can have shifts planned
+  const employeesWithPlannedRule = useMemo(() => {
+    return employees.filter(emp => canPlanShiftsForWorker(emp.id));
+  }, [employees, workRuleTypeByWorkerId]);
+
+  // Get sites list for dropdown
+  const sitesList = useMemo(() => {
+    return Object.entries(sitesById).map(([id, name]) => ({ id, name }));
+  }, [sitesById]);
+
+  // Handle create shift
+  const handleCreateShift = async () => {
+    if (!currentCompany?.id) return;
+
+    // Validation
+    if (!shiftForm.workerId) {
+      setShiftFormError('Please select a worker');
+      return;
+    }
+    if (!shiftForm.shiftDate) {
+      setShiftFormError('Please select a date');
+      return;
+    }
+    if (!shiftForm.startTime) {
+      setShiftFormError('Please specify start time');
+      return;
+    }
+    if (!shiftForm.endTime) {
+      setShiftFormError('Please specify end time');
+      return;
+    }
+    if (!shiftForm.siteId) {
+      setShiftFormError('Please select a site');
+      return;
+    }
+
+    // Validate time format and logic
+    if (shiftForm.startTime >= shiftForm.endTime) {
+      setShiftFormError('End time must be after start time');
+      return;
+    }
+
+    try {
+      setIsCreatingShift(true);
+      setShiftFormError(null);
+
+      // Format time to HH:MM:SS for Supabase
+      const startTimeFormatted = `${shiftForm.startTime}:00`;
+      const endTimeFormatted = `${shiftForm.endTime}:00`;
+
+      const { error } = await supabase
+        .from('planned_shifts')
+        .insert({
+          company_id: currentCompany.id,
+          worker_id: shiftForm.workerId,
+          site_id: shiftForm.siteId,
+          shift_date: shiftForm.shiftDate,
+          start_time: startTimeFormatted,
+          end_time: endTimeFormatted,
+          status: 'draft', // Always create as draft
+        });
+
+      if (error) throw error;
+
+      // Reset form and close modal
+      setShiftForm({
+        workerId: '',
+        shiftDate: '',
+        startTime: '',
+        endTime: '',
+        siteId: '',
+      });
+      setShowCreateShift(false);
+
+      // Reload data using the shared function
+      await loadScheduleData();
+    } catch (err: any) {
+      logger.error('Error creating shift', err);
+      setShiftFormError(err?.message || 'Error creating shift');
+    } finally {
+      setIsCreatingShift(false);
+    }
+  };
+
+  // Handle close modal
+  const handleCloseCreateShiftModal = () => {
+    setShowCreateShift(false);
+    setShiftForm({
+      workerId: '',
+      shiftDate: '',
+      startTime: '',
+      endTime: '',
+      siteId: '',
+    });
+    setShiftFormError(null);
   };
 
   const getWorkRuleTypeLabel = (ruleType: string | undefined): string => {
@@ -562,15 +823,97 @@ export default function Schedule3() {
     return shifts.filter(shift => shift.date === dateStr);
   };
 
-  const getStatusColor = (status: string) => {
+  // Generate virtual fixed schedule shifts for a worker on a specific date
+  const getFixedScheduleShiftsForDate = (workerId: string, date: Date): Shift[] => {
+    const fixedScheduleId = fixedScheduleIdByWorkerId[workerId];
+    if (!fixedScheduleId) return [];
+
+    const fixedSchedule = fixedSchedules.find(fs => fs.id === fixedScheduleId);
+    if (!fixedSchedule || !fixedSchedule.fixed_schedule_days) return [];
+
+    // Get day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
+    const dayOfWeek = date.getDay();
+    
+    // Find the schedule day for this day of week
+    const scheduleDay = fixedSchedule.fixed_schedule_days.find(
+      day => day.day_of_week === dayOfWeek && day.is_working && day.start_time && day.end_time
+    );
+
+    if (!scheduleDay) return [];
+
+    // Check if there's already a planned shift for this worker on this date
+    const dateStr = date.toISOString().split('T')[0];
+    if (!dateStr) return [];
+    
+    const hasPlannedShift = shifts.some(
+      shift => shift.workerId === workerId && shift.date === dateStr
+    );
+
+    // If there's a planned shift, don't show the fixed schedule
+    if (hasPlannedShift) return [];
+
+    // Create virtual shift
+    const startTime = scheduleDay.start_time ? normalizeTime(scheduleDay.start_time) : '';
+    const endTime = scheduleDay.end_time ? normalizeTime(scheduleDay.end_time) : '';
+    
+    if (!startTime || !endTime) return [];
+
+    return [{
+      id: `fixed-${workerId}-${dateStr}`, // Virtual ID
+      workerId,
+      date: dateStr,
+      startTime,
+      endTime,
+      role: (fixedSchedule.name || 'Fixed Schedule'),
+      location: 'Fixed Schedule',
+      status: 'published' as const, // Virtual status for rendering
+    }];
+  };
+
+  // Status to style mapping
+  const getStatusStyle = (status: 'draft' | 'published' | 'cancelled') => {
     switch (status) {
-      case 'scheduled': return 'bg-blue-50 text-status-blue';
-      case 'confirmed': return 'bg-green-50 text-status-green';
-      case 'completed': return 'bg-green-50 text-status-green';
-      case 'cancelled': return 'bg-red-50 text-status-red';
-      default: return 'bg-gray-50 text-status-gray';
+      case 'draft':
+        return {
+          bgColor: 'bg-yellow-50',
+          textColor: 'text-yellow-700',
+          borderColorHex: '#FACC15', // yellow-400
+          borderStyle: 'dashed',
+        };
+      case 'published':
+        return {
+          bgColor: 'bg-blue-50',
+          textColor: 'text-blue-700',
+          borderColorHex: '#3B82F6', // blue-500
+          borderStyle: 'solid',
+        };
+      case 'cancelled':
+        return {
+          bgColor: 'bg-gray-50',
+          textColor: 'text-gray-500',
+          borderColorHex: '#D1D5DB', // gray-300
+          borderStyle: 'solid',
+        };
+      default:
+        return {
+          bgColor: 'bg-gray-50',
+          textColor: 'text-gray-700',
+          borderColorHex: '#9CA3AF', // gray-400
+          borderStyle: 'solid',
+        };
     }
   };
+
+  const getStatusColor = (status: string) => {
+    const style = getStatusStyle(status as 'draft' | 'published' | 'cancelled');
+    return `${style.bgColor} ${style.textColor}`;
+  };
+
+  // Count drafts for Publish button
+  const draftCount = shifts.filter(s => s.status === 'draft').length;
+  const canPublish = (currentCompanyUser?.role === 'super_admin' || 
+                      currentCompanyUser?.role === 'admin' || 
+                      currentCompanyUser?.role === 'supervisor') && draftCount > 0;
 
   return (
     <div className="p-6">
@@ -608,9 +951,9 @@ export default function Schedule3() {
           <div className="flex items-center gap-3">
             <CheckCircle className="h-5 w-5 text-green-600" />
             <div className="text-2xl font-bold text-gray-900">
-                {shifts.filter(s => s.status === 'confirmed').length}
+                {shifts.filter(s => s.status === 'published').length}
               </div>
-              <div className="text-sm text-muted-foreground">Confirmed</div>
+              <div className="text-sm text-muted-foreground">Published</div>
           </div>
         </div>
         <div className="bg-white border border-gray-200 rounded-lg p-4">
@@ -979,6 +1322,18 @@ export default function Schedule3() {
                       <EyeOff className="w-4 h-4" />
                       Unpublish week
                     </button>
+                    <button 
+                      onClick={handleCancel}
+                      disabled={draftCount === 0}
+                      className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 ${
+                        draftCount === 0
+                          ? 'text-gray-400 cursor-not-allowed'
+                          : 'text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Erase Drafts
+                    </button>
                     <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
                       <UserX className="w-4 h-4" />
                       Unassign week
@@ -1044,7 +1399,14 @@ export default function Schedule3() {
                 <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded shadow-lg z-10">
                   <div className="py-1">
                     {/* Shifts section */}
-                    <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                    <button 
+                      onClick={() => {
+                        setShiftForm(prev => ({ ...prev, workerId: '' })); // Reset worker selection
+                        setShowCreateShift(true);
+                        setShowAddDropdown(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                    >
                       <Plus className="w-4 h-4" />
                       Add single shift
                     </button>
@@ -1079,14 +1441,22 @@ export default function Schedule3() {
             </div>
             
             {/* Publish Button */}
+            {canPublish !== undefined && (
             <button
-              className="flex items-center gap-2 px-2 py-1 rounded text-sm text-white transition-colors"
-              style={{ backgroundColor: 'var(--primary-brand-hex)' }}
-            >
-              <span>Publish (4)</span>
+                onClick={handlePublish}
+                disabled={!canPublish || isLoadingData}
+                className={`flex items-center gap-2 px-2 py-1 rounded text-sm text-white transition-colors ${
+                  canPublish && !isLoadingData
+                    ? 'hover:opacity-90'
+                    : 'opacity-50 cursor-not-allowed'
+                }`}
+                style={{ backgroundColor: canPublish && !isLoadingData ? 'var(--primary-brand-hex)' : '#9CA3AF' }}
+              >
+                <span>Publish ({draftCount})</span>
               <div className="w-px h-4 bg-white/30"></div>
               <Bell className="w-4 h-4" />
             </button>
+            )}
           </div>
         </div>
         </div>
@@ -1140,9 +1510,9 @@ export default function Schedule3() {
                       {employee.name}
                     </div>
                     {employee.role && (
-                      <div className="text-xs text-gray-500 truncate">
-                        {employee.role}
-                      </div>
+                    <div className="text-xs text-gray-500 truncate">
+                      {employee.role}
+                    </div>
                     )}
                   </div>
                 </div>
@@ -1150,84 +1520,126 @@ export default function Schedule3() {
                 {/* Day Cells */}
                 {weekDates.map((date, dayIndex) => {
                   const dayShifts = getShiftsForDate(date).filter(shift => shift.workerId === employee.id);
+                  const fixedScheduleShifts = getFixedScheduleShiftsForDate(employee.id, date);
+                  const isFixedSchedule = hasFixedSchedule(employee.id);
+                  const allShiftsForDay = [...dayShifts, ...fixedScheduleShifts];
                   return (
-                      <div key={dayIndex} className={`group flex-1 min-h-[60px] relative ${dayIndex < weekDates.length - 1 ? 'border-r border-gray-200' : ''} ${employeeIndex < paginatedEmployees.length - 1 ? 'border-b border-gray-200' : ''}`}>
-                      {dayShifts.length > 0 ? (
+                      <div key={dayIndex} className={`group flex-1 min-h-[60px] relative ${dayIndex < weekDates.length - 1 ? 'border-r border-gray-200' : ''} ${employeeIndex < paginatedEmployees.length - 1 ? 'border-b border-gray-200' : ''} ${isFixedSchedule && dayShifts.length === 0 ? 'bg-gray-50' : ''}`}>
+                      {allShiftsForDay.length > 0 ? (
                         <>
-                          {dayShifts.map((shift, shiftIndex) => (
+                          {allShiftsForDay.map((shift, shiftIndex) => {
+                            const isFixedScheduleShift = shift.id.startsWith('fixed-');
+                            const style = isFixedScheduleShift 
+                              ? {
+                                  bgColor: 'bg-gray-100',
+                                  textColor: 'text-gray-600',
+                                  borderColorHex: '#9CA3AF', // gray-400
+                                  borderStyle: 'solid',
+                                }
+                              : getStatusStyle(shift.status);
+                            return (
                               <div
                                 key={shift.id}
-                                className={`absolute text-xs cursor-pointer transition-all duration-200 flex flex-col justify-center group-hover:left-6 ${getStatusColor(shift.status)} ${
-                                  dayShifts.length > 1 
+                                className={`absolute text-xs flex flex-col justify-center ${style.bgColor} ${style.textColor} ${
+                                  allShiftsForDay.length > 1 
                                     ? shiftIndex === 0 
                                       ? 'top-0 bottom-1/2 border-b border-gray-300 left-0 right-0' 
                                       : 'top-1/2 bottom-0 left-0 right-0'
                                     : 'inset-0'
-                                }`}
-                                onClick={() => setSelectedEmployee(employee.id)}
+                                } ${isFixedScheduleShift ? '' : 'cursor-pointer transition-all duration-200 group-hover:left-6'}`}
+                                onClick={() => {
+                                  if (!isFixedScheduleShift) {
+                                    setSelectedEmployee(employee.id);
+                                  }
+                                }}
+                                title={isFixedScheduleShift ? 'Fixed schedule - managed from Worker Settings' : undefined}
                               style={{ 
-                                borderLeft: '3px solid',
-                                borderLeftColor: shift.status === 'scheduled' ? 'var(--status-blue)' : 
-                                                shift.status === 'confirmed' ? 'var(--status-green)' : 
-                                                shift.status === 'completed' ? 'var(--status-green)' : 
-                                                shift.status === 'cancelled' ? 'var(--status-red)' : 'var(--status-gray)'
+                                  borderLeft: `3px ${style.borderStyle}`,
+                                  borderLeftColor: style.borderColorHex,
                               }}
                             >
                               <div className="px-2">
-                                <div className="font-medium text-xs leading-tight truncate">{shift.role}</div>
+                                  <div className="flex items-center gap-1 mb-0.5">
+                                    <div className="font-medium text-xs leading-tight truncate flex-1">{shift.role}</div>
+                                    {!isFixedScheduleShift && shift.status === 'draft' && (
+                                      <span className="px-1 py-0.5 text-[10px] font-medium bg-yellow-200 text-yellow-800 rounded flex-shrink-0">
+                                        Draft
+                                      </span>
+                                    )}
+                                  </div>
                                 <div className="text-xs opacity-75 leading-tight flex items-center gap-1">
                                   <Clock className="w-2.5 h-2.5" />
                                   {shift.startTime} – {shift.endTime}
                                 </div>
                               </div>
                             </div>
-                          ))}
-                          {/* Add button that appears on hover */}
+                            );
+                          })}
+                          {/* Add button that appears on hover - only for planned/planner workers */}
+                          {!hasFixedSchedule(employee.id) && (
                           <button 
-                            disabled={!canPlanShiftsForWorker(employee.id)}
-                            title={
-                              canPlanShiftsForWorker(employee.id)
-                                ? `Add shift for ${employee.name}`
-                                : 'This worker is not configured for planner-based scheduling'
-                            }
-                            className={`absolute top-1/2 left-1 transform -translate-y-1/2 w-4 h-4 bg-white border border-gray-200 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 ${
-                              canPlanShiftsForWorker(employee.id)
-                                ? 'hover:bg-gray-50'
-                                : 'cursor-not-allowed opacity-0 group-hover:opacity-30'
-                            }`}
+                              disabled={!canPlanShiftsForWorker(employee.id)}
+                              title={
+                                canPlanShiftsForWorker(employee.id)
+                                  ? `Add shift for ${employee.name}`
+                                  : 'This worker is not configured for planner-based scheduling'
+                              }
+                              className={`absolute top-1/2 left-1 transform -translate-y-1/2 w-4 h-4 bg-white border border-gray-200 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 ${
+                                canPlanShiftsForWorker(employee.id)
+                                  ? 'hover:bg-gray-50'
+                                  : 'cursor-not-allowed opacity-0 group-hover:opacity-30'
+                              }`}
                             onClick={() => {
-                              if (!canPlanShiftsForWorker(employee.id)) return;
-                              setSelectedEmployee(employee.id);
-                              setShowCreateShift(true);
+                                if (!canPlanShiftsForWorker(employee.id)) return;
+                                setSelectedEmployee(employee.id);
+                                // Preselect the employee and date in the form
+                                const dateStr = date.toISOString().slice(0, 10);
+                                setShiftForm(prev => ({ 
+                                  ...prev, 
+                                  workerId: employee.id,
+                                  shiftDate: dateStr
+                                }));
+                                setShowCreateShift(true);
                             }}
                             aria-label={`Add shift for ${employee.name}`}
                           >
                             <Plus className="w-2.5 h-2.5 text-gray-400" />
                           </button>
+                          )}
                         </>
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
+                          {/* Only show Add button for planned/planner workers, not for fixed schedule workers */}
+                          {!hasFixedSchedule(employee.id) && (
                           <button 
-                            disabled={!canPlanShiftsForWorker(employee.id)}
-                            title={
-                              canPlanShiftsForWorker(employee.id)
-                                ? `Add shift for ${employee.name}`
-                                : 'This worker is not configured for planner-based scheduling'
-                            }
-                            className={`opacity-0 group-hover:opacity-100 w-6 h-6 border border-gray-200 rounded flex items-center justify-center transition-all duration-200 ${
-                              canPlanShiftsForWorker(employee.id)
-                                ? 'hover:bg-gray-50'
-                                : 'cursor-not-allowed opacity-0 group-hover:opacity-30'
-                            }`}
+                              disabled={!canPlanShiftsForWorker(employee.id)}
+                              title={
+                                canPlanShiftsForWorker(employee.id)
+                                  ? `Add shift for ${employee.name}`
+                                  : 'This worker is not configured for planner-based scheduling'
+                              }
+                              className={`opacity-0 group-hover:opacity-100 w-6 h-6 border border-gray-200 rounded flex items-center justify-center transition-all duration-200 ${
+                                canPlanShiftsForWorker(employee.id)
+                                  ? 'hover:bg-gray-50'
+                                  : 'cursor-not-allowed opacity-0 group-hover:opacity-30'
+                              }`}
                             onClick={() => {
-                              if (!canPlanShiftsForWorker(employee.id)) return;
-                              setSelectedEmployee(employee.id);
-                              setShowCreateShift(true);
+                                if (!canPlanShiftsForWorker(employee.id)) return;
+                                setSelectedEmployee(employee.id);
+                                // Preselect the employee and date in the form
+                                const dateStr = date.toISOString().slice(0, 10);
+                                setShiftForm(prev => ({ 
+                                  ...prev, 
+                                  workerId: employee.id,
+                                  shiftDate: dateStr
+                                }));
+                                setShowCreateShift(true);
                             }}
                             aria-label={`Add shift for ${employee.name}`}
                           >
                             <Plus className="w-3 h-3 text-gray-400" />
                           </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1331,6 +1743,153 @@ export default function Schedule3() {
           )}
               </div>
             </div>
+
+      {/* Create Shift Modal */}
+      {showCreateShift && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center">
+                  <Plus className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Create Shift</h3>
+                  <p className="text-sm text-gray-500">Add a new shift (will be created as draft)</p>
+                </div>
+              </div>
+              <button
+                onClick={handleCloseCreateShiftModal}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Close modal"
+                disabled={isCreatingShift}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <div className="p-6 space-y-4">
+              {shiftFormError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                  {shiftFormError}
+                </div>
+              )}
+
+              {/* Worker Selection */}
+              <div>
+                <label htmlFor="worker-select" className="block text-sm font-medium text-gray-700 mb-2">
+                  Worker <span className="text-red-500">*</span>
+                </label>
+                <select
+                  id="worker-select"
+                  value={shiftForm.workerId}
+                  onChange={(e) => setShiftForm(prev => ({ ...prev, workerId: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                  disabled={isCreatingShift}
+                >
+                  <option value="">Select a worker</option>
+                  {employeesWithPlannedRule.map(emp => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.name} {emp.role ? `- ${emp.role}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Date Selection */}
+              <div>
+                <label htmlFor="shift-date" className="block text-sm font-medium text-gray-700 mb-2">
+                  Date <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  id="shift-date"
+                  value={shiftForm.shiftDate}
+                  onChange={(e) => setShiftForm(prev => ({ ...prev, shiftDate: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                  disabled={isCreatingShift}
+                  min={new Date().toISOString().split('T')[0]}
+                />
+              </div>
+
+              {/* Time Selection */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="start-time" className="block text-sm font-medium text-gray-700 mb-2">
+                    Start Time <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="time"
+                    id="start-time"
+                    value={shiftForm.startTime}
+                    onChange={(e) => setShiftForm(prev => ({ ...prev, startTime: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                    disabled={isCreatingShift}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="end-time" className="block text-sm font-medium text-gray-700 mb-2">
+                    End Time <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="time"
+                    id="end-time"
+                    value={shiftForm.endTime}
+                    onChange={(e) => setShiftForm(prev => ({ ...prev, endTime: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                    disabled={isCreatingShift}
+                  />
+                </div>
+              </div>
+
+              {/* Site Selection */}
+              <div>
+                <label htmlFor="site-select" className="block text-sm font-medium text-gray-700 mb-2">
+                  Site <span className="text-red-500">*</span>
+                </label>
+                <select
+                  id="site-select"
+                  value={shiftForm.siteId}
+                  onChange={(e) => setShiftForm(prev => ({ ...prev, siteId: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                  disabled={isCreatingShift}
+                >
+                  <option value="">Select a site</option>
+                  {sitesList.map(site => (
+                    <option key={site.id} value={site.id}>
+                      {site.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+              <button
+                onClick={handleCloseCreateShiftModal}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={isCreatingShift}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateShift}
+                disabled={isCreatingShift}
+                className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+                style={{ 
+                  backgroundColor: isCreatingShift ? '#9CA3AF' : 'var(--primary-brand-hex)',
+                  cursor: isCreatingShift ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {isCreatingShift ? 'Creating...' : 'Create Shift'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
