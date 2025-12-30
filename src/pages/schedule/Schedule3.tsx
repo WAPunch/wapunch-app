@@ -255,10 +255,10 @@ export default function Schedule() {
 
   useEffect(() => {
     // Register submodule tabs for Schedule
-      registerSubmodules('Schedule', [
-        { id: 'schedule', label: 'Schedule', href: '/schedule/schedule', icon: Calendar },
-        { id: 'time-off', label: 'Time Off', href: '/schedule/time-off', icon: Calendar },
-      ]);
+    registerSubmodules('Schedule', [
+      { id: 'schedule', label: 'Schedule', href: '/schedule/schedule', icon: Calendar },
+      { id: 'time-off', label: 'Time Off', href: '/schedule/time-off', icon: Calendar },
+    ]);
   }, [registerSubmodules]);
 
   const weekRange = useMemo(() => {

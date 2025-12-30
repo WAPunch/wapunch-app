@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
 import { getCurrentStatusDotColor } from '../../hooks/useWorkers';
 import { useCompany } from '../../hooks/useCompany';
@@ -65,8 +65,9 @@ const getDotSize = (avatarSize: 'sm' | 'md' | 'lg') => {
 interface Employee {
   id: string;
   name: string;
-  role: string;
+  role: string; // Job title
   department: string;
+  workerType?: string; // 'employee' | 'contractor'
   avatar?: string;
   status: string;
   current_status?: 'out' | 'in' | 'on_break' | 'on_transfer';
@@ -123,6 +124,7 @@ type WorkerRow = {
   last_name: string | null;
   is_active: boolean | null;
   archived: boolean | null;
+  worker_type?: string | null;
   job_title?: { name: string } | { name: string }[] | null;
 };
 
@@ -227,23 +229,55 @@ export default function Schedule() {
   const [fixedSchedules, setFixedSchedules] = useState<FixedScheduleRow[]>([]);
   
   // Multi-select filter states
+  const [selectedWorkerType, setSelectedWorkerType] = useState<string[]>([]);
   const [selectedDepartment, setSelectedDepartment] = useState<string[]>([]);
-  const [selectedRole, setSelectedRole] = useState<string[]>([]);
-  const [selectedStatus, setSelectedStatus] = useState<string[]>([]);
+  const [selectedJobTitle, setSelectedJobTitle] = useState<string[]>([]);
+  const [selectedWorkRule, setSelectedWorkRule] = useState<string[]>([]);
   
   // Dropdown visibility states
+  const [showWorkerTypeDropdown, setShowWorkerTypeDropdown] = useState(false);
   const [showDepartmentDropdown, setShowDepartmentDropdown] = useState(false);
-  const [showRoleDropdown, setShowRoleDropdown] = useState(false);
-  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const [showJobTitleDropdown, setShowJobTitleDropdown] = useState(false);
+  const [showWorkRuleDropdown, setShowWorkRuleDropdown] = useState(false);
   
   // Search terms within dropdowns
+  const [workerTypeSearchTerm, setWorkerTypeSearchTerm] = useState('');
   const [departmentSearchTerm, setDepartmentSearchTerm] = useState('');
+  const [jobTitleSearchTerm, setJobTitleSearchTerm] = useState('');
+  const [workRuleSearchTerm, setWorkRuleSearchTerm] = useState('');
   
   // Action buttons states
   const [showActionsDropdown, setShowActionsDropdown] = useState(false);
   const [showAddDropdown, setShowAddDropdown] = useState(false);
-  const [roleSearchTerm, setRoleSearchTerm] = useState('');
-  const [statusSearchTerm, setStatusSearchTerm] = useState('');
+
+  // Refs for dropdown containers to detect outside clicks
+  const workerTypeDropdownRef = useRef<HTMLDivElement>(null);
+  const departmentDropdownRef = useRef<HTMLDivElement>(null);
+  const jobTitleDropdownRef = useRef<HTMLDivElement>(null);
+  const workRuleDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (workerTypeDropdownRef.current && !workerTypeDropdownRef.current.contains(event.target as Node)) {
+        setShowWorkerTypeDropdown(false);
+      }
+      if (departmentDropdownRef.current && !departmentDropdownRef.current.contains(event.target as Node)) {
+        setShowDepartmentDropdown(false);
+      }
+      if (jobTitleDropdownRef.current && !jobTitleDropdownRef.current.contains(event.target as Node)) {
+        setShowJobTitleDropdown(false);
+      }
+      if (workRuleDropdownRef.current && !workRuleDropdownRef.current.contains(event.target as Node)) {
+        setShowWorkRuleDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
   
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -298,7 +332,7 @@ export default function Schedule() {
       const [workersRes, sitesRes, rulesRes, fixedSchedulesRes, shiftsRes] = await Promise.all([
         supabase
           .from('workers')
-          .select('id, first_name, last_name, is_active, archived, job_title:job_titles(name)')
+          .select('id, first_name, last_name, is_active, archived, worker_type, job_title:job_titles(name)')
           .eq('company_id', currentCompany.id)
           .eq('is_deleted', false)
           .order('created_at', { ascending: false }),
@@ -382,6 +416,7 @@ export default function Schedule() {
             name: fullName || 'Unnamed worker',
             role: jobTitle,
             department: '',
+            workerType: w.worker_type || 'employee',
             status: 'absent',
             current_status: 'out',
             availability: {
@@ -626,6 +661,11 @@ export default function Schedule() {
   const hasFlexibleSchedule = (workerId: string) => {
     const ruleType = workRuleTypeByWorkerId[workerId];
     return ruleType === 'flexible' || ruleType === 'open';
+  };
+
+  const hasNoWorkRule = (workerId: string) => {
+    const ruleType = workRuleTypeByWorkerId[workerId];
+    return !ruleType || ruleType === null || ruleType === undefined;
   };
 
   // Get employees that can have shifts planned
@@ -1167,12 +1207,13 @@ export default function Schedule() {
     if (!ruleType) return 'border-l-gray-400';
     switch (ruleType) {
       case 'fixed':
-        return 'border-l-blue-500';
+        return 'border-l-[#059669]'; // primary green
       case 'planned':
       case 'planner':
-        return 'border-l-green-500';
+        return 'border-l-blue-500';
+      case 'flexible':
       case 'open':
-        return 'border-l-yellow-500';
+        return 'border-l-orange-500';
       default:
         return 'border-l-gray-400';
     }
@@ -1180,13 +1221,15 @@ export default function Schedule() {
 
   // Clear all filters
   const clearAllFilters = () => {
+    setSelectedWorkerType([]);
     setSelectedDepartment([]);
-    setSelectedRole([]);
-    setSelectedStatus([]);
+    setSelectedJobTitle([]);
+    setSelectedWorkRule([]);
     setSearchTerm('');
+    setWorkerTypeSearchTerm('');
     setDepartmentSearchTerm('');
-    setRoleSearchTerm('');
-    setStatusSearchTerm('');
+    setJobTitleSearchTerm('');
+    setWorkRuleSearchTerm('');
     setCurrentPage(1); // Reset to first page when clearing filters
   };
 
@@ -1201,22 +1244,35 @@ export default function Schedule() {
   };
 
   // Select All functions for each filter
+  const handleWorkerTypeSelectAll = () => {
+    const allWorkerTypes = getFilteredWorkerTypeOptions();
+    setSelectedWorkerType(allWorkerTypes);
+  };
+
   const handleDepartmentSelectAll = () => {
     const allDepartments = getFilteredDepartmentOptions();
     setSelectedDepartment(allDepartments);
   };
 
-  const handleRoleSelectAll = () => {
-    const allRoles = getFilteredRoleOptions();
-    setSelectedRole(allRoles);
+  const handleJobTitleSelectAll = () => {
+    const allJobTitles = getFilteredJobTitleOptions();
+    setSelectedJobTitle(allJobTitles);
   };
 
-  const handleStatusSelectAll = () => {
-    const allStatuses = getFilteredStatusOptions();
-    setSelectedStatus(allStatuses);
+  const handleWorkRuleSelectAll = () => {
+    const allWorkRules = getFilteredWorkRuleOptions();
+    setSelectedWorkRule(allWorkRules);
   };
 
   // Helper functions for multi-select
+  const handleWorkerTypeToggle = (workerType: string) => {
+    setSelectedWorkerType(prev => 
+      prev.includes(workerType) 
+        ? prev.filter(wt => wt !== workerType)
+        : [...prev, workerType]
+    );
+  };
+
   const handleDepartmentToggle = (department: string) => {
     setSelectedDepartment(prev => 
       prev.includes(department) 
@@ -1225,37 +1281,44 @@ export default function Schedule() {
     );
   };
 
-  const handleRoleToggle = (role: string) => {
-    setSelectedRole(prev => 
-      prev.includes(role) 
-        ? prev.filter(r => r !== role)
-        : [...prev, role]
+  const handleJobTitleToggle = (jobTitle: string) => {
+    setSelectedJobTitle(prev => 
+      prev.includes(jobTitle) 
+        ? prev.filter(jt => jt !== jobTitle)
+        : [...prev, jobTitle]
     );
   };
 
-  const handleStatusToggle = (status: string) => {
-    setSelectedStatus(prev => 
-      prev.includes(status) 
-        ? prev.filter(s => s !== status)
-        : [...prev, status]
+  const handleWorkRuleToggle = (workRule: string) => {
+    setSelectedWorkRule(prev => 
+      prev.includes(workRule) 
+        ? prev.filter(wr => wr !== workRule)
+        : [...prev, workRule]
     );
   };
 
   // Filter options based on search terms
+  const getFilteredWorkerTypeOptions = () => {
+    const workerTypes = ['employee', 'contractor'];
+    return workerTypes.filter(wt => 
+      wt.toLowerCase().includes(workerTypeSearchTerm.toLowerCase())
+    );
+  };
+
   const getFilteredDepartmentOptions = () => {
     const departments = [...new Set(employees.map(e => e.department).filter(Boolean))];
     return departments.filter(dept => dept.toLowerCase().includes(departmentSearchTerm.toLowerCase()));
   };
 
-  const getFilteredRoleOptions = () => {
-    const roles = [...new Set(employees.map(e => e.role).filter(Boolean))];
-    return roles.filter(role => role.toLowerCase().includes(roleSearchTerm.toLowerCase()));
+  const getFilteredJobTitleOptions = () => {
+    const jobTitles = [...new Set(employees.map(e => e.role).filter(Boolean))];
+    return jobTitles.filter(jt => jt.toLowerCase().includes(jobTitleSearchTerm.toLowerCase()));
   };
 
-  const getFilteredStatusOptions = () => {
-    const statuses = ['confirmed', 'pending', 'cancelled'];
-    return statuses.filter(status => 
-      status.toLowerCase().includes(statusSearchTerm.toLowerCase())
+  const getFilteredWorkRuleOptions = () => {
+    const workRules = ['Fixed', 'Planned', 'Flexible'];
+    return workRules.filter(wr => 
+      wr.toLowerCase().includes(workRuleSearchTerm.toLowerCase())
     );
   };
 
@@ -1265,10 +1328,23 @@ export default function Schedule() {
       employee.role.toLowerCase().includes(searchTerm.toLowerCase()) ||
                            employee.department.toLowerCase().includes(searchTerm.toLowerCase());
       
+      const matchesWorkerType = selectedWorkerType.length === 0 || (employee.workerType && selectedWorkerType.includes(employee.workerType));
       const matchesDepartment = selectedDepartment.length === 0 || selectedDepartment.includes(employee.department);
-      const matchesRole = selectedRole.length === 0 || selectedRole.includes(employee.role);
+      const matchesJobTitle = selectedJobTitle.length === 0 || selectedJobTitle.includes(employee.role);
       
-      return matchesSearch && matchesDepartment && matchesRole;
+      // Get work rule for employee
+      const workRuleType = workRuleTypeByWorkerId[employee.id];
+      let workRuleLabel = '';
+      if (workRuleType === 'fixed') {
+        workRuleLabel = 'Fixed';
+      } else if (workRuleType === 'planned' || workRuleType === 'planner') {
+        workRuleLabel = 'Planned';
+      } else if (workRuleType === 'flexible' || workRuleType === 'open') {
+        workRuleLabel = 'Flexible';
+      }
+      const matchesWorkRule = selectedWorkRule.length === 0 || (workRuleLabel && selectedWorkRule.includes(workRuleLabel));
+      
+      return matchesSearch && matchesWorkerType && matchesDepartment && matchesJobTitle && matchesWorkRule;
     });
 
     // Apply sorting
@@ -1298,7 +1374,86 @@ export default function Schedule() {
       if (aValue > bValue) return sortOrder === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [employees, searchTerm, selectedDepartment, selectedRole, sortBy, sortOrder]);
+  }, [employees, searchTerm, selectedWorkerType, selectedDepartment, selectedJobTitle, selectedWorkRule, workRuleTypeByWorkerId, sortBy, sortOrder]);
+
+  // Calculate counts for stats cards
+  const allWorkersCount = useMemo(() => {
+    return filteredEmployees.length;
+  }, [filteredEmployees]);
+
+  const fixedScheduleCount = useMemo(() => {
+    return filteredEmployees.filter(emp => {
+      const ruleType = workRuleTypeByWorkerId[emp.id];
+      return ruleType === 'fixed';
+    }).length;
+  }, [filteredEmployees, workRuleTypeByWorkerId]);
+
+  const plannedScheduleCount = useMemo(() => {
+    return filteredEmployees.filter(emp => {
+      const ruleType = workRuleTypeByWorkerId[emp.id];
+      return ruleType === 'planned' || ruleType === 'planner';
+    }).length;
+  }, [filteredEmployees, workRuleTypeByWorkerId]);
+
+  const flexibleScheduleCount = useMemo(() => {
+    return filteredEmployees.filter(emp => {
+      const ruleType = workRuleTypeByWorkerId[emp.id];
+      return ruleType === 'flexible' || ruleType === 'open';
+    }).length;
+  }, [filteredEmployees, workRuleTypeByWorkerId]);
+
+  // Preset filter functions
+  const applyAllWorkersPreset = () => {
+    setSelectedWorkRule([]);
+    setSelectedWorkerType([]);
+    setSelectedDepartment([]);
+    setSelectedJobTitle([]);
+    setSearchTerm('');
+    setCurrentPage(1);
+  };
+
+  const applyFixedSchedulePreset = () => {
+    setSelectedWorkRule(['Fixed']);
+    setSelectedWorkerType([]);
+    setSelectedDepartment([]);
+    setSelectedJobTitle([]);
+    setSearchTerm('');
+    setCurrentPage(1);
+  };
+
+  const applyPlannedSchedulePreset = () => {
+    setSelectedWorkRule(['Planned']);
+    setSelectedWorkerType([]);
+    setSelectedDepartment([]);
+    setSelectedJobTitle([]);
+    setSearchTerm('');
+    setCurrentPage(1);
+  };
+
+  const applyFlexibleSchedulePreset = () => {
+    setSelectedWorkRule(['Flexible']);
+    setSelectedWorkerType([]);
+    setSelectedDepartment([]);
+    setSelectedJobTitle([]);
+    setSearchTerm('');
+    setCurrentPage(1);
+  };
+
+  // Determine which preset is active
+  const activePreset = useMemo(() => {
+    const hasOtherFilters = selectedWorkerType.length > 0 || selectedDepartment.length > 0 || selectedJobTitle.length > 0;
+    
+    if (selectedWorkRule.length === 0 && !hasOtherFilters) {
+      return 'all';
+    } else if (selectedWorkRule.length === 1 && selectedWorkRule[0] === 'Fixed' && !hasOtherFilters) {
+      return 'fixed';
+    } else if (selectedWorkRule.length === 1 && selectedWorkRule[0] === 'Planned' && !hasOtherFilters) {
+      return 'planned';
+    } else if (selectedWorkRule.length === 1 && selectedWorkRule[0] === 'Flexible' && !hasOtherFilters) {
+      return 'flexible';
+    }
+    return null;
+  }, [selectedWorkRule, selectedWorkerType, selectedDepartment, selectedJobTitle]);
 
   // Pagination calculations
   const totalItems = filteredEmployees.length;
@@ -1464,36 +1619,62 @@ export default function Schedule() {
         </div>
       )}
 
-      {/* Stats Cards */}
+      {/* Stats Cards - Filter Presets */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <div 
+          className={`bg-white border rounded-lg p-4 cursor-pointer transition-all duration-200 hover:shadow-md ${
+            activePreset === 'all' 
+              ? 'border-gray-500 shadow-md' 
+              : 'border-gray-200 hover:border-gray-300'
+          }`}
+          onClick={applyAllWorkersPreset}
+        >
           <div className="flex items-center gap-3">
-            <Users className="h-5 w-5 text-teal-600" />
-            <div className="text-2xl font-bold text-gray-900">{isLoadingData ? '—' : employees.length}</div>
-              <div className="text-sm text-muted-foreground">Total Employees</div>
+            <Users className="h-5 w-5 text-gray-600" />
+            <div className="text-2xl font-bold text-gray-900">{isLoadingData ? '—' : allWorkersCount}</div>
+            <div className="text-sm text-muted-foreground">All Workers</div>
           </div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <div 
+          className={`bg-white border rounded-lg p-4 cursor-pointer transition-all duration-200 hover:shadow-md ${
+            activePreset === 'fixed' 
+              ? 'border-[#059669] shadow-md' 
+              : 'border-gray-200 hover:border-gray-300'
+          }`}
+          onClick={applyFixedSchedulePreset}
+        >
           <div className="flex items-center gap-3">
-            <Calendar className="h-5 w-5 text-blue-600" />
-            <div className="text-2xl font-bold text-gray-900">{isLoadingData ? '—' : shifts.length}</div>
-              <div className="text-sm text-muted-foreground">Scheduled Shifts</div>
+            <Users className="h-5 w-5 text-[#059669]" />
+            <div className="text-2xl font-bold text-gray-900">{isLoadingData ? '—' : fixedScheduleCount}</div>
+            <div className="text-sm text-muted-foreground">Fixed Schedule</div>
           </div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <div 
+          className={`bg-white border rounded-lg p-4 cursor-pointer transition-all duration-200 hover:shadow-md ${
+            activePreset === 'planned' 
+              ? 'border-blue-500 shadow-md' 
+              : 'border-gray-200 hover:border-gray-300'
+          }`}
+          onClick={applyPlannedSchedulePreset}
+        >
           <div className="flex items-center gap-3">
-            <CheckCircle className="h-5 w-5 text-green-600" />
-            <div className="text-2xl font-bold text-gray-900">
-                {shifts.filter(s => s.status === 'published').length}
+            <Users className="h-5 w-5 text-blue-600" />
+            <div className="text-2xl font-bold text-gray-900">{isLoadingData ? '—' : plannedScheduleCount}</div>
+            <div className="text-sm text-muted-foreground">Planned Schedule</div>
               </div>
-              <div className="text-sm text-muted-foreground">Published</div>
           </div>
-        </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <div 
+          className={`bg-white border rounded-lg p-4 cursor-pointer transition-all duration-200 hover:shadow-md ${
+            activePreset === 'flexible' 
+              ? 'border-orange-500 shadow-md' 
+              : 'border-gray-200 hover:border-gray-300'
+          }`}
+          onClick={applyFlexibleSchedulePreset}
+        >
           <div className="flex items-center gap-3">
-            <AlertTriangle className="h-5 w-5 text-red-600" />
-            <div className="text-2xl font-bold text-gray-900">0</div>
-              <div className="text-sm text-muted-foreground">Conflicts</div>
+            <Users className="h-5 w-5 text-orange-600" />
+            <div className="text-2xl font-bold text-gray-900">{isLoadingData ? '—' : flexibleScheduleCount}</div>
+            <div className="text-sm text-muted-foreground">Flexible Schedule</div>
           </div>
         </div>
       </div>
@@ -1520,7 +1701,7 @@ export default function Schedule() {
             
             <div className="flex items-center gap-2">
               {/* Clear Filters Button - Only show when filters are active */}
-              {(selectedDepartment.length > 0 || selectedRole.length > 0 || selectedStatus.length > 0) && (
+              {(selectedWorkerType.length > 0 || selectedDepartment.length > 0 || selectedJobTitle.length > 0 || selectedWorkRule.length > 0) && (
               <button
                   onClick={clearAllFilters}
                   className="flex items-center gap-2 px-2 py-1 border border-gray-300 rounded transition-colors text-sm bg-white text-gray-700 hover:bg-gray-50"
@@ -1551,9 +1732,73 @@ export default function Schedule() {
         {/* Advanced Filters */}
         {showFilters && (
           <div className="bg-white border-l border-r border-b border-gray-200 rounded-b-lg py-6 px-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+              {/* Worker Type Multi-Select */}
+              <div className="relative dropdown-container" ref={workerTypeDropdownRef}>
+                <div className="px-3 py-1 border border-gray-200 rounded text-sm bg-white min-h-[32px] flex items-center justify-between cursor-pointer hover:bg-gray-50" 
+                     onClick={() => setShowWorkerTypeDropdown(!showWorkerTypeDropdown)}>
+                  <span className="text-gray-700">
+                    {selectedWorkerType.length === 0 ? 'All Worker Types' : 
+                     selectedWorkerType.length === 1 ? (selectedWorkerType[0]?.charAt(0).toUpperCase() || '') + (selectedWorkerType[0]?.slice(1) || '') :
+                     `${selectedWorkerType.length} selected`}
+                  </span>
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+                {showWorkerTypeDropdown && (
+                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto">
+                    <div className="p-2 border-b border-gray-100">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          placeholder="Search worker types..."
+                          value={workerTypeSearchTerm}
+                          onChange={(e) => setWorkerTypeSearchTerm(e.target.value)}
+                          className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleWorkerTypeSelectAll();
+                          }}
+                          className="text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap"
+                        >
+                          Select All
+                        </button>
+                        {selectedWorkerType.length > 0 && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedWorkerType([]);
+                            }}
+                            className="text-xs text-gray-500 hover:text-gray-700 whitespace-nowrap"
+                          >
+                            Clear ({selectedWorkerType.length})
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="py-1">
+                      {getFilteredWorkerTypeOptions().map((workerType) => (
+                        <label key={workerType} className="flex items-center px-3 py-1 hover:bg-gray-50 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedWorkerType.includes(workerType)}
+                            onChange={() => handleWorkerTypeToggle(workerType)}
+                            className="mr-2 rounded border-gray-300 text-primary focus:ring-primary/20"
+                          />
+                          <span className="text-sm text-gray-700 capitalize">{workerType}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Department Multi-Select */}
-              <div className="relative dropdown-container">
+              <div className="relative dropdown-container" ref={departmentDropdownRef}>
                 <div className="px-3 py-1 border border-gray-200 rounded text-sm bg-white min-h-[32px] flex items-center justify-between cursor-pointer hover:bg-gray-50" 
                      onClick={() => setShowDepartmentDropdown(!showDepartmentDropdown)}>
                   <span className="text-gray-700">
@@ -1616,63 +1861,63 @@ export default function Schedule() {
         )}
       </div>
 
-              {/* Role Multi-Select */}
-              <div className="relative dropdown-container">
+              {/* Job Title Multi-Select */}
+              <div className="relative dropdown-container" ref={jobTitleDropdownRef}>
                 <div className="px-3 py-1 border border-gray-200 rounded text-sm bg-white min-h-[32px] flex items-center justify-between cursor-pointer hover:bg-gray-50" 
-                     onClick={() => setShowRoleDropdown(!showRoleDropdown)}>
+                     onClick={() => setShowJobTitleDropdown(!showJobTitleDropdown)}>
                   <span className="text-gray-700">
-                    {selectedRole.length === 0 ? 'All Roles' : 
-                     selectedRole.length === 1 ? selectedRole[0] :
-                     `${selectedRole.length} selected`}
+                    {selectedJobTitle.length === 0 ? 'All Job Titles' : 
+                     selectedJobTitle.length === 1 ? selectedJobTitle[0] :
+                     `${selectedJobTitle.length} selected`}
                   </span>
                   <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
-                {showRoleDropdown && (
+                {showJobTitleDropdown && (
                   <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto">
                     <div className="p-2 border-b border-gray-100">
                       <div className="flex items-center gap-2">
                         <input
                           type="text"
-                          placeholder="Search roles..."
-                          value={roleSearchTerm}
-                          onChange={(e) => setRoleSearchTerm(e.target.value)}
+                          placeholder="Search job titles..."
+                          value={jobTitleSearchTerm}
+                          onChange={(e) => setJobTitleSearchTerm(e.target.value)}
                           className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
                           onClick={(e) => e.stopPropagation()}
                         />
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleRoleSelectAll();
+                            handleJobTitleSelectAll();
                           }}
                           className="text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap"
                         >
                           Select All
                         </button>
-                        {selectedRole.length > 0 && (
+                        {selectedJobTitle.length > 0 && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              setSelectedRole([]);
+                              setSelectedJobTitle([]);
                             }}
                             className="text-xs text-gray-500 hover:text-gray-700 whitespace-nowrap"
                           >
-                            Clear ({selectedRole.length})
+                            Clear ({selectedJobTitle.length})
                           </button>
                         )}
                       </div>
                     </div>
                     <div className="py-1">
-                      {getFilteredRoleOptions().map((role) => (
-                        <label key={role} className="flex items-center px-3 py-1 hover:bg-gray-50 cursor-pointer">
+                      {getFilteredJobTitleOptions().map((jobTitle) => (
+                        <label key={jobTitle} className="flex items-center px-3 py-1 hover:bg-gray-50 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={selectedRole.includes(role)}
-                            onChange={() => handleRoleToggle(role)}
+                            checked={selectedJobTitle.includes(jobTitle)}
+                            onChange={() => handleJobTitleToggle(jobTitle)}
                             className="mr-2 rounded border-gray-300 text-primary focus:ring-primary/20"
                           />
-                          <span className="text-sm text-gray-700">{role}</span>
+                          <span className="text-sm text-gray-700">{jobTitle}</span>
                         </label>
                       ))}
                     </div>
@@ -1680,63 +1925,63 @@ export default function Schedule() {
                 )}
               </div>
 
-              {/* Status Multi-Select */}
-              <div className="relative dropdown-container">
+              {/* Work Rule Multi-Select */}
+              <div className="relative dropdown-container" ref={workRuleDropdownRef}>
                 <div className="px-3 py-1 border border-gray-200 rounded text-sm bg-white min-h-[32px] flex items-center justify-between cursor-pointer hover:bg-gray-50" 
-                     onClick={() => setShowStatusDropdown(!showStatusDropdown)}>
+                     onClick={() => setShowWorkRuleDropdown(!showWorkRuleDropdown)}>
                   <span className="text-gray-700">
-                    {selectedStatus.length === 0 ? 'All Statuses' : 
-                     selectedStatus.length === 1 ? (selectedStatus[0] || '').replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase()) :
-                     `${selectedStatus.length} selected`}
+                    {selectedWorkRule.length === 0 ? 'All Work Rules' : 
+                     selectedWorkRule.length === 1 ? selectedWorkRule[0] :
+                     `${selectedWorkRule.length} selected`}
                   </span>
                   <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
-                {showStatusDropdown && (
+                {showWorkRuleDropdown && (
                   <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto">
                     <div className="p-2 border-b border-gray-100">
                       <div className="flex items-center gap-2">
                         <input
                           type="text"
-                          placeholder="Search statuses..."
-                          value={statusSearchTerm}
-                          onChange={(e) => setStatusSearchTerm(e.target.value)}
+                          placeholder="Search work rules..."
+                          value={workRuleSearchTerm}
+                          onChange={(e) => setWorkRuleSearchTerm(e.target.value)}
                           className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
                           onClick={(e) => e.stopPropagation()}
                         />
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleStatusSelectAll();
+                            handleWorkRuleSelectAll();
                           }}
                           className="text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap"
                         >
                           Select All
                         </button>
-                        {selectedStatus.length > 0 && (
+                        {selectedWorkRule.length > 0 && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              setSelectedStatus([]);
+                              setSelectedWorkRule([]);
                             }}
                             className="text-xs text-gray-500 hover:text-gray-700 whitespace-nowrap"
                           >
-                            Clear ({selectedStatus.length})
+                            Clear ({selectedWorkRule.length})
                           </button>
                         )}
                       </div>
                     </div>
                     <div className="py-1">
-                      {getFilteredStatusOptions().map((status) => (
-                        <label key={status} className="flex items-center px-3 py-1 hover:bg-gray-50 cursor-pointer">
+                      {getFilteredWorkRuleOptions().map((workRule) => (
+                        <label key={workRule} className="flex items-center px-3 py-1 hover:bg-gray-50 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={selectedStatus.includes(status)}
-                            onChange={() => handleStatusToggle(status)}
+                            checked={selectedWorkRule.includes(workRule)}
+                            onChange={() => handleWorkRuleToggle(workRule)}
                             className="mr-2 rounded border-gray-300 text-primary focus:ring-primary/20"
                           />
-                          <span className="text-sm text-gray-700 capitalize">{status}</span>
+                          <span className="text-sm text-gray-700">{workRule}</span>
                         </label>
                       ))}
                     </div>
@@ -2061,14 +2306,17 @@ export default function Schedule() {
                   const dayShifts = getShiftsForDate(date).filter(shift => shift.workerId === employee.id);
                   const fixedScheduleShifts = getFixedScheduleShiftsForDate(employee.id, date);
                   const isFixedSchedule = hasFixedSchedule(employee.id);
+                  const noWorkRule = hasNoWorkRule(employee.id);
                   const allShiftsForDay = [...dayShifts, ...fixedScheduleShifts];
                   const shiftCount = allShiftsForDay.length;
                   const cellHeight = shiftCount > 0 ? 40 * shiftCount : 40; // 40px per shift
+                  // Apply gray background for fixed schedule without shifts OR no work rule without shifts
+                  const shouldShowGrayBackground = ((isFixedSchedule || noWorkRule) && dayShifts.length === 0);
                   
                   return (
                       <div 
                         key={dayIndex} 
-                        className={`group flex-1 relative ${dayIndex < weekDates.length - 1 ? 'border-r border-gray-200' : ''} ${employeeIndex < paginatedEmployees.length - 1 ? 'border-b border-gray-200' : ''} ${isFixedSchedule && dayShifts.length === 0 ? 'bg-gray-50' : ''}`}
+                        className={`group flex-1 relative ${dayIndex < weekDates.length - 1 ? 'border-r border-gray-200' : ''} ${employeeIndex < paginatedEmployees.length - 1 ? 'border-b border-gray-200' : ''} ${shouldShowGrayBackground ? 'bg-gray-50' : ''}`}
                         style={{ minHeight: `${cellHeight}px` }}
                       >
                       {allShiftsForDay.length > 0 ? (
@@ -2077,9 +2325,9 @@ export default function Schedule() {
                             const isFixedScheduleShift = shift.id.startsWith('fixed-');
                             const style = isFixedScheduleShift 
                               ? {
-                                  bgColor: 'bg-gray-100',
-                                  textColor: 'text-gray-600',
-                                  borderColorHex: '#9CA3AF', // gray-400
+                                  bgColor: 'bg-green-50',
+                                  textColor: 'text-green-700',
+                                  borderColorHex: '#059669', // primary green
                                   borderStyle: 'solid',
                                   opacity: '',
                                 }
@@ -2132,8 +2380,8 @@ export default function Schedule() {
                             </div>
                             );
                           })}
-                          {/* Add button that appears on hover - only for planned/planner workers, not flexible */}
-                          {!hasFixedSchedule(employee.id) && !hasFlexibleSchedule(employee.id) && (
+                          {/* Add button that appears on hover - only for planned/planner workers, not flexible, not no work rule */}
+                          {!hasFixedSchedule(employee.id) && !hasFlexibleSchedule(employee.id) && !hasNoWorkRule(employee.id) && (
                           <button 
                               disabled={!canPlanShiftsForWorker(employee.id)}
                               title={
@@ -2170,9 +2418,9 @@ export default function Schedule() {
                           {hasFlexibleSchedule(employee.id) ? (
                             <div className="text-xs text-gray-400 italic">Flexible</div>
                           ) : (
-                            /* Only show Add button for planned/planner workers, not for fixed schedule workers */
-                            !hasFixedSchedule(employee.id) && (
-                              <button 
+                            /* Only show Add button for planned/planner workers, not for fixed schedule workers or no work rule */
+                            !hasFixedSchedule(employee.id) && !hasNoWorkRule(employee.id) && (
+                          <button 
                                 disabled={!canPlanShiftsForWorker(employee.id)}
                                 title={
                                   canPlanShiftsForWorker(employee.id)
@@ -2184,7 +2432,7 @@ export default function Schedule() {
                                     ? 'hover:bg-gray-50'
                                     : 'cursor-not-allowed opacity-0 group-hover:opacity-30'
                                 }`}
-                                onClick={() => {
+                            onClick={() => {
                                   if (!canPlanShiftsForWorker(employee.id)) return;
                                   setSelectedEmployee(employee.id);
                                   // Preselect the employee and date in the form
@@ -2195,11 +2443,11 @@ export default function Schedule() {
                                     shiftDate: dateStr
                                   }));
                                   setShowCreateShift(true);
-                                }}
-                                aria-label={`Add shift for ${employee.name}`}
-                              >
-                                <Plus className="w-3 h-3 text-gray-400" />
-                              </button>
+                            }}
+                            aria-label={`Add shift for ${employee.name}`}
+                          >
+                            <Plus className="w-3 h-3 text-gray-400" />
+                          </button>
                             )
                           )}
                         </div>
