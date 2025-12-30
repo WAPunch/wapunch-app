@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { router } from '../../lib/router';
-import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
-import { useSites } from '../../hooks/useSites';
-import { useCompany } from '../../hooks/useCompany';
-import { getDefaultMapCenter } from '../../lib/countries';
-import ImportSitesWizard from '../../components/ImportSitesWizard';
-import { supabase } from '../../lib/supabase';
-import { logger } from '../../lib/logger';
+import { router } from '../../../lib/router';
+import { useSubmoduleNav } from '../../../hooks/useSubmoduleNav';
+import { useSites } from '../../../hooks/useSites';
+import { useCompany } from '../../../hooks/useCompany';
+import { getDefaultMapCenter } from '../../../lib/countries';
+import ImportSitesWizard from '../../../components/ImportSitesWizard';
+import { supabase } from '../../../lib/supabase';
+import { logger } from '../../../lib/logger';
 import { GoogleMap, MarkerF } from '@react-google-maps/api';
-import { useGoogleMapsLoader } from '../../lib/google-maps';
+import { useGoogleMapsLoader } from '../../../lib/google-maps';
 import { 
   Search, 
   Filter,
@@ -18,6 +18,7 @@ import {
   SortDesc,
   MapPin,
   Building2,
+  Users,
   Eye,
   MoreVertical,
   Plus,
@@ -73,9 +74,10 @@ export default function Sites() {
   const [siteToDelete, setSiteToDelete] = useState<Site | null>(null);
 
   useEffect(() => {
-    // Register submodule tabs for sites section
-    registerSubmodules('Sites', [
-      { id: 'sites', label: 'Sites', href: '/sites', icon: Building2 }
+    // Register submodule tabs for directory section
+    registerSubmodules('Directory', [
+      { id: 'workers', label: 'Workers', href: '/directory/workers', icon: Users },
+      { id: 'sites', label: 'Sites', href: '/directory/sites', icon: Building2 }
     ]);
   }, [registerSubmodules]);
 
@@ -439,7 +441,7 @@ export default function Sites() {
             <button 
               onClick={() => {
                 sessionStorage.removeItem('selectedSite');
-                router.navigate('/sites/site-info');
+                router.navigate('/directory/sites/new');
               }}
               className="flex items-center gap-2 px-2 py-1 rounded text-white transition-colors text-sm" 
               style={{ backgroundColor: 'var(--primary-brand-hex)' }}
@@ -903,7 +905,8 @@ export default function Sites() {
                               type: site.type,
                               custom_site_id: site.custom_site_id,
                             }));
-                            router.navigate('/sites/site-info');
+                            const slug = site.name.toLowerCase().replace(/\s+/g, '-');
+                            router.navigate(`/directory/sites/${slug}`);
                           }}
                           className="p-1 hover:bg-gray-100 rounded transition-colors"
                           aria-label={`View ${site.name}`}

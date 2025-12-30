@@ -26,6 +26,8 @@ import {
   User,
   Clock, 
   Calendar,
+  CalendarDays,
+  NotebookTabs,
   Settings, 
   Home, 
   Bell, 
@@ -113,9 +115,8 @@ NavigationItem.displayName = 'NavigationItem';
 
 const baseNavigation = [
   { name: 'Dashboard', href: '/dashboard', icon: Home }, // Will be handled dynamically based on view mode
-  { name: 'Workers', href: '/workers', icon: Users },
-  { name: 'Sites', href: '/sites', icon: Building2 },
-  { name: 'Schedule', href: '/schedule/schedule', icon: Calendar },
+  { name: 'Directory', href: '/directory/workers', icon: NotebookTabs },
+  { name: 'Schedule', href: '/schedule/schedule', icon: CalendarDays },
   { name: 'Time & Attendance', href: '/time-and-attendance/whos-working', icon: Clock },
 ];
 
@@ -197,12 +198,15 @@ function Layout({ children }: LayoutProps) {
       case 'Dashboard':
         // Dashboard is active if we're on root or dashboard route
         return currentRoute === '/' || currentRoute === '/dashboard' || currentRoute.includes('/dashboard');
+      case 'Directory':
+        // Directory is active if we're on any directory route (workers or sites)
+        return currentRoute.includes('/directory/workers') || currentRoute.includes('/directory/sites') || currentRoute.includes('/workers') || currentRoute.includes('/sites');
       case 'Workers':
-        // Workers is active if we're on any workers route
-        return currentRoute.includes('/workers');
-      case 'Sites':
-        // Sites is active if we're on any sites route
-        return currentRoute.includes('/sites');
+        // Legacy: Workers is active if we're on any directory route (workers or sites)
+        return currentRoute.includes('/directory/workers') || currentRoute.includes('/directory/sites') || currentRoute.includes('/workers') || currentRoute.includes('/sites');
+      case 'Schedule':
+        // Schedule is active if we're on any schedule route
+        return currentRoute.includes('/schedule');
       case 'My Info':
         // My Info is active if we're on any workers or my-info route
         return currentRoute.includes('/workers') || currentRoute.includes('/my-info');
@@ -223,13 +227,12 @@ function Layout({ children }: LayoutProps) {
 
   // Memoized navigation items for management view
   const navigation = useMemo(() => {
-    // Create navigation with order: Dashboard, Workers, Sites, Schedule, Time & Attendance, Reports
+    // Create navigation with order: Dashboard, Workers, Schedule, Time & Attendance, Reports
     return [
       baseNavigation[0], // Dashboard
       baseNavigation[1], // Workers
-      baseNavigation[2], // Sites
-      baseNavigation[3], // Schedule
-      baseNavigation[4], // Time & Attendance
+      baseNavigation[2], // Schedule
+      baseNavigation[3], // Time & Attendance
       { name: 'Reports', href: '/reports/company-reports', icon: Printer }
     ];
   }, []);
@@ -268,8 +271,8 @@ function Layout({ children }: LayoutProps) {
       const actualPath = '/dashboard';
       router.navigate(actualPath);
       setCurrentRoute(actualPath);
-    } else if (path === '/workers') {
-      const actualPath = '/workers/directory';
+    } else if (path === '/workers' || path === '/directory/workers') {
+      const actualPath = '/directory/workers';
       router.navigate(actualPath);
       setCurrentRoute(actualPath);
     } else {

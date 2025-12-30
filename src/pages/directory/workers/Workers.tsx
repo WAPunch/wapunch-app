@@ -1,10 +1,10 @@
 import { useEffect, useState, useMemo } from 'react';
-import { router } from '../../lib/router';
-import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
-import { useWorkers, getCurrentStatusDotColor } from '../../hooks/useWorkers';
-import { supabase } from '../../lib/supabase';
-import { logger } from '../../lib/logger';
-import ImportWorkersWizard from '../../components/ImportWorkersWizard';
+import { router } from '../../../lib/router';
+import { useSubmoduleNav } from '../../../hooks/useSubmoduleNav';
+import { useWorkers, getCurrentStatusDotColor } from '../../../hooks/useWorkers';
+import { supabase } from '../../../lib/supabase';
+import { logger } from '../../../lib/logger';
+import ImportWorkersWizard from '../../../components/ImportWorkersWizard';
 import { 
   Users, 
   Search, 
@@ -28,6 +28,7 @@ import {
   Power,
   PowerOff,
   Trash2,
+  Building2,
   X,
   AlertTriangle
 } from 'lucide-react';
@@ -75,7 +76,7 @@ const getDotSize = (avatarSize: 'sm' | 'md' | 'lg') => {
   }
 };
 
-export default function Directory() {
+export default function Workers() {
   const { registerSubmodules } = useSubmoduleNav();
   const { workers: workersData, isLoading: workersLoading, error: workersError, refetch } = useWorkers();
   const [searchTerm, setSearchTerm] = useState('');
@@ -102,9 +103,10 @@ export default function Directory() {
   const [showImportWizard, setShowImportWizard] = useState(false);
 
   useEffect(() => {
-    // Register submodule tabs for management workers section
-    registerSubmodules('Worker Directory', [
-      { id: 'directory', label: 'Directory', href: '/workers/directory', icon: Users }
+    // Register submodule tabs for directory section
+    registerSubmodules('Directory', [
+      { id: 'workers', label: 'Workers', href: '/directory/workers', icon: Users },
+      { id: 'sites', label: 'Sites', href: '/directory/sites', icon: Building2 }
     ]);
   }, [registerSubmodules]);
 
@@ -311,7 +313,7 @@ export default function Directory() {
     // Create slug from worker name
     const slug = `${worker.firstName.toLowerCase()}-${worker.lastName.toLowerCase()}`;
     
-    router.navigate(`/workers/worker-info/${slug}`);
+    router.navigate(`/directory/workers/${slug}`);
   };
 
   // Navigate to add new worker page
@@ -319,7 +321,7 @@ export default function Directory() {
     // Clear any previously selected worker
     sessionStorage.removeItem('selectedWorker');
     // Navigate to worker info page without a slug to create a new worker
-    router.navigate('/workers/worker-info');
+    router.navigate('/directory/workers');
   };
 
   // Toggle action menu

@@ -1,11 +1,11 @@
 import { useEffect, useState, useRef } from 'react';
-import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
-import { useDepartments } from '../../hooks/useDepartments';
-import { useJobTitles } from '../../hooks/useJobTitles';
-import { useCompany } from '../../hooks/useCompany';
-import { supabase } from '../../lib/supabase';
-import { logger } from '../../lib/logger';
-import { router } from '../../lib/router';
+import { useSubmoduleNav } from '../../../hooks/useSubmoduleNav';
+import { useDepartments } from '../../../hooks/useDepartments';
+import { useJobTitles } from '../../../hooks/useJobTitles';
+import { useCompany } from '../../../hooks/useCompany';
+import { supabase } from '../../../lib/supabase';
+import { logger } from '../../../lib/logger';
+import { router } from '../../../lib/router';
 import { 
   User, 
   Mail, 
@@ -17,7 +17,7 @@ import {
   Plus,
   AlertCircle,
 } from 'lucide-react';
-import phoneRules from '../../../phone_number_rules_global_full.json';
+import phoneRules from '../../../../phone_number_rules_global_full.json';
 
 // Default worker data - fallback if no worker is selected
 const defaultWorker = {
@@ -668,8 +668,7 @@ export default function WorkerInfo() {
       : 'new-worker';
     
     setBreadcrumbs([
-      { label: 'Workers' },
-      { label: 'Directory', href: '/workers/directory' },
+      { label: 'Workers', href: '/directory/workers' },
       { label: worker.firstName && worker.lastName ? `${worker.firstName} ${worker.lastName}` : 'New Worker' }
     ]);
 

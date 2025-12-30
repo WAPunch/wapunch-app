@@ -18,9 +18,7 @@ import {
   Bell,
   Copy,
   Wand2,
-  Minus,
   EyeOff,
-  UserX,
   Download,
   Upload,
   Share2,
@@ -116,6 +114,7 @@ type PlannedShiftRow = {
   is_overtime_allowed?: boolean | null;
   notes?: string | null;
   is_delete?: boolean | null;
+  edited_published_shift_id?: string | null;
 };
 
 type WorkerRow = {
@@ -171,6 +170,10 @@ export default function Schedule() {
   const [showFilters, setShowFilters] = useState(false);
   const [showCreateShift, setShowCreateShift] = useState(false);
   const [showMultipleShifts, setShowMultipleShifts] = useState(false);
+  const [showUnpublishConfirm, setShowUnpublishConfirm] = useState(false);
+  const [isUnpublishing, setIsUnpublishing] = useState(false);
+  const [showEraseDraftsConfirm, setShowEraseDraftsConfirm] = useState(false);
+  const [isErasingDrafts, setIsErasingDrafts] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
@@ -367,7 +370,7 @@ export default function Schedule() {
           .eq('company_id', currentCompany.id),
         supabase
           .from('planned_shifts')
-          .select('id, company_id, worker_id, site_id, shift_date, start_time, end_time, status, published_at, created_at, break_minutes, is_overtime_allowed, notes, is_delete')
+          .select('id, company_id, worker_id, site_id, shift_date, start_time, end_time, status, published_at, created_at, break_minutes, is_overtime_allowed, notes, is_delete, edited_published_shift_id')
           .eq('company_id', currentCompany.id)
           .gte('shift_date', weekRange.startISO)
           .lte('shift_date', weekRange.endISO)
@@ -448,9 +451,23 @@ export default function Schedule() {
       // For calendar display: show published and drafts
       // Published shifts with is_delete = true are shown as delete intents (red)
       // Draft delete intents (legacy) are also shown
+      // Hide published shifts that have a draft linked to them (being edited)
+      const publishedShiftIdsWithDrafts = new Set(
+        allShifts
+          .filter(s => s.status === 'draft' && s.edited_published_shift_id)
+          .map(s => s.edited_published_shift_id)
+          .filter((id): id is string => id !== null && id !== undefined)
+      );
+      
       const shiftsForCalendar = canSeeDrafts
-        ? allShifts // Admin/supervisor: show published and drafts (including delete intents)
-        : allShifts.filter(s => s.status === 'published' && !s.is_delete); // Employee: only published, no delete intents
+        ? allShifts.filter(s => {
+            // Hide published shifts that have a draft linked to them
+            if (s.status === 'published' && publishedShiftIdsWithDrafts.has(s.id)) {
+              return false;
+            }
+            return true;
+          })
+        : allShifts.filter(s => s.status === 'published' && !s.is_delete && !publishedShiftIdsWithDrafts.has(s.id)); // Employee: only published, no delete intents, no hidden by drafts
       
       // Map shifts and identify delete intents
       // Delete intents can be:
@@ -473,6 +490,7 @@ export default function Schedule() {
           breakMinutes: s.break_minutes || 0,
           isOvertimeAllowed: s.is_overtime_allowed || false,
           isDelete: isDeleteIntent,
+          originalPublishedId: s.edited_published_shift_id || undefined,
         };
       });
       setShifts(mappedShifts);
@@ -509,51 +527,40 @@ export default function Schedule() {
     };
   }, []);
 
-  // Handle Publish: drafts → published, delete published shifts with delete intents, remove delete intents
+  // Handle Publish: drafts → published, delete published shifts with delete intents, remove delete intents (only for filtered workers)
   const handlePublish = async () => {
     if (!currentCompany?.id || pendingChangesCount === 0) return;
 
     try {
       setIsLoadingData(true);
       
-      // Separate regular drafts from delete intents (legacy draft delete intents)
-      const allDrafts = allShiftsRaw.filter(s => s.status === 'draft');
+      // Get IDs of filtered workers (only those displayed in the table)
+      const filteredWorkerIdsSet = new Set(filteredEmployees.map(emp => emp.id));
+      
+      // Separate regular drafts from delete intents (legacy draft delete intents) - only for filtered workers
+      const allDrafts = allShiftsRaw.filter(s => 
+        s.status === 'draft' &&
+        filteredWorkerIdsSet.has(s.worker_id) &&
+        s.shift_date >= weekRange.startISO && 
+        s.shift_date <= weekRange.endISO
+      );
       const legacyDeleteIntents = allDrafts.filter(s => s.is_delete === true);
       const regularDrafts = allDrafts.filter(s => !s.is_delete);
       
-      // Get published shifts that will be replaced by regular drafts
-      const publishedShiftsToDelete: string[] = [];
-      for (const draft of regularDrafts) {
-        const matchingPublished = allShiftsRaw.find(s => 
-          s.status === 'published' &&
-          s.worker_id === draft.worker_id &&
-          s.shift_date === draft.shift_date &&
-          normalizeTime(s.start_time) === normalizeTime(draft.start_time) &&
-          normalizeTime(s.end_time) === normalizeTime(draft.end_time) &&
-          !s.is_delete
-        );
-        if (matchingPublished) {
-          publishedShiftsToDelete.push(matchingPublished.id);
-        }
-      }
-
-      // Get published shifts marked for deletion (is_delete = true)
+      // Get published shifts marked for deletion (is_delete = true) - only for filtered workers
       const publishedShiftsMarkedForDeletion = allShiftsRaw
-        .filter(s => s.status === 'published' && s.is_delete === true)
+        .filter(s => 
+          s.status === 'published' && 
+          s.is_delete === true &&
+          filteredWorkerIdsSet.has(s.worker_id) &&
+          s.shift_date >= weekRange.startISO && 
+          s.shift_date <= weekRange.endISO
+        )
         .map(s => s.id);
 
-      // Delete published shifts that are being replaced or marked for deletion
-      const allPublishedToDelete = [...new Set([...publishedShiftsToDelete, ...publishedShiftsMarkedForDeletion])];
-      if (allPublishedToDelete.length > 0) {
-        const { error } = await supabase
-          .from('planned_shifts')
-          .delete()
-          .in('id', allPublishedToDelete);
-        
-        if (error) throw error;
-      }
-
-      // Update regular drafts to published
+      // Update regular drafts to published FIRST (before deleting originals)
+      // This ensures the new published shifts are not accidentally deleted
+      // Also clear edited_published_shift_id since the original published shift will be deleted
       const regularDraftIds = regularDrafts.map(s => s.id);
       if (regularDraftIds.length > 0) {
         const { error } = await supabase
@@ -561,9 +568,32 @@ export default function Schedule() {
           .update({ 
             status: 'published',
             published_at: new Date().toISOString(),
-            is_delete: false // Ensure new published shifts don't have is_delete
+            is_delete: false, // Ensure new published shifts don't have is_delete
+            edited_published_shift_id: null // Clear the reference since original will be deleted
           })
           .in('id', regularDraftIds);
+        
+        if (error) throw error;
+      }
+
+      // Delete published shifts that are being replaced by drafts with edited_published_shift_id
+      // Simply get the IDs from edited_published_shift_id of the drafts we just published
+      const publishedShiftsToDelete = regularDrafts
+        .filter(d => d.edited_published_shift_id)
+        .map(d => d.edited_published_shift_id)
+        .filter((id): id is string => id !== null && id !== undefined);
+
+      // Delete published shifts that are being replaced or marked for deletion
+      // IMPORTANT: Only delete the ORIGINAL published shifts, not the newly published drafts
+      // Exclude any IDs that are in regularDraftIds (the drafts we just published)
+      const allPublishedToDelete = [...new Set([...publishedShiftsToDelete, ...publishedShiftsMarkedForDeletion])]
+        .filter(id => !regularDraftIds.includes(id)); // Exclude drafts we just published
+      
+      if (allPublishedToDelete.length > 0) {
+        const { error } = await supabase
+          .from('planned_shifts')
+          .delete()
+          .in('id', allPublishedToDelete);
         
         if (error) throw error;
       }
@@ -589,15 +619,87 @@ export default function Schedule() {
     }
   };
 
-  // Handle Cancel: delete all drafts and restore published shifts marked for deletion
+  // Handle Unpublish Week: convert all published shifts of the week to drafts (only for filtered workers)
+  const handleUnpublishWeek = async () => {
+    if (!currentCompany?.id) return;
+
+    try {
+      setIsUnpublishing(true);
+      
+      // Get IDs of filtered workers (only those displayed in the table)
+      const filteredWorkerIds = new Set(filteredEmployees.map(emp => emp.id));
+      
+      // Get all published shifts for the current week, but only for filtered workers
+      const publishedShifts = allShiftsRaw.filter(
+        s => s.status === 'published' && 
+        !s.is_delete &&
+        s.shift_date >= weekRange.startISO && 
+        s.shift_date <= weekRange.endISO &&
+        filteredWorkerIds.has(s.worker_id)
+      );
+
+      if (publishedShifts.length === 0) {
+        setLoadError('No published shifts found for the filtered workers in this week');
+        setShowUnpublishConfirm(false);
+        return;
+      }
+
+      // Convert all published shifts to drafts
+      const shiftIds = publishedShifts.map(s => s.id);
+      const { error } = await supabase
+        .from('planned_shifts')
+        .update({ 
+          status: 'draft',
+          published_at: null
+        })
+        .in('id', shiftIds);
+
+      if (error) throw error;
+
+      // Reload data
+      await loadScheduleData();
+      setShowUnpublishConfirm(false);
+    } catch (err: any) {
+      logger.error('Error unpublishing week', err);
+      setLoadError(err?.message || 'Error unpublishing week');
+    } finally {
+      setIsUnpublishing(false);
+    }
+  };
+
+  // Handle Erase Drafts: delete all drafts and restore published shifts marked for deletion (with confirmation)
+  const handleEraseDrafts = async () => {
+    if (!currentCompany?.id || pendingChangesCount === 0) return;
+
+    try {
+      setIsErasingDrafts(true);
+      await handleCancel();
+      setShowEraseDraftsConfirm(false);
+    } catch (err: any) {
+      logger.error('Error erasing drafts', err);
+      setLoadError(err?.message || 'Error erasing drafts');
+    } finally {
+      setIsErasingDrafts(false);
+    }
+  };
+
+  // Handle Cancel: delete all drafts and restore published shifts marked for deletion (only for filtered workers)
   const handleCancel = async () => {
     if (!currentCompany?.id || pendingChangesCount === 0) return;
 
     try {
       setIsLoadingData(true);
       
-      // Delete all drafts (both regular drafts and legacy delete intents)
-      const draftShifts = allShiftsRaw.filter(s => s.status === 'draft');
+      // Get IDs of filtered workers (only those displayed in the table)
+      const filteredWorkerIdsSet = new Set(filteredEmployees.map(emp => emp.id));
+      
+      // Delete all drafts (both regular drafts and legacy delete intents) - only for filtered workers
+      const draftShifts = allShiftsRaw.filter(s => 
+        s.status === 'draft' &&
+        filteredWorkerIdsSet.has(s.worker_id) &&
+        s.shift_date >= weekRange.startISO && 
+        s.shift_date <= weekRange.endISO
+      );
       const draftIds = draftShifts.map(s => s.id);
       
       if (draftIds.length > 0) {
@@ -609,9 +711,15 @@ export default function Schedule() {
         if (error) throw error;
       }
 
-      // Restore published shifts marked for deletion (set is_delete = false)
+      // Restore published shifts marked for deletion (set is_delete = false) - only for filtered workers
       const publishedShiftsMarkedForDeletion = allShiftsRaw
-        .filter(s => s.status === 'published' && s.is_delete === true)
+        .filter(s => 
+          s.status === 'published' && 
+          s.is_delete === true &&
+          filteredWorkerIdsSet.has(s.worker_id) &&
+          s.shift_date >= weekRange.startISO && 
+          s.shift_date <= weekRange.endISO
+        )
         .map(s => s.id);
 
       if (publishedShiftsMarkedForDeletion.length > 0) {
@@ -772,6 +880,7 @@ export default function Schedule() {
         if (error) throw error;
       } else if (wasPublished && !wasDeleteIntent) {
         // If it was published (not marked for deletion), create a new draft instead of updating
+        // Link the draft to the original published shift so we can hide the original
         const { error } = await supabase
           .from('planned_shifts')
           .insert({
@@ -786,10 +895,11 @@ export default function Schedule() {
             break_minutes: shiftForm.breakMinutes || 0,
             is_overtime_allowed: shiftForm.isOvertimeAllowed || false,
             notes: shiftForm.notes || shiftForm.shiftTitle || null,
+            edited_published_shift_id: editingShiftId, // Link to the original published shift
           });
 
         if (error) throw error;
-        // Original published shift remains unchanged until publish
+        // Original published shift will be hidden because there's now a draft linked to it
       } else if (wasDeleteIntent && !wasPublished) {
         // If editing a draft delete intent (legacy), convert it to a regular draft
         const { error } = await supabase
@@ -1595,13 +1705,61 @@ export default function Schedule() {
   };
 
   // Count drafts and published shifts marked for deletion for Publish button
-  const draftCount = allShiftsRaw.filter(s => s.status === 'draft' && !s.is_delete).length;
-  const publishedDeleteCount = allShiftsRaw.filter(s => s.status === 'published' && s.is_delete === true).length;
-  const legacyDeleteIntentCount = allShiftsRaw.filter(s => s.status === 'draft' && s.is_delete === true).length;
+  // Get IDs of filtered workers (only those displayed in the table)
+  const filteredWorkerIds = useMemo(() => {
+    return new Set(filteredEmployees.map(emp => emp.id));
+  }, [filteredEmployees]);
+
+  // Calculate pending changes count only for filtered workers
+  const draftCount = useMemo(() => {
+    return allShiftsRaw.filter(s => 
+      s.status === 'draft' && 
+      !s.is_delete &&
+      filteredWorkerIds.has(s.worker_id) &&
+      s.shift_date >= weekRange.startISO && 
+      s.shift_date <= weekRange.endISO
+    ).length;
+  }, [allShiftsRaw, filteredWorkerIds, weekRange.startISO, weekRange.endISO]);
+
+  const publishedDeleteCount = useMemo(() => {
+    return allShiftsRaw.filter(s => 
+      s.status === 'published' && 
+      s.is_delete === true &&
+      filteredWorkerIds.has(s.worker_id) &&
+      s.shift_date >= weekRange.startISO && 
+      s.shift_date <= weekRange.endISO
+    ).length;
+  }, [allShiftsRaw, filteredWorkerIds, weekRange.startISO, weekRange.endISO]);
+
+  const legacyDeleteIntentCount = useMemo(() => {
+    return allShiftsRaw.filter(s => 
+      s.status === 'draft' && 
+      s.is_delete === true &&
+      filteredWorkerIds.has(s.worker_id) &&
+      s.shift_date >= weekRange.startISO && 
+      s.shift_date <= weekRange.endISO
+    ).length;
+  }, [allShiftsRaw, filteredWorkerIds, weekRange.startISO, weekRange.endISO]);
+
   const pendingChangesCount = draftCount + publishedDeleteCount + legacyDeleteIntentCount; // Total changes pending publish
+  
+  // Check if there are any published shifts visible in the current view
+  const hasPublishedShiftsInView = useMemo(() => {
+    const filteredWorkerIdsSet = new Set(filteredEmployees.map(emp => emp.id));
+    return allShiftsRaw.some(s => 
+      s.status === 'published' && 
+      !s.is_delete &&
+      filteredWorkerIdsSet.has(s.worker_id) &&
+      s.shift_date >= weekRange.startISO && 
+      s.shift_date <= weekRange.endISO
+    );
+  }, [allShiftsRaw, filteredEmployees, weekRange.startISO, weekRange.endISO]);
+  
   const canPublish = (currentCompanyUser?.role === 'super_admin' || 
                       currentCompanyUser?.role === 'admin' || 
-                      currentCompanyUser?.role === 'supervisor') && pendingChangesCount > 0;
+                      currentCompanyUser?.role === 'supervisor') && 
+                      pendingChangesCount > 0 && 
+                      hasPublishedShiftsInView;
 
   return (
     <div className="p-6">
@@ -2092,16 +2250,21 @@ export default function Schedule() {
                       <Wand2 className="w-4 h-4" />
                       Auto assign week
                     </button>
-                    <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-                      <Minus className="w-4 h-4" />
-                      Clear week
-                    </button>
-                    <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                    <button 
+                      onClick={() => {
+                        setShowActionsDropdown(false);
+                        setShowUnpublishConfirm(true);
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                    >
                       <EyeOff className="w-4 h-4" />
                       Unpublish week
                     </button>
                     <button 
-                      onClick={handleCancel}
+                      onClick={() => {
+                        setShowActionsDropdown(false);
+                        setShowEraseDraftsConfirm(true);
+                      }}
                       disabled={pendingChangesCount === 0}
                       className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 ${
                         pendingChangesCount === 0
@@ -2111,10 +2274,6 @@ export default function Schedule() {
                     >
                       <Trash2 className="w-4 h-4" />
                       Erase Drafts
-                    </button>
-                    <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-                      <UserX className="w-4 h-4" />
-                      Unassign week
                     </button>
                     <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
                       <Download className="w-4 h-4" />
@@ -2363,11 +2522,6 @@ export default function Schedule() {
                                     </div>
                                     {!isFixedScheduleShift && shift.isDelete && (
                                       <Trash2 className="w-3 h-3 text-red-500 flex-shrink-0" />
-                                    )}
-                                    {!isFixedScheduleShift && shift.status === 'draft' && !shift.isDelete && (
-                                      <span className="px-1 py-0.5 text-[10px] font-medium bg-yellow-200 text-yellow-800 rounded flex-shrink-0">
-                                        Draft
-                                      </span>
                                     )}
                                   </div>
                                 <div className={`text-xs leading-tight flex items-center gap-1 ${shift.isDelete ? 'opacity-50' : 'opacity-75'}`}>
@@ -3036,6 +3190,128 @@ export default function Schedule() {
                 }}
               >
                 {isCreatingMultipleShifts ? 'Creating...' : `Add ${multipleShifts.filter(r => r.workerId && r.shiftDate && r.startTime && r.endTime && r.siteId).length} Shifts`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Erase Drafts Confirmation Modal */}
+      {showEraseDraftsConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-yellow-50 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-yellow-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    Erase Drafts
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    This action cannot be undone
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowEraseDraftsConfirm(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Close modal"
+                disabled={isErasingDrafts}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6">
+              <p className="text-sm text-gray-700 mb-4">
+                Are you sure you want to erase all drafts? 
+                All draft shifts will be permanently deleted and any published shifts marked for deletion will be restored. This action cannot be undone.
+              </p>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+              <button
+                onClick={() => setShowEraseDraftsConfirm(false)}
+                disabled={isErasingDrafts}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEraseDrafts}
+                disabled={isErasingDrafts}
+                className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{
+                  backgroundColor: isErasingDrafts ? '#9CA3AF' : 'var(--primary-brand-hex)',
+                }}
+              >
+                {isErasingDrafts ? 'Erasing...' : 'Confirm Erase'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unpublish Week Confirmation Modal */}
+      {showUnpublishConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-yellow-50 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-yellow-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    Unpublish Week
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    This action cannot be undone
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowUnpublishConfirm(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Close modal"
+                disabled={isUnpublishing}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6">
+              <p className="text-sm text-gray-700 mb-4">
+                Are you sure you want to unpublish all published shifts for the currently filtered workers in this week? 
+                All published shifts for the displayed workers will be converted to drafts. This action cannot be undone.
+              </p>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+              <button
+                onClick={() => setShowUnpublishConfirm(false)}
+                disabled={isUnpublishing}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUnpublishWeek}
+                disabled={isUnpublishing}
+                className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{
+                  backgroundColor: isUnpublishing ? '#9CA3AF' : 'var(--primary-brand-hex)',
+                }}
+              >
+                {isUnpublishing ? 'Unpublishing...' : 'Confirm Unpublish'}
               </button>
             </div>
           </div>

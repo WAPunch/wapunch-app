@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
-import { useCompany } from '../../hooks/useCompany';
-import { supabase } from '../../lib/supabase';
-import { logger } from '../../lib/logger';
-import { router } from '../../lib/router';
+import { useSubmoduleNav } from '../../../hooks/useSubmoduleNav';
+import { useCompany } from '../../../hooks/useCompany';
+import { supabase } from '../../../lib/supabase';
+import { logger } from '../../../lib/logger';
+import { router } from '../../../lib/router';
 import { 
   Building2,
   MapPin,
@@ -12,7 +12,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { GoogleMap, MarkerF } from '@react-google-maps/api';
-import { useGoogleMapsLoader } from '../../lib/google-maps';
+import { useGoogleMapsLoader } from '../../../lib/google-maps';
 
 // Extend Window interface for lastAutocompleteUpdate
 declare global {
@@ -83,7 +83,7 @@ export default function SiteInfo() {
 
   useEffect(() => {
     setBreadcrumbs([
-      { label: 'Sites', href: '/sites' },
+      { label: 'Sites', href: '/directory/sites' },
       { label: site.id ? 'Edit Site' : 'New Site', href: '#' },
     ]);
 
@@ -319,7 +319,7 @@ export default function SiteInfo() {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
     if (lat < -90 || lat > 90) return false;
     if (lng < -180 || lng > 180) return false;
-    // Keep existing convention: 0,0 means “unset”
+    // Keep existing convention: 0,0 means "unset"
     if (lat === 0 && lng === 0) return false;
     return true;
   };
@@ -536,7 +536,7 @@ export default function SiteInfo() {
   const handleCancel = () => {
     setSite(originalSite);
     setErrors({});
-    router.navigate('/sites');
+    router.navigate('/directory/sites');
   };
 
   const mapContainerStyle = {

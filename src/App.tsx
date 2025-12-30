@@ -59,23 +59,23 @@ const GatewayTimeout = lazy(() => {
 });
 
 
-const Directory = lazy(() => {
-  logger.debug('Loading Directory component');
-  return import('./pages/workers/Directory');
+const Workers = lazy(() => {
+  logger.debug('Loading Workers component');
+  return import('./pages/directory/workers/Workers');
 });
 
 const WorkerInfo = lazy(() => {
   logger.debug('Loading WorkerInfo component');
-  return import('./pages/workers/WorkerInfo');
+  return import('./pages/directory/workers/WorkerInfo');
 });
 
 const Sites = lazy(() => {
   logger.debug('Loading Sites component');
-  return import('./pages/sites/Sites');
+  return import('./pages/directory/sites/Sites');
 });
 const SiteInfo = lazy(() => {
   logger.debug('Loading SiteInfo component');
-  return import('./pages/sites/SiteInfo');
+  return import('./pages/directory/sites/SiteInfo');
 });
 
 const WhosWorking = lazy(() => {
@@ -293,11 +293,17 @@ function App() {
     router.addRoute('/dashboard', () => setCurrentPage('management-dashboard'));
     router.addRoute('/', () => setCurrentPage('management-dashboard'));
     
-    // Workers routes
+    // Directory routes
+    router.addRoute('/directory/workers', () => setCurrentPage('directory'));
+    router.addRoute('/directory/workers/:slug', () => setCurrentPage('worker-info'));
+    router.addRoute('/directory/sites', () => setCurrentPage('sites'));
+    router.addRoute('/directory/sites/:slug', () => setCurrentPage('site-info'));
+    router.addRoute('/directory/sites/new', () => setCurrentPage('site-info'));
+    
+    // Legacy routes (redirects)
     router.addRoute('/workers/directory', () => setCurrentPage('directory'));
     router.addRoute('/workers/worker-info/:slug', () => setCurrentPage('worker-info'));
     router.addRoute('/workers/worker-info', () => setCurrentPage('worker-info'));
-    // Sites routes
     router.addRoute('/sites', () => setCurrentPage('sites'));
     router.addRoute('/sites/site-info/:slug', () => setCurrentPage('site-info'));
     router.addRoute('/sites/site-info', () => setCurrentPage('site-info'));
@@ -393,7 +399,7 @@ function App() {
       case 'management-dashboard':
         return <ManagementDashboard />;
       case 'directory':
-        return <Directory />;
+        return <Workers />;
       case 'worker-info':
         return <WorkerInfo />;
       case 'sites':
