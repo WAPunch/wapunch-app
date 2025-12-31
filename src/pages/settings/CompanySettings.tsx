@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { countries } from '../../lib/countries';
 import phoneRules from '../../../phone_number_rules_global_full.json';
+import { useCompanyStore } from '../../stores/company-store';
 
 interface CompanyFormData {
   companyName: string;
@@ -39,6 +40,7 @@ interface CompanyFormData {
   email: string;
   website: string;
   logo: string | null;
+  timezone: string;
 }
 
 export default function CompanySettings() {
@@ -83,21 +85,26 @@ export default function CompanySettings() {
   
   // Company form state
   const [companyData, setCompanyData] = useState<CompanyFormData>({
-    companyName: 'Arquiluz S.A.',
-    industry: 'architecture',
-    address: '123 Business Avenue',
-    city: 'San Francisco',
-    country: 'United States',
+    companyName: '',
+    industry: '',
+    address: '',
+    city: '',
+    country: '',
     phoneCountryCode: '+1',
-    phoneNumber: '(555) 123-4567',
-    email: 'contact@arquiluz.com',
-    website: 'https://www.arquiluz.com',
-    logo: null
+    phoneNumber: '',
+    email: '',
+    website: '',
+    logo: null,
+    timezone: 'UTC'
   });
   
   const [originalCompanyData, setOriginalCompanyData] = useState<CompanyFormData>(companyData);
   const [hasChanges, setHasChanges] = useState(false);
   const [phoneErrors, setPhoneErrors] = useState<{ phoneNumber?: string }>({});
+  const [companyLoading, setCompanyLoading] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
 
   // Phone country codes list (same as CompanyRegistration)
   const phoneCountryCodes = [
@@ -308,14 +315,33 @@ export default function CompanySettings() {
     { code: '+995', flag: '🇬🇪', country: 'Georgia', iso: 'GEO' },
     { code: '+996', flag: '🇰🇬', country: 'Kyrgyzstan', iso: 'KGZ' },
     { code: '+998', flag: '🇺🇿', country: 'Uzbekistan', iso: 'UZB' }
-  ].sort((a, b) => {
-    // For +1, prioritize USA (USA) over Canada (CAN)
-    if (a.code === '+1' && b.code === '+1') {
-      if (a.iso === 'USA') return -1;
-      if (b.iso === 'USA') return 1;
+  ].sort((a, b) => a.iso.localeCompare(b.iso));
+
+  // Build a deduplicated list of calling-code options (because the stored value is the calling code, e.g. "+1")
+  // We pick a single representative country per calling code to avoid ambiguous selections.
+  const phoneCountryCodeOptions = (() => {
+    const byCode = new Map<string, typeof phoneCountryCodes>();
+    for (const entry of phoneCountryCodes) {
+      const list = byCode.get(entry.code) || [];
+      list.push(entry);
+      byCode.set(entry.code, list);
     }
-    return a.iso.localeCompare(b.iso);
-  });
+
+    const preferredIsoByCode: Record<string, string> = {
+      '+1': 'USA',
+      '+7': 'RUS',
+    };
+
+    const options: Array<(typeof phoneCountryCodes)[number]> = [];
+    for (const [code, entries] of byCode.entries()) {
+      const preferredIso = preferredIsoByCode[code];
+      const preferred = preferredIso ? entries.find((e) => e.iso === preferredIso) : undefined;
+      const fallback = [...entries].sort((a, b) => a.iso.localeCompare(b.iso))[0];
+      options.push(preferred || fallback);
+    }
+
+    return options.sort((a, b) => a.iso.localeCompare(b.iso));
+  })();
 
   // Phone utility functions
   const getPhoneInfo = (callingCode: string) => {
@@ -324,12 +350,7 @@ export default function CompanySettings() {
   };
 
   const getSelectedCountry = (callingCode: string) => {
-    // For +1, prioritize USA over Canada
-    if (callingCode === '+1') {
-      return phoneCountryCodes.find(country => country.code === '+1' && country.iso === 'USA') || 
-             phoneCountryCodes.find(country => country.code === '+1');
-    }
-    return phoneCountryCodes.find(country => country.code === callingCode);
+    return phoneCountryCodeOptions.find(country => country.code === callingCode);
   };
 
   const cleanPhoneNumber = (phoneNumber: string) => {
@@ -509,6 +530,367 @@ export default function CompanySettings() {
     }
   }, [currentCompany?.id, activeSection]);
 
+  // Map countries to their most common IANA timezone
+  const getTimezoneForCountry = (countryName: string): string => {
+    const countryTimezoneMap: Record<string, string> = {
+      'United States': 'America/New_York',
+      'Canada': 'America/Toronto',
+      'Mexico': 'America/Mexico_City',
+      'Brazil': 'America/Sao_Paulo',
+      'Argentina': 'America/Argentina/Buenos_Aires',
+      'Chile': 'America/Santiago',
+      'Colombia': 'America/Bogota',
+      'Peru': 'America/Lima',
+      'Venezuela': 'America/Caracas',
+      'Ecuador': 'America/Guayaquil',
+      'United Kingdom': 'Europe/London',
+      'France': 'Europe/Paris',
+      'Germany': 'Europe/Berlin',
+      'Spain': 'Europe/Madrid',
+      'Italy': 'Europe/Rome',
+      'Netherlands': 'Europe/Amsterdam',
+      'Belgium': 'Europe/Brussels',
+      'Switzerland': 'Europe/Zurich',
+      'Austria': 'Europe/Vienna',
+      'Sweden': 'Europe/Stockholm',
+      'Norway': 'Europe/Oslo',
+      'Denmark': 'Europe/Copenhagen',
+      'Finland': 'Europe/Helsinki',
+      'Poland': 'Europe/Warsaw',
+      'Portugal': 'Europe/Lisbon',
+      'Greece': 'Europe/Athens',
+      'Ireland': 'Europe/Dublin',
+      'Russia': 'Europe/Moscow',
+      'Turkey': 'Europe/Istanbul',
+      'Ukraine': 'Europe/Kiev',
+      'China': 'Asia/Shanghai',
+      'Japan': 'Asia/Tokyo',
+      'India': 'Asia/Kolkata',
+      'South Korea': 'Asia/Seoul',
+      'Singapore': 'Asia/Singapore',
+      'Malaysia': 'Asia/Kuala_Lumpur',
+      'Thailand': 'Asia/Bangkok',
+      'Philippines': 'Asia/Manila',
+      'Indonesia': 'Asia/Jakarta',
+      'Vietnam': 'Asia/Ho_Chi_Minh',
+      'Australia': 'Australia/Sydney',
+      'New Zealand': 'Pacific/Auckland',
+      'South Africa': 'Africa/Johannesburg',
+      'Egypt': 'Africa/Cairo',
+      'Nigeria': 'Africa/Lagos',
+      'Kenya': 'Africa/Nairobi',
+      'Saudi Arabia': 'Asia/Riyadh',
+      'United Arab Emirates': 'Asia/Dubai',
+      'Israel': 'Asia/Jerusalem',
+      'Iran': 'Asia/Tehran',
+      'Iraq': 'Asia/Baghdad',
+      'Pakistan': 'Asia/Karachi',
+      'Bangladesh': 'Asia/Dhaka',
+      'Sri Lanka': 'Asia/Colombo',
+      'Nepal': 'Asia/Kathmandu',
+      'Myanmar': 'Asia/Yangon',
+      'Afghanistan': 'Asia/Kabul',
+      'Kazakhstan': 'Asia/Almaty',
+      'Uzbekistan': 'Asia/Tashkent',
+      'Kyrgyzstan': 'Asia/Bishkek',
+      'Tajikistan': 'Asia/Dushanbe',
+      'Turkmenistan': 'Asia/Ashgabat',
+      'Mongolia': 'Asia/Ulaanbaatar',
+      'North Korea': 'Asia/Pyongyang',
+      'Taiwan': 'Asia/Taipei',
+      'Hong Kong': 'Asia/Hong_Kong',
+      'Macao': 'Asia/Macau',
+      'Brunei': 'Asia/Brunei',
+      'Cambodia': 'Asia/Phnom_Penh',
+      'Laos': 'Asia/Vientiane',
+      'Timor-Leste': 'Asia/Dili',
+      'Papua New Guinea': 'Pacific/Port_Moresby',
+      'Fiji': 'Pacific/Fiji',
+      'Samoa': 'Pacific/Apia',
+      'Tonga': 'Pacific/Tongatapu',
+      'Vanuatu': 'Pacific/Efate',
+      'Solomon Islands': 'Pacific/Guadalcanal',
+      'New Caledonia': 'Pacific/Noumea',
+      'French Polynesia': 'Pacific/Tahiti',
+      'Guam': 'Pacific/Guam',
+      'Northern Mariana Islands': 'Pacific/Saipan',
+      'Palau': 'Pacific/Palau',
+      'Micronesia': 'Pacific/Chuuk',
+      'Marshall Islands': 'Pacific/Majuro',
+      'Kiribati': 'Pacific/Tarawa',
+      'Nauru': 'Pacific/Nauru',
+      'Tuvalu': 'Pacific/Funafuti',
+      'Algeria': 'Africa/Algiers',
+      'Morocco': 'Africa/Casablanca',
+      'Tunisia': 'Africa/Tunis',
+      'Libya': 'Africa/Tripoli',
+      'Sudan': 'Africa/Khartoum',
+      'Ethiopia': 'Africa/Addis_Ababa',
+      'Tanzania': 'Africa/Dar_es_Salaam',
+      'Uganda': 'Africa/Kampala',
+      'Rwanda': 'Africa/Kigali',
+      'Burundi': 'Africa/Bujumbura',
+      'Democratic Republic of the Congo': 'Africa/Kinshasa',
+      'Republic of the Congo': 'Africa/Brazzaville',
+      'Cameroon': 'Africa/Douala',
+      'Chad': 'Africa/Ndjamena',
+      'Central African Republic': 'Africa/Bangui',
+      'Gabon': 'Africa/Libreville',
+      'Equatorial Guinea': 'Africa/Malabo',
+      'Sao Tome and Principe': 'Africa/Sao_Tome',
+      'Angola': 'Africa/Luanda',
+      'Zambia': 'Africa/Lusaka',
+      'Malawi': 'Africa/Blantyre',
+      'Mozambique': 'Africa/Maputo',
+      'Zimbabwe': 'Africa/Harare',
+      'Botswana': 'Africa/Gaborone',
+      'Namibia': 'Africa/Windhoek',
+      'Lesotho': 'Africa/Maseru',
+      'Eswatini': 'Africa/Mbabane',
+      'Madagascar': 'Indian/Antananarivo',
+      'Mauritius': 'Indian/Mauritius',
+      'Seychelles': 'Indian/Mahe',
+      'Comoros': 'Indian/Comoro',
+      'Maldives': 'Indian/Maldives',
+      'Sri Lanka': 'Asia/Colombo',
+      'Cabo Verde': 'Atlantic/Cape_Verde',
+      'Senegal': 'Africa/Dakar',
+      'Gambia': 'Africa/Banjul',
+      'Guinea-Bissau': 'Africa/Bissau',
+      'Guinea': 'Africa/Conakry',
+      'Sierra Leone': 'Africa/Freetown',
+      'Liberia': 'Africa/Monrovia',
+      'Ivory Coast': 'Africa/Abidjan',
+      'Ghana': 'Africa/Accra',
+      'Togo': 'Africa/Lome',
+      'Benin': 'Africa/Porto-Novo',
+      'Burkina Faso': 'Africa/Ouagadougou',
+      'Mali': 'Africa/Bamako',
+      'Niger': 'Africa/Niamey',
+      'Mauritania': 'Africa/Nouakchott',
+      'Djibouti': 'Africa/Djibouti',
+      'Eritrea': 'Africa/Asmara',
+      'Somalia': 'Africa/Mogadishu',
+      'Cuba': 'America/Havana',
+      'Jamaica': 'America/Jamaica',
+      'Haiti': 'America/Port-au-Prince',
+      'Dominican Republic': 'America/Santo_Domingo',
+      'Puerto Rico': 'America/Puerto_Rico',
+      'Trinidad and Tobago': 'America/Port_of_Spain',
+      'Barbados': 'America/Barbados',
+      'Bahamas': 'America/Nassau',
+      'Belize': 'America/Belize',
+      'Guatemala': 'America/Guatemala',
+      'El Salvador': 'America/El_Salvador',
+      'Honduras': 'America/Tegucigalpa',
+      'Nicaragua': 'America/Managua',
+      'Costa Rica': 'America/Costa_Rica',
+      'Panama': 'America/Panama',
+      'Uruguay': 'America/Montevideo',
+      'Paraguay': 'America/Asuncion',
+      'Bolivia': 'America/La_Paz',
+      'Guyana': 'America/Guyana',
+      'Suriname': 'America/Paramaribo',
+      'French Guiana': 'America/Cayenne',
+      'Falkland Islands': 'Atlantic/Stanley',
+      'Greenland': 'America/Nuuk',
+      'Iceland': 'Atlantic/Reykjavik',
+      'Faroe Islands': 'Atlantic/Faroe',
+      'Svalbard and Jan Mayen': 'Arctic/Longyearbyen',
+      'Albania': 'Europe/Tirane',
+      'Andorra': 'Europe/Andorra',
+      'Armenia': 'Asia/Yerevan',
+      'Azerbaijan': 'Asia/Baku',
+      'Belarus': 'Europe/Minsk',
+      'Bosnia and Herzegovina': 'Europe/Sarajevo',
+      'Bulgaria': 'Europe/Sofia',
+      'Croatia': 'Europe/Zagreb',
+      'Cyprus': 'Asia/Nicosia',
+      'Czech Republic': 'Europe/Prague',
+      'Estonia': 'Europe/Tallinn',
+      'Georgia': 'Asia/Tbilisi',
+      'Hungary': 'Europe/Budapest',
+      'Latvia': 'Europe/Riga',
+      'Lithuania': 'Europe/Vilnius',
+      'Luxembourg': 'Europe/Luxembourg',
+      'Malta': 'Europe/Malta',
+      'Moldova': 'Europe/Chisinau',
+      'Monaco': 'Europe/Monaco',
+      'Montenegro': 'Europe/Podgorica',
+      'North Macedonia': 'Europe/Skopje',
+      'Romania': 'Europe/Bucharest',
+      'San Marino': 'Europe/San_Marino',
+      'Serbia': 'Europe/Belgrade',
+      'Slovakia': 'Europe/Bratislava',
+      'Slovenia': 'Europe/Ljubljana',
+      'Vatican City': 'Europe/Vatican',
+      'Kosovo': 'Europe/Belgrade',
+      'Lebanon': 'Asia/Beirut',
+      'Jordan': 'Asia/Amman',
+      'Syria': 'Asia/Damascus',
+      'Yemen': 'Asia/Aden',
+      'Oman': 'Asia/Muscat',
+      'Qatar': 'Asia/Qatar',
+      'Bahrain': 'Asia/Bahrain',
+      'Kuwait': 'Asia/Kuwait',
+      'Palestine': 'Asia/Gaza',
+    };
+
+    return countryTimezoneMap[countryName] || 'UTC';
+  };
+
+  // Get all IANA timezones
+  const getAllIANATimezones = (): string[] => {
+    try {
+      // Use Intl.supportedValuesOf if available (modern browsers)
+      if (typeof Intl !== 'undefined' && 'supportedValuesOf' in Intl) {
+        return Intl.supportedValuesOf('timeZone').sort();
+      }
+    } catch (e) {
+      // Fallback if not supported
+    }
+    
+    // Comprehensive fallback list of IANA timezones
+    return [
+      'Africa/Abidjan', 'Africa/Accra', 'Africa/Addis_Ababa', 'Africa/Algiers', 'Africa/Asmara',
+      'Africa/Bamako', 'Africa/Bangui', 'Africa/Banjul', 'Africa/Bissau', 'Africa/Blantyre',
+      'Africa/Brazzaville', 'Africa/Bujumbura', 'Africa/Cairo', 'Africa/Casablanca', 'Africa/Ceuta',
+      'Africa/Conakry', 'Africa/Dakar', 'Africa/Dar_es_Salaam', 'Africa/Djibouti', 'Africa/Douala',
+      'Africa/El_Aaiun', 'Africa/Freetown', 'Africa/Gaborone', 'Africa/Harare', 'Africa/Johannesburg',
+      'Africa/Juba', 'Africa/Kampala', 'Africa/Khartoum', 'Africa/Kigali', 'Africa/Kinshasa',
+      'Africa/Lagos', 'Africa/Libreville', 'Africa/Lome', 'Africa/Luanda', 'Africa/Lubumbashi',
+      'Africa/Lusaka', 'Africa/Malabo', 'Africa/Maputo', 'Africa/Maseru', 'Africa/Mbabane',
+      'Africa/Mogadishu', 'Africa/Monrovia', 'Africa/Nairobi', 'Africa/Ndjamena', 'Africa/Niamey',
+      'Africa/Nouakchott', 'Africa/Ouagadougou', 'Africa/Porto-Novo', 'Africa/Sao_Tome', 'Africa/Tripoli',
+      'Africa/Tunis', 'Africa/Windhoek', 'America/Adak', 'America/Anchorage', 'America/Anguilla',
+      'America/Antigua', 'America/Araguaina', 'America/Argentina/Buenos_Aires', 'America/Argentina/Catamarca',
+      'America/Argentina/Cordoba', 'America/Argentina/Jujuy', 'America/Argentina/La_Rioja', 'America/Argentina/Mendoza',
+      'America/Argentina/Rio_Gallegos', 'America/Argentina/Salta', 'America/Argentina/San_Juan', 'America/Argentina/San_Luis',
+      'America/Argentina/Tucuman', 'America/Argentina/Ushuaia', 'America/Aruba', 'America/Asuncion', 'America/Atikokan',
+      'America/Bahia', 'America/Bahia_Banderas', 'America/Barbados', 'America/Belem', 'America/Belize',
+      'America/Blanc-Sablon', 'America/Boa_Vista', 'America/Bogota', 'America/Boise', 'America/Cambridge_Bay',
+      'America/Campo_Grande', 'America/Cancun', 'America/Caracas', 'America/Cayenne', 'America/Cayman',
+      'America/Chicago', 'America/Chihuahua', 'America/Costa_Rica', 'America/Creston', 'America/Cuiaba',
+      'America/Curacao', 'America/Danmarkshavn', 'America/Dawson', 'America/Dawson_Creek', 'America/Denver',
+      'America/Detroit', 'America/Dominica', 'America/Edmonton', 'America/Eirunepe', 'America/El_Salvador',
+      'America/Fort_Nelson', 'America/Fortaleza', 'America/Glace_Bay', 'America/Godthab', 'America/Goose_Bay',
+      'America/Grand_Turk', 'America/Grenada', 'America/Guadeloupe', 'America/Guatemala', 'America/Guayaquil',
+      'America/Guyana', 'America/Halifax', 'America/Havana', 'America/Hermosillo', 'America/Indiana/Indianapolis',
+      'America/Indiana/Knox', 'America/Indiana/Marengo', 'America/Indiana/Petersburg', 'America/Indiana/Tell_City',
+      'America/Indiana/Vevay', 'America/Indiana/Vincennes', 'America/Indiana/Winamac', 'America/Inuvik',
+      'America/Iqaluit', 'America/Jamaica', 'America/Juneau', 'America/Kentucky/Louisville', 'America/Kentucky/Monticello',
+      'America/Kralendijk', 'America/La_Paz', 'America/Lima', 'America/Los_Angeles', 'America/Lower_Princes',
+      'America/Maceio', 'America/Managua', 'America/Manaus', 'America/Marigot', 'America/Martinique',
+      'America/Matamoros', 'America/Mazatlan', 'America/Menominee', 'America/Merida', 'America/Metlakatla',
+      'America/Mexico_City', 'America/Miquelon', 'America/Moncton', 'America/Monterrey', 'America/Montevideo',
+      'America/Montserrat', 'America/Nassau', 'America/New_York', 'America/Nipigon', 'America/Nome',
+      'America/Noronha', 'America/North_Dakota/Beulah', 'America/North_Dakota/Center', 'America/North_Dakota/New_Salem',
+      'America/Nuuk', 'America/Ojinaga', 'America/Panama', 'America/Pangnirtung', 'America/Paramaribo',
+      'America/Phoenix', 'America/Port-au-Prince', 'America/Port_of_Spain', 'America/Porto_Velho', 'America/Puerto_Rico',
+      'America/Punta_Arenas', 'America/Rainy_River', 'America/Rankin_Inlet', 'America/Recife', 'America/Regina',
+      'America/Resolute', 'America/Rio_Branco', 'America/Santarem', 'America/Santiago', 'America/Santo_Domingo',
+      'America/Sao_Paulo', 'America/Scoresbysund', 'America/Sitka', 'America/St_Barthelemy', 'America/St_Johns',
+      'America/St_Kitts', 'America/St_Lucia', 'America/St_Thomas', 'America/St_Vincent', 'America/Swift_Current',
+      'America/Tegucigalpa', 'America/Thule', 'America/Thunder_Bay', 'America/Tijuana', 'America/Toronto',
+      'America/Tortola', 'America/Vancouver', 'America/Whitehorse', 'America/Winnipeg', 'America/Yakutat',
+      'America/Yellowknife', 'Antarctica/Casey', 'Antarctica/Davis', 'Antarctica/DumontDUrville', 'Antarctica/Macquarie',
+      'Antarctica/Mawson', 'Antarctica/McMurdo', 'Antarctica/Palmer', 'Antarctica/Rothera', 'Antarctica/Syowa',
+      'Antarctica/Troll', 'Antarctica/Vostok', 'Arctic/Longyearbyen', 'Asia/Aden', 'Asia/Almaty',
+      'Asia/Amman', 'Asia/Anadyr', 'Asia/Aqtau', 'Asia/Aqtobe', 'Asia/Ashgabat', 'Asia/Atyrau', 'Asia/Baghdad',
+      'Asia/Bahrain', 'Asia/Baku', 'Asia/Bangkok', 'Asia/Barnaul', 'Asia/Beirut', 'Asia/Bishkek', 'Asia/Brunei',
+      'Asia/Chita', 'Asia/Choibalsan', 'Asia/Colombo', 'Asia/Damascus', 'Asia/Dhaka', 'Asia/Dili', 'Asia/Dubai',
+      'Asia/Dushanbe', 'Asia/Famagusta', 'Asia/Gaza', 'Asia/Hebron', 'Asia/Ho_Chi_Minh', 'Asia/Hong_Kong',
+      'Asia/Hovd', 'Asia/Irkutsk', 'Asia/Jakarta', 'Asia/Jayapura', 'Asia/Jerusalem', 'Asia/Kabul', 'Asia/Kamchatka',
+      'Asia/Karachi', 'Asia/Kathmandu', 'Asia/Khandyga', 'Asia/Kolkata', 'Asia/Krasnoyarsk', 'Asia/Kuala_Lumpur',
+      'Asia/Kuching', 'Asia/Kuwait', 'Asia/Macau', 'Asia/Magadan', 'Asia/Makassar', 'Asia/Manila', 'Asia/Muscat',
+      'Asia/Nicosia', 'Asia/Novokuznetsk', 'Asia/Novosibirsk', 'Asia/Omsk', 'Asia/Oral', 'Asia/Phnom_Penh',
+      'Asia/Pontianak', 'Asia/Pyongyang', 'Asia/Qatar', 'Asia/Qostanay', 'Asia/Qyzylorda', 'Asia/Riyadh',
+      'Asia/Sakhalin', 'Asia/Samarkand', 'Asia/Seoul', 'Asia/Shanghai', 'Asia/Singapore', 'Asia/Srednekolymsk',
+      'Asia/Taipei', 'Asia/Tashkent', 'Asia/Tbilisi', 'Asia/Tehran', 'Asia/Thimphu', 'Asia/Tokyo', 'Asia/Tomsk',
+      'Asia/Ulaanbaatar', 'Asia/Urumqi', 'Asia/Ust-Nera', 'Asia/Vientiane', 'Asia/Vladivostok', 'Asia/Yakutsk',
+      'Asia/Yangon', 'Asia/Yekaterinburg', 'Asia/Yerevan', 'Atlantic/Azores', 'Atlantic/Bermuda', 'Atlantic/Canary',
+      'Atlantic/Cape_Verde', 'Atlantic/Faroe', 'Atlantic/Madeira', 'Atlantic/Reykjavik', 'Atlantic/South_Georgia',
+      'Atlantic/St_Helena', 'Atlantic/Stanley', 'Australia/Adelaide', 'Australia/Brisbane', 'Australia/Broken_Hill',
+      'Australia/Darwin', 'Australia/Eucla', 'Australia/Hobart', 'Australia/Lindeman', 'Australia/Lord_Howe',
+      'Australia/Melbourne', 'Australia/Perth', 'Australia/Sydney', 'Europe/Amsterdam', 'Europe/Andorra',
+      'Europe/Astrakhan', 'Europe/Athens', 'Europe/Belgrade', 'Europe/Berlin', 'Europe/Bratislava', 'Europe/Brussels',
+      'Europe/Bucharest', 'Europe/Budapest', 'Europe/Busingen', 'Europe/Chisinau', 'Europe/Copenhagen', 'Europe/Dublin',
+      'Europe/Gibraltar', 'Europe/Guernsey', 'Europe/Helsinki', 'Europe/Isle_of_Man', 'Europe/Istanbul', 'Europe/Jersey',
+      'Europe/Kaliningrad', 'Europe/Kiev', 'Europe/Kirov', 'Europe/Lisbon', 'Europe/Ljubljana', 'Europe/London',
+      'Europe/Luxembourg', 'Europe/Madrid', 'Europe/Malta', 'Europe/Mariehamn', 'Europe/Minsk', 'Europe/Monaco',
+      'Europe/Moscow', 'Europe/Oslo', 'Europe/Paris', 'Europe/Podgorica', 'Europe/Prague', 'Europe/Riga',
+      'Europe/Rome', 'Europe/Samara', 'Europe/San_Marino', 'Europe/Sarajevo', 'Europe/Saratov', 'Europe/Simferopol',
+      'Europe/Skopje', 'Europe/Sofia', 'Europe/Stockholm', 'Europe/Tallinn', 'Europe/Tirane', 'Europe/Ulyanovsk',
+      'Europe/Uzhgorod', 'Europe/Vaduz', 'Europe/Vatican', 'Europe/Vienna', 'Europe/Vilnius', 'Europe/Volgograd',
+      'Europe/Warsaw', 'Europe/Zagreb', 'Europe/Zaporozhye', 'Europe/Zurich', 'Indian/Antananarivo', 'Indian/Chagos',
+      'Indian/Christmas', 'Indian/Cocos', 'Indian/Comoro', 'Indian/Kerguelen', 'Indian/Mahe', 'Indian/Maldives',
+      'Indian/Mauritius', 'Indian/Mayotte', 'Indian/Reunion', 'Pacific/Apia', 'Pacific/Auckland', 'Pacific/Bougainville',
+      'Pacific/Chatham', 'Pacific/Chuuk', 'Pacific/Easter', 'Pacific/Efate', 'Pacific/Enderbury', 'Pacific/Fakaofo',
+      'Pacific/Fiji', 'Pacific/Funafuti', 'Pacific/Galapagos', 'Pacific/Gambier', 'Pacific/Guadalcanal', 'Pacific/Guam',
+      'Pacific/Honolulu', 'Pacific/Kiritimati', 'Pacific/Kosrae', 'Pacific/Kwajalein', 'Pacific/Majuro', 'Pacific/Marquesas',
+      'Pacific/Midway', 'Pacific/Nauru', 'Pacific/Niue', 'Pacific/Norfolk', 'Pacific/Noumea', 'Pacific/Pago_Pago',
+      'Pacific/Palau', 'Pacific/Pitcairn', 'Pacific/Pohnpei', 'Pacific/Port_Moresby', 'Pacific/Rarotonga', 'Pacific/Saipan',
+      'Pacific/Tahiti', 'Pacific/Tarawa', 'Pacific/Tongatapu', 'Pacific/Wake', 'Pacific/Wallis', 'UTC'
+    ].sort();
+  };
+
+  // Load company data from database
+  useEffect(() => {
+    const loadCompanyData = async () => {
+      if (!currentCompany?.id) {
+        setCompanyLoading(false);
+        return;
+      }
+
+      try {
+        setCompanyLoading(true);
+        const { data, error } = await supabase
+          .from('companies')
+          .select('*')
+          .eq('id', currentCompany.id)
+          .single();
+
+        if (error) throw error;
+
+        if (data) {
+          const formData: CompanyFormData = {
+            companyName: data.name || '',
+            industry: data.industry || '',
+            address: data.address || '',
+            city: data.city || '',
+            country: data.country || '',
+            phoneCountryCode: data.phone_country_code || '+1',
+            phoneNumber: data.phone_number || '',
+            email: data.email || '',
+            website: data.website || '',
+            logo: data.logo_url || null,
+            timezone: data.timezone || 'UTC'
+          };
+          
+          setCompanyData(formData);
+          setOriginalCompanyData(formData);
+        }
+      } catch (err) {
+        console.error('Error loading company data:', err);
+      } finally {
+        setCompanyLoading(false);
+        setIsInitialLoad(false);
+      }
+    };
+
+    loadCompanyData();
+  }, [currentCompany?.id]);
+
+  // Auto-select timezone when country changes (only after initial load)
+  useEffect(() => {
+    if (!isInitialLoad && companyData.country && companyData.country !== originalCompanyData.country) {
+      const suggestedTimezone = getTimezoneForCountry(companyData.country);
+      if (suggestedTimezone && suggestedTimezone !== companyData.timezone) {
+        setCompanyData(prev => ({ ...prev, timezone: suggestedTimezone }));
+      }
+    }
+  }, [companyData.country, isInitialLoad]);
+
   // Check for changes in company data
   useEffect(() => {
     const dataChanged = JSON.stringify(companyData) !== JSON.stringify(originalCompanyData);
@@ -551,7 +933,9 @@ export default function CompanySettings() {
             setCompanyData(prev => ({ ...prev, [field]: value }));
           };
 
-          const handleSaveCompany = () => {
+          const handleSaveCompany = async () => {
+            if (!currentCompany?.id) return;
+            
             // Validate phone number if provided
             if (companyData.phoneNumber.trim() && companyData.phoneCountryCode) {
               const validation = validatePhoneNumber(companyData.phoneNumber, companyData.phoneCountryCode);
@@ -562,9 +946,93 @@ export default function CompanySettings() {
             }
             
             setPhoneErrors({});
-            // TODO: Save to backend
-            setOriginalCompanyData(companyData);
-            setHasChanges(false);
+            
+            try {
+              // Prepare data for database
+              // Note: additional profile fields (industry, city, phone, email, website, logo_url) require DB columns:
+              // see `migration_add_company_profile_fields.sql`
+              const updateData: any = {
+                name: companyData.companyName.trim(),
+                address: companyData.address.trim() || null,
+                city: companyData.city.trim() || null,
+                country: companyData.country || null,
+                timezone: companyData.timezone || 'UTC',
+                industry: companyData.industry || null,
+                phone_country_code: companyData.phoneCountryCode || null,
+                phone_number: companyData.phoneNumber.trim() || null,
+                email: companyData.email.trim() || null,
+                website: companyData.website.trim() || null,
+                updated_at: new Date().toISOString(),
+              };
+              
+              // logo_url (puede ser null para eliminar)
+              updateData.logo_url = companyData.logo || null;
+              
+              console.log('Attempting to update company:', {
+                companyId: currentCompany.id,
+                updateData
+              });
+              
+              // Update the company
+              const { data: updateResult, error: updateError } = await supabase
+                .from('companies')
+                .update(updateData)
+                .eq('id', currentCompany.id)
+                .select();
+              
+              if (updateError) {
+                console.error('Update error details:', updateError);
+                throw updateError;
+              }
+              
+              console.log('Update result:', updateResult);
+              
+              // Si la actualización fue exitosa pero no devolvió datos, intentar obtenerlos
+              let data = updateResult?.[0];
+              
+              if (!data) {
+                // Fetch the updated data
+                const { data: fetchedData, error: fetchError } = await supabase
+                  .from('companies')
+                  .select('*')
+                  .eq('id', currentCompany.id)
+                  .maybeSingle();
+                
+                if (fetchError) {
+                  console.warn('Could not fetch updated company data:', fetchError);
+                } else {
+                  data = fetchedData;
+                }
+              }
+              
+              // Update local state
+              setOriginalCompanyData(companyData);
+              setHasChanges(false);
+              
+              // Update company store with fetched data or merge with current
+              if (data) {
+                useCompanyStore.getState().setCurrentCompany(
+                  { ...currentCompany, ...data },
+                  useCompanyStore.getState().currentCompanyUser!
+                );
+                alert('Company information saved successfully!');
+              } else {
+                // If we couldn't fetch, at least update with what we know
+                useCompanyStore.getState().setCurrentCompany(
+                  { ...currentCompany, ...updateData },
+                  useCompanyStore.getState().currentCompanyUser!
+                );
+                alert('Company information saved successfully! (Note: Could not verify update)');
+              }
+            } catch (err: any) {
+              console.error('Error saving company data:', err);
+              const errorMessage = err.message || 'Unknown error';
+              const errorDetails = err.details ? `\n\nDetails: ${err.details}` : '';
+              const errorHint = err.code === '42501' 
+                ? '\n\nHint: You may not have permission to update this company. Check your RLS policies.'
+                : '';
+              alert(`Failed to save company information: ${errorMessage}${errorDetails}${errorHint}`);
+            }
           };
 
           const handleCancelCompany = () => {
@@ -572,47 +1040,269 @@ export default function CompanySettings() {
             setHasChanges(false);
           };
 
-      const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            setCompanyData(prev => ({ ...prev, logo: reader.result as string }));
-          };
-          reader.readAsDataURL(file);
+        if (!file) return;
+
+        // Validar tipo de archivo
+        const validTypes = ['image/jpeg', 'image/png', 'image/svg+xml', 'image/webp', 'image/jpg'];
+        if (!validTypes.includes(file.type.toLowerCase())) {
+          alert('Please upload a valid image file (JPEG, PNG, SVG, or WebP)');
+          return;
+        }
+
+        // Validar tamaño (2MB máximo)
+        if (file.size > 2 * 1024 * 1024) {
+          alert('File size must be less than 2MB');
+          return;
+        }
+
+        setLogoUploading(true);
+
+        try {
+          if (!currentCompany?.id) {
+            throw new Error('No company selected');
+          }
+
+          // Eliminar logo anterior si existe
+          if (companyData.logo) {
+            await handleDeleteLogo(false);
+          }
+
+          // Generar nombre único para el archivo
+          const fileExt = file.name.split('.').pop()?.toLowerCase() || 'png';
+          const timestamp = Date.now();
+          const randomId = Math.random().toString(36).substring(2, 9);
+          const fileName = `${currentCompany.id}/${timestamp}-${randomId}.${fileExt}`;
+
+          console.log('Uploading logo:', { fileName, fileSize: file.size, fileType: file.type });
+
+          // Subir el archivo al bucket
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('company-logos')
+            .upload(fileName, file, {
+              cacheControl: '3600',
+              upsert: false
+            });
+
+          if (uploadError) {
+            console.error('Upload error:', uploadError);
+            throw new Error(`Upload failed: ${uploadError.message}`);
+          }
+
+          if (!uploadData?.path) {
+            throw new Error('Upload succeeded but no file path returned');
+          }
+
+          // Obtener la URL pública
+          const { data: urlData } = supabase.storage
+            .from('company-logos')
+            .getPublicUrl(uploadData.path);
+
+          const publicUrl = urlData?.publicUrl;
+
+          if (!publicUrl) {
+            throw new Error('Failed to generate public URL');
+          }
+
+          console.log('Logo uploaded successfully:', {
+            path: uploadData.path,
+            publicUrl,
+            bucket: 'company-logos'
+          });
+
+          // Verificar que la URL es accesible (hacer una petición HEAD)
+          try {
+            const response = await fetch(publicUrl, { method: 'HEAD' });
+            if (!response.ok) {
+              console.warn('Logo URL may not be accessible:', response.status, response.statusText);
+              console.warn('Make sure the bucket is PUBLIC in Supabase Dashboard');
+            }
+          } catch (fetchError) {
+            console.warn('Could not verify logo URL accessibility:', fetchError);
+          }
+
+          // Actualizar el estado
+          setCompanyData(prev => ({ ...prev, logo: publicUrl }));
+          setHasChanges(true);
+
+        } catch (err: any) {
+          console.error('Error uploading logo:', err);
+          alert(`Failed to upload logo: ${err.message || 'Unknown error'}\n\nPlease check:\n1. Bucket 'company-logos' exists\n2. Bucket is set to PUBLIC\n3. RLS policies are configured`);
+        } finally {
+          setLogoUploading(false);
+          // Limpiar el input
+          e.target.value = '';
         }
       };
+
+      const handleDeleteLogo = async (showAlert = true) => {
+        if (!currentCompany?.id) return;
+
+        try {
+          // Si hay un logo en el estado, intentar eliminarlo del storage
+          if (companyData.logo) {
+            // Extraer el path del archivo de la URL
+            const url = companyData.logo;
+            let filePath = '';
+            
+            // Intentar extraer el path de diferentes formatos de URL
+            if (url.includes('/storage/v1/object/public/company-logos/')) {
+              filePath = url.split('/storage/v1/object/public/company-logos/')[1];
+            } else if (url.includes('/company-logos/')) {
+              const parts = url.split('/company-logos/');
+              if (parts.length > 1) {
+                filePath = parts[1].split('?')[0]; // Remover query params si existen
+              }
+            }
+
+            if (filePath) {
+              console.log('Deleting logo from storage:', filePath);
+              const { error: deleteError } = await supabase.storage
+                .from('company-logos')
+                .remove([filePath]);
+
+              if (deleteError) {
+                console.warn('Error deleting logo from storage:', deleteError);
+              } else {
+                console.log('Logo deleted from storage successfully');
+              }
+            }
+          }
+
+          // Limpiar el campo logo en el estado
+          setCompanyData(prev => ({ ...prev, logo: null }));
+          setHasChanges(true);
+
+          if (showAlert) {
+            alert('Logo deleted. Click "Save Changes" to update the database.');
+          }
+        } catch (err: any) {
+          console.error('Error deleting logo:', err);
+          // Continuar de todas formas para limpiar el campo
+          setCompanyData(prev => ({ ...prev, logo: null }));
+          setHasChanges(true);
+          if (showAlert) {
+            alert('Logo removed from form. Click "Save Changes" to update the database.');
+          }
+        }
+      };
+
+      if (companyLoading) {
+        return (
+          <div className="bg-white border border-gray-200 rounded-lg p-6">
+            <div className="text-center py-8 text-gray-500">Loading company information...</div>
+          </div>
+        );
+      }
 
       return (
             <div className="bg-white border border-gray-200 rounded-lg p-6">
               <div className="space-y-8">
                 {/* Company Logo */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-3">Company Logo</label>
-                  <div className="flex items-center gap-4">
-                    <div className="w-24 h-24 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50">
-                      {companyData.logo ? (
-                        <img src={companyData.logo} alt="Company logo" className="w-full h-full object-contain rounded-lg" />
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Company Logo
+                    {logoUploading && <span className="text-sm text-blue-600 ml-2">(Uploading...)</span>}
+                  </label>
+                  <div className="flex items-start gap-6">
+                    {/* Preview del logo */}
+                    <div className="relative w-32 h-32 border-2 border-gray-300 rounded-lg overflow-hidden bg-gray-50 flex items-center justify-center">
+                      {logoUploading ? (
+                        <div className="text-center">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
+                          <div className="text-xs text-gray-600">Uploading...</div>
+                        </div>
+                      ) : companyData.logo ? (
+                        <>
+                          <img 
+                            src={companyData.logo} 
+                            alt="Company logo" 
+                            className="w-full h-full object-contain p-2" 
+                            onError={(e) => {
+                              const img = e.currentTarget;
+                              img.style.display = 'none';
+                              const parent = img.parentElement;
+                              if (parent && !parent.querySelector('.error-message')) {
+                                const errorDiv = document.createElement('div');
+                                errorDiv.className = 'error-message text-center p-2';
+                                errorDiv.innerHTML = `
+                                  <div class="text-red-600 text-xs font-medium mb-1">Image Error</div>
+                                  <div class="text-gray-500 text-[10px] break-all">${companyData.logo.substring(0, 40)}...</div>
+                                  <div class="text-gray-400 text-[10px] mt-1">Check bucket settings</div>
+                                `;
+                                parent.appendChild(errorDiv);
+                              }
+                            }}
+                            onLoad={() => {
+                              console.log('✅ Logo loaded successfully');
+                            }}
+                          />
+                          <button
+                            onClick={() => {
+                              if (confirm('Delete this logo?')) {
+                                handleDeleteLogo();
+                              }
+                            }}
+                            className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600 transition-colors shadow-sm"
+                            title="Delete logo"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </>
                       ) : (
-                        <Building2 className="w-10 h-10 text-gray-400" />
+                        <div className="text-center text-gray-400">
+                          <Building2 className="w-12 h-12 mx-auto mb-2" />
+                          <div className="text-xs">No logo</div>
+                        </div>
                       )}
                     </div>
-                    <div>
-                      <input
-                        type="file"
-                        id="logo-upload"
-                        accept="image/*"
-                        onChange={handleLogoUpload}
-                        className="hidden"
-                      />
-                      <label
-                        htmlFor="logo-upload"
-                        className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer transition-colors"
-                      >
-                        <Upload className="w-4 h-4" />
-                        Upload Logo
-                      </label>
-                      <p className="text-xs text-gray-500 mt-2">PNG, JPG or SVG (max. 2MB)</p>
+
+                    {/* Controles */}
+                    <div className="flex-1">
+                      <div className="flex flex-col gap-3">
+                        <div className="flex gap-2">
+                          <input
+                            type="file"
+                            id="logo-upload"
+                            accept="image/jpeg,image/png,image/svg+xml,image/webp,image/jpg"
+                            onChange={handleLogoUpload}
+                            disabled={logoUploading}
+                            className="hidden"
+                          />
+                          <label
+                            htmlFor="logo-upload"
+                            className={`inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer transition-colors ${
+                              logoUploading ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
+                          >
+                            <Upload className="w-4 h-4" />
+                            {logoUploading ? 'Uploading...' : companyData.logo ? 'Replace Logo' : 'Upload Logo'}
+                          </label>
+                          {companyData.logo && !logoUploading && (
+                            <button
+                              onClick={() => {
+                                if (confirm('Are you sure you want to delete the company logo?')) {
+                                  handleDeleteLogo();
+                                }
+                              }}
+                              className="inline-flex items-center gap-2 px-4 py-2 border border-red-300 rounded-md text-sm font-medium text-red-700 bg-white hover:bg-red-50 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-500 space-y-1">
+                          <p>Accepted formats: JPEG, PNG, SVG, WebP</p>
+                          <p>Maximum size: 2MB</p>
+                          {companyData.logo && (
+                            <p className="text-blue-600 mt-2">
+                              ✓ Logo uploaded. Click "Save Changes" to save.
+                            </p>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -700,6 +1390,29 @@ export default function CompanySettings() {
                       </select>
                     </div>
                   </div>
+
+                  {/* Timezone Section */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                      <Clock className="w-4 h-4" />
+                      Timezone <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={companyData.timezone}
+                      onChange={(e) => handleCompanyChange('timezone', e.target.value)}
+                      required
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    >
+                      {getAllIANATimezones().map((tz) => (
+                        <option key={tz} value={tz}>
+                          {tz}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-2">
+                      Timezone is stored in IANA format (e.g., America/New_York, Europe/London)
+                    </p>
+                  </div>
                 </div>
 
                 {/* Contact Information */}
@@ -713,38 +1426,35 @@ export default function CompanySettings() {
                         Phone
                       </label>
                       <div className="flex gap-2">
-                        <div className="relative w-32">
-                          <PhoneIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <div className="relative w-40">
                           <select
                             value={companyData.phoneCountryCode}
                             onChange={(e) => {
                               handleCompanyChange('phoneCountryCode', e.target.value);
                               setPhoneErrors({});
                             }}
-                            className={`w-full pl-10 pr-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent appearance-none ${
-                              companyData.phoneCountryCode ? 'text-transparent' : ''
-                            }`}
+                            className="w-full px-3 pr-8 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent appearance-none bg-white text-transparent"
                           >
-                            <option value="">Area Code</option>
-                            {phoneCountryCodes.map((country, index) => {
-                              // For +1, only show USA in the dropdown to avoid confusion
-                              if (country.code === '+1' && country.iso !== 'USA') {
-                                return null;
-                              }
-                              return (
-                                <option key={`${country.code}-${country.iso}-${index}`} value={country.code}>
-                                  {country.iso} {country.flag} {country.code}
-                                </option>
-                              );
-                            })}
+                            <option value="">Country code</option>
+                            {phoneCountryCodeOptions.map((country) => (
+                              <option key={country.iso} value={country.code}>
+                                {country.iso} {country.flag} {country.code}
+                              </option>
+                            ))}
                           </select>
-                          {companyData.phoneCountryCode && (
-                            <div className="absolute inset-y-0 left-0 right-0 flex items-center pl-10 pointer-events-none">
-                              <span className="text-sm">
+                          {/* Overlay que muestra solo bandera + código cuando está cerrado */}
+                          {companyData.phoneCountryCode ? (
+                            <div className="absolute inset-y-0 left-0 right-0 flex items-center px-3 pointer-events-none">
+                              <span className="text-sm text-gray-900">
                                 {getSelectedCountry(companyData.phoneCountryCode)?.flag} {companyData.phoneCountryCode}
                               </span>
                             </div>
+                          ) : (
+                            <div className="absolute inset-y-0 left-0 right-0 flex items-center px-3 pointer-events-none">
+                              <span className="text-sm text-gray-500">Country code</span>
+                            </div>
                           )}
+                          <ChevronRight className="absolute right-2 top-1/2 transform -translate-y-1/2 rotate-90 w-4 h-4 text-gray-400 pointer-events-none" />
                         </div>
                         <div className="flex-1">
                       <input
@@ -1506,7 +2216,7 @@ export default function CompanySettings() {
 
           <div className="flex items-center gap-2" style={{ marginLeft: '4px' }}>
             <Building className="text-gray-900" style={{ width: '18px', height: '18px' }} />
-            <span className="text-sm font-medium text-gray-900">Arquiluz S.A.</span>
+            <span className="text-sm font-medium text-gray-900">{currentCompany?.name || 'Company'}</span>
           </div>
 
           <div className="ml-auto">

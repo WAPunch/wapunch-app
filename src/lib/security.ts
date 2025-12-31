@@ -2,7 +2,8 @@ import DOMPurify from 'dompurify';
 
 // Security utilities and configurations
 export const SECURITY_HEADERS = {
-  'Content-Security-Policy': "default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+  // Note: if you use these headers in production, allow Supabase-hosted images as well.
+  'Content-Security-Policy': "default-src 'self'; img-src 'self' blob: data: https://*.supabase.co https://*.supabase.in; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'X-XSS-Protection': '1; mode=block',
