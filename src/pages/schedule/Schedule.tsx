@@ -33,6 +33,7 @@ import {
   MoreVertical,
   Edit,
   Trash2,
+  Eraser,
   Eye,
   Flag,
   SortAsc,
@@ -915,7 +916,7 @@ export default function Schedule() {
             end_time: endTimeFormatted,
             is_delete: false, // Restore from delete intent
             break_minutes: shiftForm.breakMinutes || 0,
-            is_overtime_allowed: shiftForm.isOvertimeAllowed || false,
+            is_overtime_allowed: true, // Overtime is always allowed
             notes: shiftForm.notes || shiftForm.shiftTitle || null,
           })
           .eq('id', editingShiftId);
@@ -937,7 +938,7 @@ export default function Schedule() {
             status: 'draft',
             is_delete: false, // Explicitly set to false
             break_minutes: shiftForm.breakMinutes || 0,
-            is_overtime_allowed: shiftForm.isOvertimeAllowed || false,
+            is_overtime_allowed: true, // Overtime is always allowed
             notes: shiftForm.notes || shiftForm.shiftTitle || null,
             edited_published_shift_id: editingShiftId, // Link to the original published shift
           });
@@ -957,7 +958,7 @@ export default function Schedule() {
             end_time: endTimeFormatted,
             is_delete: false, // Convert from delete intent to regular draft
             break_minutes: shiftForm.breakMinutes || 0,
-            is_overtime_allowed: shiftForm.isOvertimeAllowed || false,
+            is_overtime_allowed: true, // Overtime is always allowed
             notes: shiftForm.notes || shiftForm.shiftTitle || null,
           })
           .eq('id', editingShiftId);
@@ -975,7 +976,7 @@ export default function Schedule() {
             start_time: startTimeFormatted,
             end_time: endTimeFormatted,
             break_minutes: shiftForm.breakMinutes || 0,
-            is_overtime_allowed: shiftForm.isOvertimeAllowed || false,
+            is_overtime_allowed: true, // Overtime is always allowed
             notes: shiftForm.notes || shiftForm.shiftTitle || null,
           })
           .eq('id', editingShiftId);
@@ -1135,7 +1136,7 @@ export default function Schedule() {
         end_time: endTimeFormatted,
         status: 'draft' as const,
         break_minutes: shiftForm.breakMinutes || 0,
-        is_overtime_allowed: shiftForm.isOvertimeAllowed || false,
+        is_overtime_allowed: true, // Overtime is always allowed
         notes: shiftForm.notes || shiftForm.shiftTitle || null,
       };
 
@@ -1249,7 +1250,7 @@ export default function Schedule() {
         end_time: `${row.endTime}:00`,
         status: 'draft' as const,
         break_minutes: row.breakMinutes || 0,
-        is_overtime_allowed: row.isOvertimeAllowed || false,
+        is_overtime_allowed: true, // Overtime is always allowed
         notes: row.notes || row.shiftTitle || null,
       }));
 
@@ -2339,21 +2340,6 @@ export default function Schedule() {
                     <button 
                       onClick={() => {
                         setShowActionsDropdown(false);
-                        setShowUnpublishConfirm(true);
-                      }}
-                      disabled={!hasPublishedShiftsInView}
-                      className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 ${
-                        !hasPublishedShiftsInView
-                          ? 'text-gray-400 cursor-not-allowed'
-                          : 'text-gray-700 hover:bg-gray-50'
-                      }`}
-                    >
-                      <EyeOff className="w-4 h-4" />
-                      Delete published shifts
-                    </button>
-                    <button 
-                      onClick={() => {
-                        setShowActionsDropdown(false);
                         setShowEraseDraftsConfirm(true);
                       }}
                       disabled={pendingChangesCount === 0}
@@ -2363,8 +2349,23 @@ export default function Schedule() {
                           : 'text-gray-700 hover:bg-gray-50'
                       }`}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Eraser className="w-4 h-4" />
                       Erase Drafts
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setShowActionsDropdown(false);
+                        setShowUnpublishConfirm(true);
+                      }}
+                      disabled={!hasPublishedShiftsInView}
+                      className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 ${
+                        !hasPublishedShiftsInView
+                          ? 'text-gray-400 cursor-not-allowed'
+                          : 'text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete Published
                     </button>
                     <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
                       <Download className="w-4 h-4" />
@@ -2449,12 +2450,12 @@ export default function Schedule() {
                       Add multiple shifts
                     </button>
                     <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-                      <FileSpreadsheet className="w-4 h-4" />
-                      Import shifts from Excel
+                      <Copy className="w-4 h-4" />
+                      Add from templates
                     </button>
                     <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-                      <Copy className="w-4 h-4" />
-                      Add from shift templates
+                      <FileSpreadsheet className="w-4 h-4" />
+                      Import from excel
                     </button>
                     
                     {/* Divider */}
@@ -2463,11 +2464,11 @@ export default function Schedule() {
                     {/* Time off section */}
                     <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
                       <CalendarX className="w-4 h-4" />
-                      Add unavailability
+                      Add time off
                     </button>
                     <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
                       <CalendarX className="w-4 h-4" />
-                      Add time off
+                      Add unavailability
                     </button>
                   </div>
                 </div>
@@ -2989,21 +2990,6 @@ export default function Schedule() {
                 />
               </div>
 
-              {/* Overtime Allowed */}
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="overtime-allowed"
-                  checked={shiftForm.isOvertimeAllowed}
-                  onChange={(e) => setShiftForm(prev => ({ ...prev, isOvertimeAllowed: e.target.checked }))}
-                  className="rounded border-gray-300 text-primary focus:ring-primary/20"
-                  disabled={isCreatingShift}
-                />
-                <label htmlFor="overtime-allowed" className="text-sm font-medium text-gray-700">
-                  Overtime Allowed
-                </label>
-              </div>
-
               {/* Notes */}
               <div>
                 <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-2">
@@ -3107,7 +3093,6 @@ export default function Schedule() {
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Location *</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Shift Title</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Break (min)</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Overtime</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">Notes</th>
                       <th className="px-3 py-2 text-center text-xs font-medium text-gray-700 w-12"></th>
                     </tr>
@@ -3189,15 +3174,6 @@ export default function Schedule() {
                             onChange={(e) => updateMultipleShiftRow(row.id, 'breakMinutes', parseInt(e.target.value) || 0)}
                             min="0"
                             className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary/50"
-                            disabled={isCreatingMultipleShifts}
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="checkbox"
-                            checked={row.isOvertimeAllowed}
-                            onChange={(e) => updateMultipleShiftRow(row.id, 'isOvertimeAllowed', e.target.checked)}
-                            className="rounded border-gray-300 text-primary focus:ring-primary/20"
                             disabled={isCreatingMultipleShifts}
                           />
                         </td>
@@ -3407,7 +3383,7 @@ export default function Schedule() {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">
-                    Delete Published Shifts
+                    Delete Published
                   </h3>
                   <p className="text-sm text-gray-500">
                     This action cannot be undone

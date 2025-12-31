@@ -42,6 +42,7 @@ interface UIState {
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   toggleSidebarCollapsed: () => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
   
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   
@@ -90,6 +91,11 @@ export const useUIStore = create<UIState>()(
         const newState = !get().sidebarCollapsed;
         logger.debug('Sidebar collapsed toggled', { sidebarCollapsed: newState });
         set({ sidebarCollapsed: newState });
+      },
+
+      setSidebarCollapsed: (collapsed: boolean) => {
+        logger.debug('Sidebar collapsed set', { sidebarCollapsed: collapsed });
+        set({ sidebarCollapsed: collapsed });
       },
 
       // Theme actions

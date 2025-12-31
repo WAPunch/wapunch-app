@@ -135,7 +135,8 @@ function Layout({ children }: LayoutProps) {
   const { 
     sidebarCollapsed: isCollapsed, 
     viewMode: storeViewMode, 
-    toggleSidebarCollapsed, 
+    toggleSidebarCollapsed,
+    setSidebarCollapsed, 
     setViewMode 
   } = useUIStore();
   
@@ -384,6 +385,12 @@ function Layout({ children }: LayoutProps) {
           role="navigation"
           aria-label="Main navigation"
           data-testid="main-navigation"
+          onMouseLeave={() => {
+            // Auto-collapse sidebar when mouse leaves the area (only if expanded)
+            if (!isCollapsed) {
+              setSidebarCollapsed(true);
+            }
+          }}
         >
           {/* Logo Section */}
                     <div>
