@@ -92,6 +92,18 @@ export default function SiteInfo() {
     };
   }, [site.id, setBreadcrumbs, clearSubmoduleNav]);
 
+  // Mark that we're on SiteInfo page when component mounts
+  useEffect(() => {
+    sessionStorage.removeItem('navigatingToSiteInfo');
+    // Set flag to indicate we're currently on SiteInfo page
+    sessionStorage.setItem('isOnSiteInfoPage', 'true');
+    
+    return () => {
+      // When unmounting, check if we're navigating back to Sites
+      // This will be checked in Sites component
+    };
+  }, []);
+
   // Load site data from sessionStorage or database
   useEffect(() => {
     const loadSiteData = async () => {
@@ -536,6 +548,12 @@ export default function SiteInfo() {
   const handleCancel = () => {
     setSite(originalSite);
     setErrors({});
+    
+    // Set flag to indicate we're coming FROM SiteInfo back to Sites
+    sessionStorage.setItem('comingFromSiteInfo', 'true');
+    sessionStorage.removeItem('navigatingToSiteInfo');
+    
+    // Navigate back to Sites page (state will be restored automatically)
     router.navigate('/directory/sites');
   };
 
@@ -606,13 +624,46 @@ export default function SiteInfo() {
   return (
     <div className="p-6">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold text-foreground mb-1">
-          {site.id ? 'Edit Site' : 'New Site'}
-        </h1>
-        <p className="text-xs" style={{ color: 'var(--gray-500)' }}>
-          {site.id ? 'Update site information and location' : 'Create a new site for your company'}
-        </p>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground mb-1">
+            {site.id ? 'Edit Site' : 'New Site'}
+          </h1>
+          <p className="text-xs" style={{ color: 'var(--gray-500)' }}>
+            {site.id ? 'Update site information and location' : 'Create a new site for your company'}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleCancel}
+            className="flex items-center gap-2 px-2 py-1 border border-gray-300 rounded bg-white text-gray-700 hover:bg-gray-50 text-sm transition-colors"
+          >
+            <X style={{ width: '14px', height: '14px' }} />
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={!hasChanges || isSaving}
+            className={`flex items-center gap-2 px-2 py-1 rounded text-sm transition-colors ${
+              hasChanges && !isSaving
+                ? 'text-white'
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+            }`}
+            style={hasChanges && !isSaving
+              ? { backgroundColor: 'var(--primary-brand-hex)' }
+              : {}
+            }
+          >
+            {isSaving ? (
+              <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              <Save style={{ width: '14px', height: '14px' }} />
+            )}
+            {isSaving ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
       </div>
 
       {/* Error Message */}
@@ -857,34 +908,6 @@ export default function SiteInfo() {
         </div>
       </div>
 
-      {/* Action Buttons */}
-      <div className="flex justify-end gap-3">
-        <button
-          onClick={handleCancel}
-          disabled={isSaving}
-          className="px-4 py-2 border border-gray-300 rounded bg-white text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={!hasChanges || isSaving}
-          className="flex items-center gap-2 px-4 py-2 rounded text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ backgroundColor: 'var(--primary-brand-hex)' }}
-        >
-          {isSaving ? (
-            <>
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              Saving...
-            </>
-          ) : (
-            <>
-              <Save className="w-4 h-4" />
-              Save Changes
-            </>
-          )}
-        </button>
-      </div>
     </div>
   );
 }

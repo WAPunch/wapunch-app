@@ -93,7 +93,7 @@ export const getNextViewMode = (currentMode: ViewMode): ViewMode => {
 
 // Settings URL mapping
 const SETTINGS_URLS: Record<ViewMode, string> = {
-  manager: '/settings/company-settings',
+  manager: '/settings',
 };
 
 export const getSettingsUrl = (viewMode: ViewMode): string => {

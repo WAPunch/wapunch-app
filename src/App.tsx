@@ -117,13 +117,13 @@ const WorkerTimesheet = lazy(() => {
 
 
 const CompanyReports = lazy(() => {
-  logger.debug('Loading Company Reports component');
-  return import('./pages/reports/CompanyReports');
+  logger.debug('Loading Reports component');
+  return import('./pages/reports/Reports');
 });
 
 const CompanySettings = lazy(() => {
-  logger.debug('Loading Company Settings component');
-  return import('./pages/settings/CompanySettings');
+  logger.debug('Loading Settings component');
+  return import('./pages/settings/Settings');
 });
 
 const ManageOrganizations = lazy(() => {
@@ -321,12 +321,10 @@ function App() {
     router.addRoute('/time-and-attendance/worker-timesheet', () => setCurrentPage('worker-timesheet'));
     
     // Reports routes
-    router.addRoute('/reports', () => setCurrentPage('company-reports'));
-    router.addRoute('/reports/company-reports', () => setCurrentPage('company-reports'));
+    router.addRoute('/reports', () => setCurrentPage('reports'));
     
     // Settings routes
-    router.addRoute('/settings', () => setCurrentPage('company-settings'));
-    router.addRoute('/settings/company-settings', () => setCurrentPage('company-settings'));
+    router.addRoute('/settings', () => setCurrentPage('settings'));
     
     // Organizations routes
     router.addRoute('/organizations', () => setCurrentPage('manage-organizations'));
@@ -337,7 +335,6 @@ function App() {
     
     // Other routes - redirect to management dashboard
     router.addRoute('/time-tracking', () => setCurrentPage('management-dashboard'));
-    router.addRoute('/settings', () => setCurrentPage('company-settings'));
   }, [isAuthenticated, setViewMode]);
 
   // Monitor URL changes and trigger router navigation (for direct navigation like tests)
@@ -423,9 +420,9 @@ function App() {
         return <AttendanceFlags />;
       case 'worker-timesheet':
         return <WorkerTimesheet />;
-      case 'company-reports':
+      case 'reports':
         return <CompanyReports />;
-      case 'company-settings':
+      case 'settings':
         return <CompanySettings />;
       case 'manage-organizations':
         return <ManageOrganizations />;
@@ -470,7 +467,7 @@ function App() {
               {renderPage()}
             </Suspense>
           </ErrorBoundary>
-        ) : currentPage === 'company-settings' ? (
+        ) : currentPage === 'settings' ? (
           <ErrorBoundary>
             <Suspense fallback={null}>
               <CompanySettings />

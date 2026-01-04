@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { router } from '../../../lib/router';
 import { useSubmoduleNav } from '../../../hooks/useSubmoduleNav';
 import { useWorkers, getCurrentStatusDotColor } from '../../../hooks/useWorkers';
@@ -80,6 +80,7 @@ export default function Workers() {
   const { registerSubmodules } = useSubmoduleNav();
   const { workers: workersData, isLoading: workersLoading, error: workersError, refetch } = useWorkers();
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchInputValue, setSearchInputValue] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -109,6 +110,155 @@ export default function Workers() {
       { id: 'sites', label: 'Sites', href: '/directory/sites', icon: Building2 }
     ]);
   }, [registerSubmodules]);
+
+  // Track if we've restored state to avoid saving during restoration
+  const hasRestoredState = useRef(false);
+  const isRestoring = useRef(false);
+
+
+  // Save state to sessionStorage whenever it changes (but skip during initial restoration)
+  // Only save if we're on the Workers page (not navigating away)
+  useEffect(() => {
+    // Don't save if we're currently restoring state or haven't initialized yet
+    if (isRestoring.current || !hasRestoredState.current) {
+      return;
+    }
+    
+    // Only save state if we're currently on the Workers page
+    // Check if we're navigating away by looking at the navigatingToWorkerInfo flag
+    const navigatingAway = sessionStorage.getItem('navigatingToWorkerInfo') === 'true';
+    if (navigatingAway) {
+      return; // Don't save if we're in the process of navigating to WorkerInfo
+    }
+    
+    const stateToSave = {
+      searchTerm,
+      currentPage,
+      itemsPerPage,
+      viewMode,
+      sortBy,
+      sortOrder,
+      selectedWorkerType,
+      selectedDepartment,
+      selectedJobTitle,
+      selectedStatus
+    };
+    sessionStorage.setItem('workersPageState', JSON.stringify(stateToSave));
+  }, [searchTerm, currentPage, itemsPerPage, viewMode, sortBy, sortOrder, selectedWorkerType, selectedDepartment, selectedJobTitle, selectedStatus]);
+
+  // Clean up state when navigating away from Workers to other modules
+  useEffect(() => {
+    const handleRouteChange = () => {
+      const currentRoute = router.getCurrentRoute();
+      // If we navigate to a route that's not workers or workerinfo, clear the saved state
+      if (!currentRoute.includes('/directory/workers')) {
+        sessionStorage.removeItem('workersPageState');
+        sessionStorage.removeItem('comingFromWorkerInfo');
+        sessionStorage.removeItem('navigatingToWorkerInfo');
+        sessionStorage.removeItem('isOnWorkerInfoPage');
+      }
+    };
+
+    // Listen for route changes
+    const removeListener = router.addListener(handleRouteChange);
+    
+    return () => {
+      removeListener();
+    };
+  }, []);
+
+  // Track current route to detect navigation changes
+  const [currentRoute, setCurrentRoute] = useState(router.getCurrentRoute());
+
+  // Listen for route changes (including browser back/forward)
+  useEffect(() => {
+    const updateRoute = () => {
+      const route = router.getCurrentRoute();
+      setCurrentRoute(route);
+      
+      // When route changes to Workers, check if we're coming from WorkerInfo
+      if (route === '/directory/workers' || route.startsWith('/directory/workers')) {
+        const wasOnWorkerInfoPage = sessionStorage.getItem('isOnWorkerInfoPage') === 'true';
+        if (wasOnWorkerInfoPage) {
+          sessionStorage.setItem('comingFromWorkerInfo', 'true');
+          sessionStorage.removeItem('isOnWorkerInfoPage');
+          // Force re-evaluation of restore effect by updating a dependency
+          // The restore effect will run again because we're changing the route state
+        }
+      } else if (!route.includes('/directory/workers')) {
+        // Navigating away from workers, clear flags
+        sessionStorage.removeItem('isOnWorkerInfoPage');
+        sessionStorage.removeItem('comingFromWorkerInfo');
+      }
+    };
+
+    const removeListener = router.addListener(updateRoute);
+    // Also listen to popstate for browser back/forward
+    window.addEventListener('popstate', updateRoute);
+    
+    return () => {
+      removeListener();
+      window.removeEventListener('popstate', updateRoute);
+    };
+  }, []);
+
+  // Restore state when route changes to Workers (including back button)
+  useEffect(() => {
+    // Only restore if we're on the Workers page
+    if (currentRoute !== '/directory/workers' && !currentRoute.startsWith('/directory/workers')) {
+      return;
+    }
+
+    const comingFromWorkerInfo = sessionStorage.getItem('comingFromWorkerInfo') === 'true';
+    const wasOnWorkerInfoPage = sessionStorage.getItem('isOnWorkerInfoPage') === 'true';
+    const savedState = sessionStorage.getItem('workersPageState');
+    
+    // If we were on WorkerInfo page and have saved state, restore it
+    if ((comingFromWorkerInfo || wasOnWorkerInfoPage) && savedState && !isRestoring.current) {
+      try {
+        isRestoring.current = true;
+        const state = JSON.parse(savedState);
+        // Only restore if we have saved state (don't overwrite with defaults)
+        if (state.searchTerm !== undefined) {
+          setSearchTerm(state.searchTerm);
+          setSearchInputValue(state.searchTerm);
+        }
+        if (state.currentPage !== undefined) setCurrentPage(state.currentPage);
+        if (state.itemsPerPage !== undefined) setItemsPerPage(state.itemsPerPage);
+        if (state.viewMode !== undefined) setViewMode(state.viewMode);
+        if (state.sortBy !== undefined) setSortBy(state.sortBy);
+        if (state.sortOrder !== undefined) setSortOrder(state.sortOrder);
+        if (state.selectedWorkerType !== undefined) setSelectedWorkerType(state.selectedWorkerType);
+        if (state.selectedDepartment !== undefined) setSelectedDepartment(state.selectedDepartment);
+        if (state.selectedJobTitle !== undefined) setSelectedJobTitle(state.selectedJobTitle);
+        if (state.selectedStatus !== undefined) setSelectedStatus(state.selectedStatus);
+        
+        // Clear the flags after restoring
+        sessionStorage.removeItem('comingFromWorkerInfo');
+        sessionStorage.removeItem('isOnWorkerInfoPage');
+        
+        // Allow saving after a short delay to ensure all state updates are complete
+        setTimeout(() => {
+          isRestoring.current = false;
+          hasRestoredState.current = true;
+        }, 100);
+      } catch (error) {
+        console.error('Error restoring workers page state:', error);
+        isRestoring.current = false;
+        hasRestoredState.current = false;
+        sessionStorage.removeItem('comingFromWorkerInfo');
+        sessionStorage.removeItem('isOnWorkerInfoPage');
+      }
+    } else if (!comingFromWorkerInfo && !wasOnWorkerInfoPage) {
+      // Not coming from WorkerInfo, clear any saved state and flags
+      sessionStorage.removeItem('workersPageState');
+      sessionStorage.removeItem('comingFromWorkerInfo');
+      sessionStorage.removeItem('isOnWorkerInfoPage');
+      if (!hasRestoredState.current) {
+        hasRestoredState.current = true;
+      }
+    }
+  }, [currentRoute]); // Re-run when route changes
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -231,6 +381,7 @@ export default function Workers() {
     setSelectedJobTitle([]);
     setSelectedStatus([]);
     setSearchTerm('');
+    setSearchInputValue('');
     setWorkerTypeSearchTerm('');
     setDepartmentSearchTerm('');
     setJobTitleSearchTerm('');
@@ -307,6 +458,24 @@ export default function Workers() {
 
   // Navigate to worker info page
   const handleEditWorker = (worker: Worker) => {
+    // Explicitly save current state before navigating to WorkerInfo
+    const stateToSave = {
+      searchTerm,
+      currentPage,
+      itemsPerPage,
+      viewMode,
+      sortBy,
+      sortOrder,
+      selectedWorkerType,
+      selectedDepartment,
+      selectedJobTitle,
+      selectedStatus
+    };
+    sessionStorage.setItem('workersPageState', JSON.stringify(stateToSave));
+    // Set flag to indicate we're navigating to WorkerInfo
+    sessionStorage.setItem('comingFromWorkerInfo', 'false'); // false means going TO WorkerInfo
+    sessionStorage.setItem('navigatingToWorkerInfo', 'true');
+    
     // Store worker data in sessionStorage for the Worker Info page
     sessionStorage.setItem('selectedWorker', JSON.stringify(worker));
     
@@ -320,6 +489,9 @@ export default function Workers() {
   const handleAddWorker = () => {
     // Clear any previously selected worker
     sessionStorage.removeItem('selectedWorker');
+    // Clear state preservation flags since we're not going to WorkerInfo
+    sessionStorage.removeItem('comingFromWorkerInfo');
+    sessionStorage.removeItem('navigatingToWorkerInfo');
     // Navigate to worker info page without a slug to create a new worker
     router.navigate('/directory/workers');
   };
@@ -467,8 +639,13 @@ export default function Workers() {
           <input
             type="text"
                 placeholder="Search workers by name, email, job title, or worker ID..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            value={searchInputValue}
+            onChange={(e) => setSearchInputValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                setSearchTerm(searchInputValue);
+              }
+            }}
                 className="w-full pl-9 pr-3 py-1 border border-gray-200 rounded text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
                 aria-label="Search workers"
                 id="worker-search"
@@ -476,6 +653,20 @@ export default function Workers() {
         </div>
             
         <div className="flex items-center gap-2">
+              {/* Clear Filters Button - Only show when filters are active */}
+              {(selectedWorkerType.length > 0 || selectedDepartment.length > 0 || selectedJobTitle.length > 0 || selectedStatus.length > 0 || searchTerm) && (
+                <button
+                  onClick={clearAllFilters}
+                  className="flex items-center gap-2 px-2 py-1 border border-gray-300 rounded transition-colors text-sm bg-white text-gray-700 hover:bg-gray-50"
+                  title="Clear all active filters"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  Clear filters
+                </button>
+              )}
+
               {/* Filters Button */}
               <button
                 onClick={() => setShowFilters(!showFilters)}

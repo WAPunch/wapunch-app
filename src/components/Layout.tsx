@@ -1,4 +1,4 @@
-import React, { ReactNode, useState, useCallback, useMemo, useEffect, memo } from 'react';
+import React, { ReactNode, useState, useCallback, useMemo, useEffect, memo, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { useCompanyStore } from '../stores/company-store';
@@ -34,18 +34,45 @@ import {
   Search, 
   HelpCircle,
   ChevronLeft, 
-  ChevronRight, 
+  ChevronRight,
   Building, 
   Building2,
   Printer,
   CalendarCheck,
+  Flag,
   MessageCircleCode,
-  Check
+  Check,
+  LogOut
 } from 'lucide-react';
 
 interface LayoutProps {
   children: ReactNode;
 }
+
+interface Submodule {
+  id: string;
+  label: string;
+  href: string;
+}
+
+// Modules that can expand to show submodules (sidebar-only navigation helper).
+// Keep routes aligned with `src/App.tsx` router.addRoute(...) definitions.
+const MODULE_SUBMODULES: Record<string, Submodule[]> = {
+  Directory: [
+    { id: 'workers', label: 'Workers', href: '/directory/workers' },
+    { id: 'sites', label: 'Sites', href: '/directory/sites' },
+  ],
+  Schedule: [
+    { id: 'schedule', label: 'Schedule', href: '/schedule/schedule' },
+    { id: 'time-off', label: 'Time Off', href: '/schedule/time-off' },
+  ],
+  'Time & Attendance': [
+    { id: 'whos-working', label: "Who's Working", href: '/time-and-attendance/whos-working' },
+    { id: 'team-attendance', label: 'Team Attendance', href: '/time-and-attendance/team-attendance' },
+    { id: 'team-attendance3', label: 'Team Attendance 3', href: '/time-and-attendance/team-attendance3' },
+    { id: 'attendance-flags', label: 'Attendance Flags', href: '/time-and-attendance/attendance-flags' },
+  ],
+};
 
 // Memoized navigation item component
 const NavigationItem = memo(({ 
@@ -130,6 +157,7 @@ function Layout({ children }: LayoutProps) {
   const [currentRoute, setCurrentRoute] = useState('/');
   const { tabs: submoduleTabs, breadcrumbs } = useSubmoduleNav();
   const { saveCurrentPageBeforeSettings } = usePreviousPage();
+  const sidebarRef = useRef<HTMLElement | null>(null);
   
   // Use UI store for sidebar and view mode state
   const { 
@@ -193,6 +221,50 @@ function Layout({ children }: LayoutProps) {
     };
   }, [isUserMenuOpen]);
 
+  // Prevent scroll-chaining: when the mouse is inside the sidebar, never scroll the main content/page.
+  // Allow scrolling inside the sidebar list when it can actually scroll.
+  useEffect(() => {
+    const sidebarEl = sidebarRef.current;
+    if (!sidebarEl) return;
+
+    const onWheel = (event: WheelEvent) => {
+      const scrollEl = sidebarEl.querySelector('.sidebar-scroll') as HTMLElement | null;
+      const targetNode = event.target as Node | null;
+      const isInScrollArea = Boolean(scrollEl && targetNode && scrollEl.contains(targetNode));
+
+      // If the wheel happens on footer/logo/etc, always block page scroll.
+      if (!isInScrollArea || !scrollEl) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      const { scrollTop, scrollHeight, clientHeight } = scrollEl;
+
+      // No scroll available in sidebar: block page scroll.
+      if (scrollHeight <= clientHeight) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      // If we're at the bounds and user keeps scrolling, prevent the "overflow" from scrolling the page.
+      const deltaY = event.deltaY;
+      const atTop = scrollTop <= 0;
+      const atBottom = scrollTop + clientHeight >= scrollHeight - 1;
+      if ((deltaY < 0 && atTop) || (deltaY > 0 && atBottom)) {
+        event.preventDefault();
+      }
+
+      event.stopPropagation();
+    };
+
+    sidebarEl.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      sidebarEl.removeEventListener('wheel', onWheel as EventListener);
+    };
+  }, []);
+
   // Helper function to determine if a navigation item is active
   const isNavItemActive = useCallback((itemName: string, itemHref: string) => {
     switch (itemName) {
@@ -234,7 +306,7 @@ function Layout({ children }: LayoutProps) {
       baseNavigation[1], // Workers
       baseNavigation[2], // Schedule
       baseNavigation[3], // Time & Attendance
-      { name: 'Reports', href: '/reports/company-reports', icon: Printer }
+      { name: 'Reports', href: '/reports', icon: Printer }
     ];
   }, []);
 
@@ -255,16 +327,47 @@ function Layout({ children }: LayoutProps) {
     toggleSidebarCollapsed();
   }, [toggleSidebarCollapsed]);
 
+
   const handleHelpClick = useCallback(() => {
     if (import.meta.env.DEV) {
     console.log('Help/Knowledgebase clicked');
     }
   }, []);
 
-  const handleNavigation = useCallback((path: string) => {
+  const handleNavigation = useCallback((path: string, moduleName?: string) => {
+    // If the module has submodules, navigate to the first submodule instead
+    if (moduleName && MODULE_SUBMODULES[moduleName] && MODULE_SUBMODULES[moduleName].length > 0) {
+      const firstSubmodule = MODULE_SUBMODULES[moduleName][0];
+      if (firstSubmodule) {
+        path = firstSubmodule.href;
+      }
+    }
+    
     // Save current page before navigating to settings
-    if (path.includes('/settings/company-settings')) {
+    if (path.includes('/settings')) {
       saveCurrentPageBeforeSettings();
+    }
+    
+    // If navigating to Workers from WorkerInfo (breadcrumb click), set flag to restore state
+    if (path === '/directory/workers' || path === '/workers') {
+      const isOnWorkerInfoPage = sessionStorage.getItem('isOnWorkerInfoPage') === 'true';
+      if (isOnWorkerInfoPage) {
+        sessionStorage.setItem('comingFromWorkerInfo', 'true');
+        sessionStorage.removeItem('isOnWorkerInfoPage');
+      }
+    } else if (path === '/directory/sites' || path === '/sites') {
+      // If navigating to Sites from SiteInfo (breadcrumb click), set flag to restore state
+      const isOnSiteInfoPage = sessionStorage.getItem('isOnSiteInfoPage') === 'true';
+      if (isOnSiteInfoPage) {
+        sessionStorage.setItem('comingFromSiteInfo', 'true');
+        sessionStorage.removeItem('isOnSiteInfoPage');
+      }
+    } else {
+      // Navigating to other pages, clear flags
+      sessionStorage.removeItem('isOnWorkerInfoPage');
+      sessionStorage.removeItem('comingFromWorkerInfo');
+      sessionStorage.removeItem('isOnSiteInfoPage');
+      sessionStorage.removeItem('comingFromSiteInfo');
     }
     
     // Handle dynamic navigation
@@ -375,7 +478,7 @@ function Layout({ children }: LayoutProps) {
         {/* Sidebar Navigation */}
         <nav 
           id="main-navigation"
-          className={`min-h-screen fixed left-0 top-0 bottom-0 overflow-y-auto overflow-x-hidden transition-all duration-300 z-50 border-r ${
+          className={`min-h-screen fixed left-0 top-0 bottom-0 overflow-x-hidden transition-[width] duration-300 z-50 border-r flex flex-col ${
             isCollapsed ? 'w-14' : 'w-60'
           }`}
           style={{ 
@@ -385,15 +488,10 @@ function Layout({ children }: LayoutProps) {
           role="navigation"
           aria-label="Main navigation"
           data-testid="main-navigation"
-          onMouseLeave={() => {
-            // Auto-collapse sidebar when mouse leaves the area (only if expanded)
-            if (!isCollapsed) {
-              setSidebarCollapsed(true);
-            }
-          }}
+          ref={sidebarRef}
         >
           {/* Logo Section */}
-                    <div>
+          <div>
             <div 
               className="flex items-center relative w-full"
               style={{ 
@@ -404,22 +502,23 @@ function Layout({ children }: LayoutProps) {
               <div className="flex items-center justify-center" style={{ width: '27px', height: '27px', flexShrink: 0 }}>
                 <MessageCircleCode size={27} style={{ color: 'var(--primary-brand-hex)' }} />
               </div>
-                          <span
-              className="absolute transition-opacity duration-300 whitespace-nowrap font-normal"
-              style={{
-                left: '52px',
-                opacity: isCollapsed ? 0 : 1,
-                pointerEvents: isCollapsed ? 'none' : 'auto',
-                color: getLogoTextColor(viewMode),
-                fontSize: '16px'
-              }}
-            >
-              WAPunch
-            </span>
+              <span
+                className="absolute transition-opacity duration-300 whitespace-nowrap font-normal"
+                style={{
+                  left: '52px',
+                  opacity: isCollapsed ? 0 : 1,
+                  pointerEvents: isCollapsed ? 'none' : 'auto',
+                  color: getLogoTextColor(viewMode),
+                  fontSize: '16px'
+                }}
+              >
+                WAPunch
+              </span>
             </div>
           </div>
 
-          <div className="pb-4">
+          {/* Scrollable navigation items (only scrolls when content would overlap footer) */}
+          <div className="flex-1 overflow-y-auto pb-4 sidebar-scroll">
             {/* Dashboard Button - Separate */}
             {dashboardItem && (
               <div style={{ marginTop: '-1px' }}>
@@ -454,28 +553,28 @@ function Layout({ children }: LayoutProps) {
                 const Icon = item.icon;
 
                 return (
-                    <button
+                  <button
                     key={item.name}
                     {...getNavigationButtonProps(
                       viewMode,
                       isActive,
-                      () => handleNavigation(item.href)
+                      () => {
+                        handleNavigation(item.href, item.name);
+                      }
                     )}
-                        title={isCollapsed ? item.name : undefined}
-                        aria-label={item.name}
-                      >
+                    title={isCollapsed ? item.name : undefined}
+                    aria-label={item.name}
+                  >
                     {createNavItemContent(Icon, item.name, isCollapsed)}
-                      </button>
+                  </button>
                 );
               })}
             </div>
           </div>
 
           {/* Help, Settings and Collapse/Expand Buttons */}
-          <div className="absolute left-0 right-0" style={{ bottom: '1rem' }}>
+          <div style={{ paddingBottom: '1rem' }}>
             <div style={{ gap: '1px' }} className="flex flex-col">
-
-
               {/* Settings Button */}
               {(() => {
                 const { settingsUrl, isActive } = getSettingsButtonState(viewMode, isNavItemActive);
@@ -567,11 +666,14 @@ function Layout({ children }: LayoutProps) {
               <div className="relative" data-user-menu>
                 <button 
                   id="user-menu"
-                  className="rounded-full flex items-center justify-center hover:opacity-80 transition-colors"
+                  className="rounded-full flex items-center justify-center hover:opacity-80 transition-opacity"
                   style={{ 
-                    width: '28px', 
-                    height: '28px',
-                                         backgroundColor: 'var(--primary-brand-hex)'
+                    width: '32px', 
+                    height: '32px',
+                    backgroundColor: 'var(--primary-brand-hex)',
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    color: 'white'
                   }}
                   aria-label={`My Account${isUserMenuOpen ? ' (menu open)' : ' (menu closed)'}`}
                   aria-expanded={isUserMenuOpen}
@@ -580,101 +682,120 @@ function Layout({ children }: LayoutProps) {
                   title="My Account"
                   onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
                 >
-                  <User style={{ width: '14px', height: '14px', color: 'white' }} />
+                  {user?.name ? user.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : user?.email?.substring(0, 2).toUpperCase() || 'WA'}
                 </button>
 
-                {/* User Dropdown Menu */}
+                {/* User Dropdown Menu - Asana Style */}
                 {isUserMenuOpen && (
                   <div 
-                    className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50"
-                    style={{ top: '100%' }}
+                    className="absolute right-0 mt-3 w-80 bg-white rounded-lg shadow-xl z-50"
+                    style={{ 
+                      top: '100%',
+                      boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05)'
+                    }}
                     role="menu"
                     aria-label="User account menu"
                     aria-orientation="vertical"
                   >
-                    {/* User Info Section */}
-                    <div className="px-4 py-3 border-b border-gray-100">
-                      <div className="text-sm text-gray-500 mb-1">Logged in as</div>
-                      <div className="font-medium text-gray-900">{user?.name || user?.email || 'Demo User'}</div>
-                      {currentCompany && (
-                        <div className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-                          <Building2 style={{ width: '12px', height: '12px' }} />
-                          {currentCompany.name}
+                    {/* User Profile Section */}
+                    <div className="px-4 py-4">
+                      <div className="flex items-center gap-3">
+                        <div 
+                          className="rounded-full flex items-center justify-center flex-shrink-0"
+                          style={{ 
+                            width: '48px', 
+                            height: '48px',
+                            backgroundColor: 'var(--primary-brand-hex)',
+                            fontSize: '18px',
+                            fontWeight: '600',
+                            color: 'white'
+                          }}
+                        >
+                          {user?.name ? user.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : user?.email?.substring(0, 2).toUpperCase() || 'WA'}
                         </div>
-                      )}
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-gray-900 truncate" style={{ fontSize: '15px' }}>
+                            {user?.name || user?.email || 'Demo User'}
+                          </div>
+                          {user?.email && user?.name && (
+                            <div className="text-gray-500 truncate" style={{ fontSize: '13px' }}>
+                              {user.email}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
                     {/* Company Section */}
-                    <div className="py-1 border-b border-gray-100">
-                      <div className="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        {availableCompanies.length > 1 ? 'Switch Company' : 'Company'}
-                      </div>
-                      {availableCompanies.length === 0 ? (
-                        <div className="px-4 py-2">
-                          <div className="text-sm text-gray-500 mb-1">No companies associated</div>
-                          <div className="text-xs text-gray-400">
-                            Contact your administrator to be added to a company
+                    {availableCompanies.length > 0 && (
+                      <div className="border-t border-gray-100">
+                        <div className="px-4 py-2.5">
+                          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                            {availableCompanies.length > 1 ? 'Switch Organization' : 'Current Organization'}
                           </div>
-                        </div>
-                      ) : (
-                        availableCompanies.map((companyUser) => {
-                          const isCurrent = currentCompany?.id === companyUser.company_id;
-                          return (
-                            <button
-                              key={companyUser.id}
-                              className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-50 flex items-center justify-between gap-2 ${
-                                isCurrent ? 'bg-gray-50' : 'text-gray-700'
-                              }`}
-                              onClick={async () => {
-                                if (!isCurrent && companyUser.company && availableCompanies.length > 1) {
-                                  setIsUserMenuOpen(false);
-                                  await switchCompany(companyUser.company_id);
-                                }
-                              }}
-                              role="menuitem"
-                              aria-label={`${isCurrent ? 'Current company' : 'Switch to'} ${companyUser.company?.name || 'company'}`}
-                              disabled={isCurrent || availableCompanies.length === 1}
-                            >
-                              <div className="flex items-center gap-2 flex-1 min-w-0">
-                                <Building2 
-                                  style={{ 
-                                    width: '16px', 
-                                    height: '16px',
-                                    color: isCurrent ? 'var(--primary-brand-hex)' : 'var(--gray-600)',
-                                    flexShrink: 0
-                                  }} 
-                                  aria-hidden="true" 
-                                />
-                                <div className="flex-1 min-w-0">
-                                  <div className={`font-medium truncate ${isCurrent ? 'text-primary' : 'text-gray-900'}`}>
-                                    {companyUser.company?.name || 'Unknown Company'}
+                          {availableCompanies.map((companyUser) => {
+                            const isCurrent = currentCompany?.id === companyUser.company_id;
+                            return (
+                              <button
+                                key={companyUser.id}
+                                className={`w-full px-3 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between gap-2 transition-colors ${
+                                  isCurrent ? 'bg-gray-50' : ''
+                                }`}
+                                onClick={async () => {
+                                  if (!isCurrent && companyUser.company && availableCompanies.length > 1) {
+                                    setIsUserMenuOpen(false);
+                                    await switchCompany(companyUser.company_id);
+                                  }
+                                }}
+                                role="menuitem"
+                                aria-label={`${isCurrent ? 'Current workspace' : 'Switch to'} ${companyUser.company?.name || 'company'}`}
+                                disabled={isCurrent || availableCompanies.length === 1}
+                              >
+                                <div className="flex items-center gap-3 flex-1 min-w-0">
+                                  <div 
+                                    className={`flex items-center justify-center flex-shrink-0 ${isCurrent ? 'rounded-md' : 'rounded-full'}`}
+                                    style={{ 
+                                      width: '32px', 
+                                      height: '32px',
+                                      backgroundColor: isCurrent ? 'var(--primary-brand-hex)' : '#E5E7EB',
+                                      fontSize: '12px',
+                                      fontWeight: '600',
+                                      color: isCurrent ? 'white' : '#6B7280'
+                                    }}
+                                  >
+                                    {companyUser.company?.name?.substring(0, 2).toUpperCase() || 'CP'}
                                   </div>
-                                  <div className="text-xs text-gray-500 capitalize">
-                                    {companyUser.role.replace('_', ' ')}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-medium text-gray-900 truncate" style={{ fontSize: '14px' }}>
+                                      {companyUser.company?.name || 'Unknown Company'}
+                                    </div>
+                                    <div className="text-gray-500 capitalize truncate" style={{ fontSize: '12px' }}>
+                                      {companyUser.role.replace('_', ' ')}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                              {isCurrent && (
-                                <Check 
-                                  style={{ 
-                                    width: '16px', 
-                                    height: '16px',
-                                    color: 'var(--primary-brand-hex)',
-                                    flexShrink: 0
-                                  }} 
-                                  aria-hidden="true" 
-                                />
-                              )}
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
+                                {isCurrent && (
+                                  <Check 
+                                    style={{ 
+                                      width: '18px', 
+                                      height: '18px',
+                                      color: 'var(--primary-brand-hex)',
+                                      flexShrink: 0
+                                    }} 
+                                    aria-hidden="true" 
+                                  />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
 
-                    {/* Menu Items */}
-                    <div className="py-1">
+                    {/* Menu Actions */}
+                    <div className="border-t border-gray-100 py-1.5">
                       <button
-                        className="w-full px-4 py-2 text-left text-sm text-blue-600 hover:bg-gray-50 flex items-center gap-2"
+                        className="w-full px-4 py-2.5 text-left hover:bg-gray-50 flex items-center gap-3 transition-colors"
                         onClick={() => {
                           setIsUserMenuOpen(false);
                           router.navigate('/organizations/manage');
@@ -682,27 +803,45 @@ function Layout({ children }: LayoutProps) {
                         role="menuitem"
                         aria-label="Manage organizations"
                       >
-                        <Building2 style={{ width: '16px', height: '16px' }} aria-hidden="true" />
-                        Manage Organizations
+                        <Building2 
+                          style={{ 
+                            width: '18px', 
+                            height: '18px',
+                            color: '#6B7280'
+                          }} 
+                          aria-hidden="true" 
+                        />
+                        <span className="text-gray-700" style={{ fontSize: '14px' }}>
+                          Manage Organizations
+                        </span>
                       </button>
                       
                       <button
-                        className="w-full px-4 py-2 text-left text-sm text-blue-600 hover:bg-gray-50 flex items-center gap-2"
+                        className="w-full px-4 py-2.5 text-left hover:bg-gray-50 flex items-center gap-3 transition-colors"
                         onClick={() => {
                           setIsUserMenuOpen(false);
-                          // Add navigation to account page if needed
+                          router.navigate(getSettingsUrl(viewMode));
                         }}
                         role="menuitem"
-                        aria-label="Go to my account settings"
+                        aria-label="Settings"
                       >
-                        <User style={{ width: '16px', height: '16px' }} aria-hidden="true" />
-                        My Account
+                        <Settings 
+                          style={{ 
+                            width: '18px', 
+                            height: '18px',
+                            color: '#6B7280'
+                          }} 
+                          aria-hidden="true" 
+                        />
+                        <span className="text-gray-700" style={{ fontSize: '14px' }}>
+                          Settings
+                        </span>
                       </button>
                       
 
 
                       <button
-                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-gray-100 mt-1 pt-3"
+                        className="w-full px-4 py-2.5 text-left hover:bg-gray-50 flex items-center gap-3 transition-colors border-t border-gray-100 mt-1.5 pt-3"
                         onClick={async () => {
                           setIsUserMenuOpen(false);
                           try {
@@ -713,8 +852,17 @@ function Layout({ children }: LayoutProps) {
                           }
                         }}
                       >
-                        <span style={{ width: '16px', height: '16px', display: 'inline-block' }}>⏻</span>
-                        Log out
+                        <LogOut 
+                          style={{ 
+                            width: '18px', 
+                            height: '18px',
+                            color: '#6B7280'
+                          }} 
+                          aria-hidden="true" 
+                        />
+                        <span className="text-gray-700" style={{ fontSize: '14px' }}>
+                          Log out
+                        </span>
                       </button>
                     </div>
                   </div>

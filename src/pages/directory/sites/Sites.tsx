@@ -53,6 +53,7 @@ export default function Sites() {
   const [googleMapInstance, setGoogleMapInstance] = useState<google.maps.Map | null>(null);
   const lastSelectionSourceRef = useRef<'list' | 'map' | 'none'>('none');
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchInputValue, setSearchInputValue] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -80,6 +81,204 @@ export default function Sites() {
       { id: 'sites', label: 'Sites', href: '/directory/sites', icon: Building2 }
     ]);
   }, [registerSubmodules]);
+
+  // Track if we've restored state to avoid saving during restoration
+  const hasRestoredState = useRef(false);
+  const isRestoring = useRef(false);
+
+  // Track current route to detect navigation changes
+  const [currentRoute, setCurrentRoute] = useState(router.getCurrentRoute());
+
+  // Restore state from sessionStorage when component mounts (only if coming from SiteInfo)
+  useEffect(() => {
+    // Check if we're coming from SiteInfo by checking multiple indicators:
+    const comingFromSiteInfo = sessionStorage.getItem('comingFromSiteInfo') === 'true';
+    const wasOnSiteInfoPage = sessionStorage.getItem('isOnSiteInfoPage') === 'true';
+    const savedState = sessionStorage.getItem('sitesPageState');
+    
+    // If we were on SiteInfo page and have saved state, restore it
+    if ((comingFromSiteInfo || wasOnSiteInfoPage) && savedState) {
+      try {
+        isRestoring.current = true;
+        const state = JSON.parse(savedState);
+        // Only restore if we have saved state (don't overwrite with defaults)
+        if (state.searchTerm !== undefined) {
+          setSearchTerm(state.searchTerm);
+          setSearchInputValue(state.searchTerm);
+        }
+        if (state.currentPage !== undefined) setCurrentPage(state.currentPage);
+        if (state.itemsPerPage !== undefined) setItemsPerPage(state.itemsPerPage);
+        if (state.viewMode !== undefined) setViewMode(state.viewMode);
+        if (state.sortBy !== undefined) setSortBy(state.sortBy);
+        if (state.sortOrder !== undefined) setSortOrder(state.sortOrder);
+        if (state.selectedSiteType !== undefined) setSelectedSiteType(state.selectedSiteType);
+        if (state.selectedCustomId !== undefined) setSelectedCustomId(state.selectedCustomId);
+        if (state.selectedCountry !== undefined) setSelectedCountry(state.selectedCountry);
+        
+        // Clear the flags after restoring
+        sessionStorage.removeItem('comingFromSiteInfo');
+        sessionStorage.removeItem('isOnSiteInfoPage');
+        
+        // Allow saving after a short delay to ensure all state updates are complete
+        setTimeout(() => {
+          isRestoring.current = false;
+          hasRestoredState.current = true;
+        }, 100);
+      } catch (error) {
+        console.error('Error restoring sites page state:', error);
+        isRestoring.current = false;
+        hasRestoredState.current = false;
+        sessionStorage.removeItem('comingFromSiteInfo');
+        sessionStorage.removeItem('isOnSiteInfoPage');
+      }
+    } else {
+      // Not coming from SiteInfo, clear any saved state and flags
+      if (!comingFromSiteInfo && !wasOnSiteInfoPage) {
+        sessionStorage.removeItem('sitesPageState');
+        sessionStorage.removeItem('comingFromSiteInfo');
+        sessionStorage.removeItem('isOnSiteInfoPage');
+      }
+      // Allow saving immediately
+      hasRestoredState.current = true;
+    }
+  }, []); // Only run on mount
+
+  // Listen for route changes (including browser back/forward)
+  useEffect(() => {
+    const updateRoute = () => {
+      const route = router.getCurrentRoute();
+      setCurrentRoute(route);
+      
+      // When route changes to Sites, check if we're coming from SiteInfo
+      if (route === '/directory/sites' || route.startsWith('/directory/sites')) {
+        const wasOnSiteInfoPage = sessionStorage.getItem('isOnSiteInfoPage') === 'true';
+        if (wasOnSiteInfoPage) {
+          sessionStorage.setItem('comingFromSiteInfo', 'true');
+          sessionStorage.removeItem('isOnSiteInfoPage');
+        }
+      } else if (!route.includes('/directory/sites')) {
+        // Navigating away from sites, clear flags
+        sessionStorage.removeItem('isOnSiteInfoPage');
+        sessionStorage.removeItem('comingFromSiteInfo');
+      }
+    };
+
+    const removeListener = router.addListener(updateRoute);
+    // Also listen to popstate for browser back/forward
+    window.addEventListener('popstate', updateRoute);
+    
+    return () => {
+      removeListener();
+      window.removeEventListener('popstate', updateRoute);
+    };
+  }, []);
+
+  // Restore state when route changes to Sites (including back button)
+  useEffect(() => {
+    // Only restore if we're on the Sites page
+    if (currentRoute !== '/directory/sites' && !currentRoute.startsWith('/directory/sites')) {
+      return;
+    }
+
+    const comingFromSiteInfo = sessionStorage.getItem('comingFromSiteInfo') === 'true';
+    const wasOnSiteInfoPage = sessionStorage.getItem('isOnSiteInfoPage') === 'true';
+    const savedState = sessionStorage.getItem('sitesPageState');
+    
+    // If we were on SiteInfo page and have saved state, restore it
+    if ((comingFromSiteInfo || wasOnSiteInfoPage) && savedState && !isRestoring.current) {
+      try {
+        isRestoring.current = true;
+        const state = JSON.parse(savedState);
+        // Only restore if we have saved state (don't overwrite with defaults)
+        if (state.searchTerm !== undefined) {
+          setSearchTerm(state.searchTerm);
+          setSearchInputValue(state.searchTerm);
+        }
+        if (state.currentPage !== undefined) setCurrentPage(state.currentPage);
+        if (state.itemsPerPage !== undefined) setItemsPerPage(state.itemsPerPage);
+        if (state.viewMode !== undefined) setViewMode(state.viewMode);
+        if (state.sortBy !== undefined) setSortBy(state.sortBy);
+        if (state.sortOrder !== undefined) setSortOrder(state.sortOrder);
+        if (state.selectedSiteType !== undefined) setSelectedSiteType(state.selectedSiteType);
+        if (state.selectedCustomId !== undefined) setSelectedCustomId(state.selectedCustomId);
+        if (state.selectedCountry !== undefined) setSelectedCountry(state.selectedCountry);
+        
+        // Clear the flags after restoring
+        sessionStorage.removeItem('comingFromSiteInfo');
+        sessionStorage.removeItem('isOnSiteInfoPage');
+        
+        // Allow saving after a short delay to ensure all state updates are complete
+        setTimeout(() => {
+          isRestoring.current = false;
+          hasRestoredState.current = true;
+        }, 100);
+      } catch (error) {
+        console.error('Error restoring sites page state:', error);
+        isRestoring.current = false;
+        hasRestoredState.current = false;
+        sessionStorage.removeItem('comingFromSiteInfo');
+        sessionStorage.removeItem('isOnSiteInfoPage');
+      }
+    } else if (!comingFromSiteInfo && !wasOnSiteInfoPage) {
+      // Not coming from SiteInfo, clear any saved state and flags
+      sessionStorage.removeItem('sitesPageState');
+      sessionStorage.removeItem('comingFromSiteInfo');
+      sessionStorage.removeItem('isOnSiteInfoPage');
+      if (!hasRestoredState.current) {
+        hasRestoredState.current = true;
+      }
+    }
+  }, [currentRoute]); // Re-run when route changes
+
+  // Save state to sessionStorage whenever it changes (but skip during initial restoration)
+  // Only save if we're on the Sites page (not navigating away)
+  useEffect(() => {
+    // Don't save if we're currently restoring state or haven't initialized yet
+    if (isRestoring.current || !hasRestoredState.current) {
+      return;
+    }
+    
+    // Only save state if we're currently on the Sites page
+    // Check if we're navigating away by looking at the navigatingToSiteInfo flag
+    const navigatingAway = sessionStorage.getItem('navigatingToSiteInfo') === 'true';
+    if (navigatingAway) {
+      return; // Don't save if we're in the process of navigating to SiteInfo
+    }
+    
+    const stateToSave = {
+      searchTerm,
+      currentPage,
+      itemsPerPage,
+      viewMode,
+      sortBy,
+      sortOrder,
+      selectedSiteType,
+      selectedCustomId,
+      selectedCountry
+    };
+    sessionStorage.setItem('sitesPageState', JSON.stringify(stateToSave));
+  }, [searchTerm, currentPage, itemsPerPage, viewMode, sortBy, sortOrder, selectedSiteType, selectedCustomId, selectedCountry]);
+
+  // Clean up state when navigating away from Sites to other modules
+  useEffect(() => {
+    const handleRouteChange = () => {
+      const currentRoute = router.getCurrentRoute();
+      // If we navigate to a route that's not sites or siteinfo, clear the saved state
+      if (!currentRoute.includes('/directory/sites')) {
+        sessionStorage.removeItem('sitesPageState');
+        sessionStorage.removeItem('comingFromSiteInfo');
+        sessionStorage.removeItem('navigatingToSiteInfo');
+        sessionStorage.removeItem('isOnSiteInfoPage');
+      }
+    };
+
+    // Listen for route changes
+    const removeListener = router.addListener(handleRouteChange);
+    
+    return () => {
+      removeListener();
+    };
+  }, []);
 
   // Use sites from Supabase hook
   const sites = sitesData;
@@ -341,6 +540,7 @@ export default function Sites() {
     setSelectedCustomId([]);
     setSelectedCountry([]);
     setSearchTerm('');
+    setSearchInputValue('');
     setSiteTypeSearchTerm('');
     setCustomIdSearchTerm('');
     setCountrySearchTerm('');
@@ -441,6 +641,9 @@ export default function Sites() {
             <button 
               onClick={() => {
                 sessionStorage.removeItem('selectedSite');
+                // Clear state preservation flags since we're not going to SiteInfo from a site
+                sessionStorage.removeItem('comingFromSiteInfo');
+                sessionStorage.removeItem('navigatingToSiteInfo');
                 router.navigate('/directory/sites/new');
               }}
               className="flex items-center gap-2 px-2 py-1 rounded text-white transition-colors text-sm" 
@@ -485,8 +688,13 @@ export default function Sites() {
               <input
                 type="text"
                 placeholder="Search sites by name, address, city, or state..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                value={searchInputValue}
+                onChange={(e) => setSearchInputValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    setSearchTerm(searchInputValue);
+                  }
+                }}
                 className="w-full pl-9 pr-3 py-1 border border-gray-200 rounded text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
                 aria-label="Search sites"
                 id="site-search"
@@ -893,6 +1101,23 @@ export default function Sites() {
                       <div className="flex items-center">
                         <button 
                           onClick={() => {
+                            // Explicitly save current state before navigating to SiteInfo
+                            const stateToSave = {
+                              searchTerm,
+                              currentPage,
+                              itemsPerPage,
+                              viewMode,
+                              sortBy,
+                              sortOrder,
+                              selectedSiteType,
+                              selectedCustomId,
+                              selectedCountry
+                            };
+                            sessionStorage.setItem('sitesPageState', JSON.stringify(stateToSave));
+                            // Set flag to indicate we're navigating to SiteInfo
+                            sessionStorage.setItem('comingFromSiteInfo', 'false'); // false means going TO SiteInfo
+                            sessionStorage.setItem('navigatingToSiteInfo', 'true');
+                            
                             // Save site data to sessionStorage for SiteInfo to load
                             sessionStorage.setItem('selectedSite', JSON.stringify({
                               id: site.id,

@@ -1536,7 +1536,7 @@ export default function CompanySettings() {
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex gap-3 pt-4 border-t border-gray-200">
+                <div className="flex gap-3 pt-6 mt-6 border-t border-gray-200">
                   <button
                     onClick={handleSaveCompany}
                     disabled={!hasChanges || !companyData.companyName.trim()}
