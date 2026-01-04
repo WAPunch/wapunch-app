@@ -51,6 +51,7 @@ export default function WorkerInfo() {
   const [isAddingDepartment, setIsAddingDepartment] = useState(false);
   const [isAddingJobTitle, setIsAddingJobTitle] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   
   // Work rules state
   const [workRuleType, setWorkRuleType] = useState<'fixed' | 'planned' | 'open' | ''>('');
@@ -535,6 +536,7 @@ export default function WorkerInfo() {
   useEffect(() => {
     // Load worker data from sessionStorage if available, or fetch from database if ID is in URL
     const loadWorkerData = async () => {
+      setIsLoading(true);
       const selectedWorkerData = sessionStorage.getItem('selectedWorker');
       if (selectedWorkerData) {
         try {
@@ -624,6 +626,7 @@ export default function WorkerInfo() {
 
                 setWorker(mappedWorker);
                 setOriginalWorker(mappedWorker);
+                setIsLoading(false);
                 return;
               }
             } catch (dbError) {
@@ -680,6 +683,8 @@ export default function WorkerInfo() {
           setOriginalWorker(defaultWorker);
         }
       }
+      
+      setIsLoading(false);
     };
 
     loadWorkerData();
@@ -832,7 +837,7 @@ export default function WorkerInfo() {
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (): Promise<boolean> => {
     const newErrors: Record<string, string> = {};
 
     if (!worker.firstName.trim()) {
@@ -863,7 +868,7 @@ export default function WorkerInfo() {
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
-      return;
+      return false;
     }
 
     setIsSaving(true);
@@ -886,7 +891,7 @@ export default function WorkerInfo() {
         if (existingEmailWorker && existingEmailWorker.id !== worker.id) {
           setErrors({ email: `Email already exists for ${existingEmailWorker.first_name} ${existingEmailWorker.last_name} in this company` });
           setIsSaving(false);
-          return;
+          return false;
         }
       }
 
@@ -903,7 +908,7 @@ export default function WorkerInfo() {
         if (existingPhoneWorker && existingPhoneWorker.id !== worker.id) {
           setErrors({ phoneNumber: `Phone number already exists for ${existingPhoneWorker.first_name} ${existingPhoneWorker.last_name} in this company` });
           setIsSaving(false);
-          return;
+          return false;
         }
       }
 
@@ -1041,13 +1046,13 @@ export default function WorkerInfo() {
         if (workRuleType === 'fixed' && !fixedScheduleId) {
           setErrors({ workRules: 'Please select a fixed schedule' });
           setIsSaving(false);
-          return;
+          return false;
         }
 
         if (!workRuleStartDate) {
           setErrors({ workRules: 'Start date is required' });
           setIsSaving(false);
-          return;
+          return false;
         }
 
         // Check if work rule already exists
@@ -1065,7 +1070,7 @@ export default function WorkerInfo() {
           console.error(`Invalid workRuleType: ${workRuleType}`);
           setErrors({ workRules: 'Invalid work rule type' });
           setIsSaving(false);
-          return;
+          return false;
         }
 
         const workRuleData: any = {
@@ -1145,11 +1150,25 @@ export default function WorkerInfo() {
       // Refresh the workers list by navigating back or refreshing
       // Optionally, you could call a refetch function here
       
+      return true;
     } catch (err: any) {
       logger.error('Error saving worker', err);
       setErrors({ general: err?.message || 'Failed to save worker. Please try again.' });
+      return false;
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSaveAndFinish = async () => {
+    const success = await handleSave();
+    if (success) {
+      // Set flag to indicate we're coming FROM WorkerInfo back to Workers
+      sessionStorage.setItem('comingFromWorkerInfo', 'true');
+      sessionStorage.removeItem('navigatingToWorkerInfo');
+      
+      // Navigate back to Workers page (state will be restored automatically)
+      router.navigate('/directory/workers');
     }
   };
 
@@ -1178,9 +1197,11 @@ export default function WorkerInfo() {
         <div>
           <h1 className="text-xl font-semibold text-foreground mb-1">Worker Profile</h1>
           <p className="text-xs" style={{ color: 'var(--gray-500)' }}>
-            {worker.firstName && worker.lastName 
-              ? `Edit ${worker.firstName} ${worker.lastName}'s information`
-              : 'Add or edit worker information'}
+            {isLoading 
+              ? 'Loading...'
+              : worker.firstName && worker.lastName 
+                ? `Edit ${worker.firstName} ${worker.lastName}'s information`
+                : 'Add or edit worker information'}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -1207,12 +1228,32 @@ export default function WorkerInfo() {
             }
           >
             <Save style={{ width: '14px', height: '14px' }} />
-            {isSaving ? 'Saving...' : 'Save Changes'}
+            {isSaving ? 'Saving...' : 'Save'}
+          </button>
+          <button
+            type="button"
+            onClick={handleSaveAndFinish}
+            disabled={!hasChanges || !worker.firstName.trim() || !worker.lastName.trim() || !worker.phoneNumber.trim() || isSaving}
+            className={`flex items-center gap-2 px-2 py-1 rounded text-sm transition-colors ${
+              hasChanges && worker.firstName.trim() && worker.lastName.trim() && worker.phoneNumber.trim() && !isSaving
+                ? 'text-white'
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+            }`}
+            style={hasChanges && worker.firstName.trim() && worker.lastName.trim() && worker.phoneNumber.trim() && !isSaving
+              ? { 
+                  backgroundColor: 'var(--primary-brand-hover)'
+                }
+              : {}
+            }
+          >
+            <Save style={{ width: '14px', height: '14px' }} />
+            {isSaving ? 'Saving...' : 'Save & Finish'}
           </button>
         </div>
       </div>
 
       {/* Form */}
+      {!isLoading && (
       <div className="bg-white border border-gray-200 rounded-lg p-6">
         {errors.general && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700 flex items-center gap-2">
@@ -1235,7 +1276,7 @@ export default function WorkerInfo() {
                   type="text"
                   value={worker.firstName}
                   onChange={handleInputChange}
-                  className={`w-full pl-10 pr-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent ${
+                  className={`w-full pl-10 pr-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent ${
                     errors.firstName ? 'border-red-300 focus:ring-red-500' : ''
                   }`}
                   placeholder="Enter first name"
@@ -1261,7 +1302,7 @@ export default function WorkerInfo() {
                   type="text"
                   value={worker.lastName}
                   onChange={handleInputChange}
-                  className={`w-full pl-10 pr-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent ${
+                  className={`w-full pl-10 pr-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent ${
                     errors.lastName ? 'border-red-300 focus:ring-red-500' : ''
                   }`}
                   placeholder="Enter last name"
@@ -1288,7 +1329,7 @@ export default function WorkerInfo() {
                 name="workerType"
                 value={worker.workerType}
                 onChange={handleInputChange}
-                className="w-full pl-10 pr-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent appearance-none"
+                className="w-full pl-10 pr-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent appearance-none"
               >
                 <option value="employee">Employee</option>
                 <option value="contractor">Contractor</option>
@@ -1309,7 +1350,7 @@ export default function WorkerInfo() {
                   name="departmentId"
                   value={worker.departmentId}
                   onChange={handleInputChange}
-                  className="flex-1 pl-10 pr-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent appearance-none"
+                  className="flex-1 pl-10 pr-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent appearance-none"
                 >
                   <option value="">Select department</option>
                   {departments.map(dept => (
@@ -1320,7 +1361,7 @@ export default function WorkerInfo() {
                   <button
                     type="button"
                     onClick={() => setShowNewDepartment(true)}
-                    className="px-3 h-10 border border-gray-300 rounded-md text-sm hover:bg-gray-50 flex items-center gap-2"
+                    className="px-3 py-1 border border-gray-300 rounded-md text-sm hover:bg-gray-50 flex items-center gap-2"
                   >
                     <Plus className="w-4 h-4" />
                     New
@@ -1340,7 +1381,7 @@ export default function WorkerInfo() {
                           setNewDepartment('');
                         }
                       }}
-                      className="flex-1 px-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      className="flex-1 px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       placeholder="Enter new department"
                       autoFocus
                     />
@@ -1348,7 +1389,7 @@ export default function WorkerInfo() {
                       type="button"
                       onClick={handleAddDepartment}
                       disabled={isAddingDepartment}
-                      className={`px-3 h-10 bg-primary text-white rounded-md text-sm hover:bg-primary/90 ${
+                      className={`px-3 py-1 bg-primary text-white rounded-md text-sm hover:bg-primary/90 ${
                         isAddingDepartment ? 'opacity-50 cursor-not-allowed' : ''
                       }`}
                     >
@@ -1360,7 +1401,7 @@ export default function WorkerInfo() {
                         setShowNewDepartment(false);
                         setNewDepartment('');
                       }}
-                      className="px-3 h-10 border border-gray-300 rounded-md text-sm hover:bg-gray-50"
+                      className="px-3 py-1 border border-gray-300 rounded-md text-sm hover:bg-gray-50"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -1383,7 +1424,7 @@ export default function WorkerInfo() {
                   name="jobTitleId"
                   value={worker.jobTitleId}
                   onChange={handleInputChange}
-                  className="flex-1 pl-10 pr-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent appearance-none"
+                  className="flex-1 pl-10 pr-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent appearance-none"
                 >
                   <option value="">Select job title</option>
                   {jobTitles.map(title => (
@@ -1394,7 +1435,7 @@ export default function WorkerInfo() {
                   <button
                     type="button"
                     onClick={() => setShowNewJobTitle(true)}
-                    className="px-3 h-10 border border-gray-300 rounded-md text-sm hover:bg-gray-50 flex items-center gap-2"
+                    className="px-3 py-1 border border-gray-300 rounded-md text-sm hover:bg-gray-50 flex items-center gap-2"
                   >
                     <Plus className="w-4 h-4" />
                     New
@@ -1414,7 +1455,7 @@ export default function WorkerInfo() {
                           setNewJobTitle('');
                         }
                       }}
-                      className="flex-1 px-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      className="flex-1 px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       placeholder="Enter new job title"
                       autoFocus
                     />
@@ -1422,7 +1463,7 @@ export default function WorkerInfo() {
                       type="button"
                       onClick={handleAddJobTitle}
                       disabled={isAddingJobTitle}
-                      className={`px-3 h-10 bg-primary text-white rounded-md text-sm hover:bg-primary/90 ${
+                      className={`px-3 py-1 bg-primary text-white rounded-md text-sm hover:bg-primary/90 ${
                         isAddingJobTitle ? 'opacity-50 cursor-not-allowed' : ''
                       }`}
                     >
@@ -1434,7 +1475,7 @@ export default function WorkerInfo() {
                         setShowNewJobTitle(false);
                         setNewJobTitle('');
                       }}
-                      className="px-3 h-10 border border-gray-300 rounded-md text-sm hover:bg-gray-50"
+                      className="px-3 py-1 border border-gray-300 rounded-md text-sm hover:bg-gray-50"
                     >
                       <X className="w-4 h-4" />
             </button>
@@ -1463,7 +1504,7 @@ export default function WorkerInfo() {
                 type="email"
                 value={worker.email}
                 onChange={handleInputChange}
-                className={`w-full pl-10 pr-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent ${
+                className={`w-full pl-10 pr-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent ${
                   errors.email ? 'border-red-300 focus:ring-red-500' : ''
                 }`}
                 placeholder="Enter email address"
@@ -1490,7 +1531,7 @@ export default function WorkerInfo() {
                   name="phoneCountryCode"
                   value={worker.phoneCountryCode}
                   onChange={handlePhoneCountryCodeChange}
-                  className={`w-full pl-10 pr-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent appearance-none ${
+                  className={`w-full pl-10 pr-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent appearance-none ${
                     worker.phoneCountryCode ? 'text-transparent' : ''
                   }`}
                 >
@@ -1542,7 +1583,7 @@ export default function WorkerInfo() {
                       }
                     }
                   }}
-                  className={`w-full px-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent ${
+                  className={`w-full px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent ${
                     errors.phoneNumber 
                       ? 'border-red-300 focus:ring-red-500' 
                       : ''
@@ -1579,9 +1620,9 @@ export default function WorkerInfo() {
               name="customWorkerId"
               value={worker.customWorkerId}
               onChange={handleInputChange}
-              className={`w-full px-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent ${
-                errors.customWorkerId ? 'border-red-300 focus:ring-red-500' : ''
-              }`}
+                className={`w-full px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent ${
+                  errors.customWorkerId ? 'border-red-300 focus:ring-red-500' : ''
+                }`}
               placeholder="Optional - for client integration"
             />
             <p className="mt-1 text-xs text-gray-500">
@@ -1719,7 +1760,7 @@ export default function WorkerInfo() {
                       <select
                         value={fixedScheduleId}
                         onChange={(e) => setFixedScheduleId(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        className="w-full px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                         required={workRuleType === 'fixed'}
                       >
                         <option value="">Select a fixed schedule</option>
@@ -1743,7 +1784,7 @@ export default function WorkerInfo() {
                       type="date"
                       value={workRuleStartDate}
                       onChange={(e) => setWorkRuleStartDate(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      className="w-full px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       required
                     />
                   </div>
@@ -1755,7 +1796,7 @@ export default function WorkerInfo() {
                       type="date"
                       value={workRuleEndDate}
                       onChange={(e) => setWorkRuleEndDate(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      className="w-full px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                     />
                     <p className="text-xs text-gray-500 mt-1">Leave empty for ongoing schedule</p>
                   </div>
@@ -1766,6 +1807,7 @@ export default function WorkerInfo() {
 
           </div>
         </div>
+      )}
     </div>
   );
 }

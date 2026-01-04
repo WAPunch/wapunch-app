@@ -1272,7 +1272,7 @@ export default function CompanySettings() {
                           />
                           <label
                             htmlFor="logo-upload"
-                            className={`inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer transition-colors ${
+                            className={`inline-flex items-center gap-2 px-4 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer transition-colors ${
                               logoUploading ? 'opacity-50 cursor-not-allowed' : ''
                             }`}
                           >
@@ -1286,7 +1286,7 @@ export default function CompanySettings() {
                                   handleDeleteLogo();
                                 }
                               }}
-                              className="inline-flex items-center gap-2 px-4 py-2 border border-red-300 rounded-md text-sm font-medium text-red-700 bg-white hover:bg-red-50 transition-colors"
+                              className="inline-flex items-center gap-2 px-4 py-1 border border-red-300 rounded-md text-sm font-medium text-red-700 bg-white hover:bg-red-50 transition-colors"
                             >
                               <Trash2 className="w-4 h-4" />
                               Delete
@@ -1317,7 +1317,7 @@ export default function CompanySettings() {
                     value={companyData.companyName}
                     onChange={(e) => handleCompanyChange('companyName', e.target.value)}
                     required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    className="w-full px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                     placeholder="Enter company name"
                   />
                 </div>
@@ -1328,7 +1328,7 @@ export default function CompanySettings() {
                   <select
                     value={companyData.industry}
                     onChange={(e) => handleCompanyChange('industry', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    className="w-full px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                   >
                     <option value="">Select an industry</option>
                     <option value="architecture">Architecture & Design</option>
@@ -1358,7 +1358,7 @@ export default function CompanySettings() {
                       type="text"
                       value={companyData.address}
                       onChange={(e) => handleCompanyChange('address', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      className="w-full px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       placeholder="Enter street address"
                     />
                   </div>
@@ -1370,7 +1370,7 @@ export default function CompanySettings() {
                         type="text"
                         value={companyData.city}
                         onChange={(e) => handleCompanyChange('city', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        className="w-full px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                         placeholder="Enter city"
                       />
                     </div>
@@ -1379,7 +1379,7 @@ export default function CompanySettings() {
                       <select
                         value={companyData.country}
                         onChange={(e) => handleCompanyChange('country', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        className="w-full px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       >
                         <option value="">Select a country</option>
                         {countries.map((country) => (
@@ -1401,7 +1401,7 @@ export default function CompanySettings() {
                       value={companyData.timezone}
                       onChange={(e) => handleCompanyChange('timezone', e.target.value)}
                       required
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      className="w-full px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                     >
                       {getAllIANATimezones().map((tz) => (
                         <option key={tz} value={tz}>
@@ -1433,7 +1433,7 @@ export default function CompanySettings() {
                               handleCompanyChange('phoneCountryCode', e.target.value);
                               setPhoneErrors({});
                             }}
-                            className="w-full px-3 pr-8 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent appearance-none bg-white text-transparent"
+                            className="w-full px-3 pr-8 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent appearance-none bg-white text-transparent"
                           >
                             <option value="">Country code</option>
                             {phoneCountryCodeOptions.map((country) => (
@@ -1489,7 +1489,7 @@ export default function CompanySettings() {
                                 }
                               }
                             }}
-                            className={`w-full px-3 h-10 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent ${
+                            className={`w-full px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent ${
                               phoneErrors.phoneNumber 
                                 ? 'border-red-300 focus:ring-red-500' 
                                 : ''
@@ -1514,7 +1514,7 @@ export default function CompanySettings() {
                         type="email"
                         value={companyData.email}
                         onChange={(e) => handleCompanyChange('email', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        className="w-full px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                         placeholder="contact@company.com"
                       />
                     </div>
@@ -1529,7 +1529,7 @@ export default function CompanySettings() {
                       type="url"
                       value={companyData.website}
                       onChange={(e) => handleCompanyChange('website', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      className="w-full px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       placeholder="https://www.company.com"
                     />
                   </div>
@@ -1540,7 +1540,7 @@ export default function CompanySettings() {
                   <button
                     onClick={handleSaveCompany}
                     disabled={!hasChanges || !companyData.companyName.trim()}
-                    className={`px-6 py-2 rounded-md font-medium transition-colors ${
+                    className={`px-6 py-1 rounded-md text-sm font-medium transition-colors ${
                       hasChanges && companyData.companyName.trim()
                         ? 'bg-primary text-white hover:bg-primary/90'
                         : 'bg-gray-200 text-gray-400 cursor-not-allowed'
@@ -1551,7 +1551,7 @@ export default function CompanySettings() {
                   <button
                     onClick={handleCancelCompany}
                     disabled={!hasChanges}
-                    className={`px-6 py-2 rounded-md font-medium transition-colors ${
+                    className={`px-6 py-1 rounded-md text-sm font-medium transition-colors ${
                       hasChanges
                         ? 'border border-gray-300 text-gray-700 hover:bg-gray-50'
                         : 'border border-gray-200 text-gray-400 cursor-not-allowed'
@@ -1776,7 +1776,7 @@ export default function CompanySettings() {
               </div>
               <button
                 onClick={handleCreateSchedule}
-                className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
+                className="flex items-center gap-2 px-4 py-1 bg-primary text-white rounded-md text-sm hover:bg-primary/90 transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 Create Fixed Schedule
@@ -1880,7 +1880,7 @@ export default function CompanySettings() {
                     type="text"
                     value={newScheduleName}
                     onChange={(e) => setNewScheduleName(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    className="w-full px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                     placeholder="e.g., Regular 9-5, Night Shift"
                   />
                 </div>
@@ -1970,7 +1970,7 @@ export default function CompanySettings() {
                   <button
                     onClick={handleSaveSchedule}
                     disabled={!newScheduleName.trim()}
-                    className={`px-6 py-2 rounded-md font-medium transition-colors ${
+                    className={`px-6 py-1 rounded-md text-sm font-medium transition-colors ${
                       newScheduleName.trim()
                         ? 'bg-primary text-white hover:bg-primary/90'
                         : 'bg-gray-200 text-gray-400 cursor-not-allowed'
@@ -1984,7 +1984,7 @@ export default function CompanySettings() {
                       setEditingSchedule(null);
                       setNewScheduleName('');
                     }}
-                    className="px-6 py-2 rounded-md font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+                    className="px-6 py-1 rounded-md text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
                   >
                     Cancel
                   </button>
@@ -2062,7 +2062,7 @@ export default function CompanySettings() {
                       max="60"
                       value={attendanceSettings.early_arrival_tolerance_minutes}
                       onChange={(e) => handleAttendanceSettingChange('early_arrival_tolerance_minutes', parseInt(e.target.value) || 0)}
-                      className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      className="w-32 px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       placeholder="0"
                     />
                     <p className="text-sm text-gray-500">
@@ -2083,7 +2083,7 @@ export default function CompanySettings() {
                       max="60"
                       value={attendanceSettings.late_tolerance_minutes}
                       onChange={(e) => handleAttendanceSettingChange('late_tolerance_minutes', parseInt(e.target.value) || 0)}
-                      className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      className="w-32 px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       placeholder="5"
                     />
                     <p className="text-sm text-gray-500">
@@ -2104,7 +2104,7 @@ export default function CompanySettings() {
                       max="60"
                       value={attendanceSettings.early_leave_tolerance_minutes}
                       onChange={(e) => handleAttendanceSettingChange('early_leave_tolerance_minutes', parseInt(e.target.value) || 0)}
-                      className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      className="w-32 px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       placeholder="5"
                     />
                     <p className="text-sm text-gray-500">
@@ -2125,7 +2125,7 @@ export default function CompanySettings() {
                       max="60"
                       value={attendanceSettings.late_departure_tolerance_minutes}
                       onChange={(e) => handleAttendanceSettingChange('late_departure_tolerance_minutes', parseInt(e.target.value) || 0)}
-                      className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      className="w-32 px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       placeholder="0"
                     />
                     <p className="text-sm text-gray-500">
@@ -2143,7 +2143,7 @@ export default function CompanySettings() {
                     <select
                       value={attendanceSettings.overtime_calculation_mode}
                       onChange={(e) => handleOvertimeModeChange(e.target.value as 'daily_total' | 'per_shift')}
-                      className="w-48 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      className="w-48 px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent appearance-none"
                     >
                       <option value="daily_total">Daily Total</option>
                       <option value="per_shift">Per Shift</option>
@@ -2243,7 +2243,7 @@ export default function CompanySettings() {
                   <li key={item.id}>
                     <button
                       onClick={() => handleSectionChange(item.id)}
-                      className={`w-full flex items-center justify-between px-4 py-2 text-left rounded transition-colors ${
+                      className={`w-full flex items-center justify-between px-4 py-1 text-left rounded text-sm transition-colors ${
                         isActive
                           ? 'bg-primary text-white shadow-sm'
                           : 'text-gray-700 hover:bg-gray-50'

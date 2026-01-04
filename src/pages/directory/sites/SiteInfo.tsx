@@ -71,6 +71,7 @@ export default function SiteInfo() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [map, setMap] = useState<google.maps.Map | null>(null);
   const [autocomplete, setAutocomplete] = useState<google.maps.places.Autocomplete | null>(null);
   const autocompleteRef = useRef<HTMLInputElement>(null);
@@ -82,15 +83,22 @@ export default function SiteInfo() {
   const { isLoaded, loadError } = useGoogleMapsLoader();
 
   useEffect(() => {
+    // Clear any existing submodule navigation and set breadcrumbs
+    clearSubmoduleNav();
+    
+    // Create slug from site name for breadcrumb URLs
+    const slug = site.siteName 
+      ? site.siteName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+      : 'new-site';
+    
     setBreadcrumbs([
       { label: 'Sites', href: '/directory/sites' },
-      { label: site.id ? 'Edit Site' : 'New Site', href: '#' },
+      { label: site.siteName || (site.id ? 'Edit Site' : 'New Site') }
     ]);
 
-    return () => {
-      clearSubmoduleNav();
-    };
-  }, [site.id, setBreadcrumbs, clearSubmoduleNav]);
+    // Clear breadcrumbs when component unmounts
+    return () => clearSubmoduleNav();
+  }, [setBreadcrumbs, clearSubmoduleNav, site.id, site.siteName]);
 
   // Mark that we're on SiteInfo page when component mounts
   useEffect(() => {
@@ -107,6 +115,7 @@ export default function SiteInfo() {
   // Load site data from sessionStorage or database
   useEffect(() => {
     const loadSiteData = async () => {
+      setIsLoading(true);
       const selectedSiteData = sessionStorage.getItem('selectedSite');
       if (selectedSiteData) {
         try {
@@ -135,6 +144,7 @@ export default function SiteInfo() {
                 };
                 setSite(mappedSite);
                 setOriginalSite(mappedSite);
+                setIsLoading(false);
                 return;
               }
             } catch (dbError) {
@@ -161,6 +171,8 @@ export default function SiteInfo() {
           setOriginalSite(defaultSite);
         }
       }
+      
+      setIsLoading(false);
     };
     loadSiteData();
   }, [currentCompany?.id]);
@@ -432,7 +444,7 @@ export default function SiteInfo() {
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (): Promise<boolean> => {
     const newErrors: Record<string, string> = {};
 
     if (!site.siteName.trim()) {
@@ -457,7 +469,7 @@ export default function SiteInfo() {
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
-      return;
+      return false;
     }
 
     setIsSaving(true);
@@ -537,11 +549,26 @@ export default function SiteInfo() {
       setOriginalSite(updatedSite);
       setHasChanges(false);
       setErrors({});
+      
+      return true;
     } catch (err: any) {
       logger.error('Error saving site', err instanceof Error ? err : new Error(String(err)));
       setErrors({ general: err?.message || 'Failed to save site. Please try again.' });
+      return false;
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSaveAndFinish = async () => {
+    const success = await handleSave();
+    if (success) {
+      // Set flag to indicate we're coming FROM SiteInfo back to Sites
+      sessionStorage.setItem('comingFromSiteInfo', 'true');
+      sessionStorage.removeItem('navigatingToSiteInfo');
+      
+      // Navigate back to Sites page (state will be restored automatically)
+      router.navigate('/directory/sites');
     }
   };
 
@@ -630,7 +657,11 @@ export default function SiteInfo() {
             {site.id ? 'Edit Site' : 'New Site'}
           </h1>
           <p className="text-xs" style={{ color: 'var(--gray-500)' }}>
-            {site.id ? 'Update site information and location' : 'Create a new site for your company'}
+            {isLoading 
+              ? 'Loading...'
+              : site.siteName 
+                ? `Edit ${site.siteName}'s information`
+                : site.id ? 'Update site information and location' : 'Create a new site for your company'}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -661,7 +692,28 @@ export default function SiteInfo() {
             ) : (
               <Save style={{ width: '14px', height: '14px' }} />
             )}
-            {isSaving ? 'Saving...' : 'Save Changes'}
+            {isSaving ? 'Saving...' : 'Save'}
+          </button>
+          <button
+            type="button"
+            onClick={handleSaveAndFinish}
+            disabled={!hasChanges || isSaving}
+            className={`flex items-center gap-2 px-2 py-1 rounded text-sm transition-colors ${
+              hasChanges && !isSaving
+                ? 'text-white'
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+            }`}
+            style={hasChanges && !isSaving
+              ? { backgroundColor: 'var(--primary-brand-hover)' }
+              : {}
+            }
+          >
+            {isSaving ? (
+              <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              <Save style={{ width: '14px', height: '14px' }} />
+            )}
+            {isSaving ? 'Saving...' : 'Save & Finish'}
           </button>
         </div>
       </div>
@@ -677,6 +729,7 @@ export default function SiteInfo() {
       )}
 
       {/* Form */}
+      {!isLoading && (
       <div className="bg-white border border-gray-200 rounded-lg p-6 mb-6">
         <div className="space-y-6">
           {/* Site Name */}
@@ -690,7 +743,7 @@ export default function SiteInfo() {
               name="siteName"
               value={site.siteName}
               onChange={handleInputChange}
-              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 ${
+              className={`w-full px-3 py-1 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 ${
                 errors.siteName ? 'border-red-300' : 'border-gray-300'
               }`}
               placeholder="Enter site name"
@@ -716,7 +769,7 @@ export default function SiteInfo() {
                 onChange={handleInputChange}
                 onKeyDown={handleAddressKeyDown}
                 onBlur={handleAddressGeocode}
-                className={`w-full pl-10 pr-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 ${
+                className={`w-full pl-10 pr-3 py-1 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 ${
                   errors.address ? 'border-red-300' : 'border-gray-300'
                 }`}
                 placeholder="Search for an address or click on the map"
@@ -737,7 +790,7 @@ export default function SiteInfo() {
               name="type"
               value={site.type}
               onChange={handleInputChange}
-              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 ${
+              className={`w-full px-3 py-1 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 appearance-none ${
                 errors.type ? 'border-red-300' : 'border-gray-300'
               }`}
             >
@@ -760,7 +813,7 @@ export default function SiteInfo() {
               name="customSiteId"
               value={site.customSiteId}
               onChange={handleInputChange}
-              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 ${
+              className={`w-full px-3 py-1 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 ${
                 errors.customSiteId ? 'border-red-300' : 'border-gray-300'
               }`}
               placeholder="Optional - for client integration"
@@ -798,7 +851,7 @@ export default function SiteInfo() {
                     (e.target as HTMLInputElement).blur();
                   }
                 }}
-                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 ${
+                className={`w-full px-3 py-1 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 ${
                   errors.coordinates ? 'border-red-300' : 'border-gray-300'
                 }`}
                 placeholder="0.000000"
@@ -827,7 +880,7 @@ export default function SiteInfo() {
                     (e.target as HTMLInputElement).blur();
                   }
                 }}
-                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 ${
+                className={`w-full px-3 py-1 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 ${
                   errors.coordinates ? 'border-red-300' : 'border-gray-300'
                 }`}
                 placeholder="0.000000"
@@ -907,6 +960,7 @@ export default function SiteInfo() {
           </div>
         </div>
       </div>
+      )}
 
     </div>
   );
