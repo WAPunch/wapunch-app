@@ -179,6 +179,7 @@ export default function Schedule() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeletingShift, setIsDeletingShift] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
   
@@ -264,6 +265,12 @@ export default function Schedule() {
   const jobTitleDropdownRef = useRef<HTMLDivElement>(null);
   const workRuleDropdownRef = useRef<HTMLDivElement>(null);
 
+  // Refs to maintain previous count values during loading
+  const prevAllWorkersCount = useRef<number>(0);
+  const prevFixedScheduleCount = useRef<number>(0);
+  const prevPlannedScheduleCount = useRef<number>(0);
+  const prevFlexibleScheduleCount = useRef<number>(0);
+
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -330,6 +337,7 @@ export default function Schedule() {
       setWorkRuleTypeByWorkerId({});
       setLoadError(null);
       setIsLoadingData(false);
+      setIsLoading(false);
       return;
     }
 
@@ -525,6 +533,7 @@ export default function Schedule() {
       setWorkRuleTypeByWorkerId({});
     } finally {
       setIsLoadingData(false);
+      setIsLoading(false);
     }
   }, [currentCompany?.id, currentCompanyUser?.role, weekRange.startISO, weekRange.endISO]);
 
@@ -1567,29 +1576,45 @@ export default function Schedule() {
 
   // Calculate counts for stats cards
   const allWorkersCount = useMemo(() => {
-    return filteredEmployees.length;
-  }, [filteredEmployees]);
+    const count = filteredEmployees.length;
+    if (!isLoadingData) {
+      prevAllWorkersCount.current = count;
+    }
+    return count;
+  }, [filteredEmployees, isLoadingData]);
 
   const fixedScheduleCount = useMemo(() => {
-    return filteredEmployees.filter(emp => {
+    const count = filteredEmployees.filter(emp => {
       const ruleType = workRuleTypeByWorkerId[emp.id];
       return ruleType === 'fixed';
     }).length;
-  }, [filteredEmployees, workRuleTypeByWorkerId]);
+    if (!isLoadingData) {
+      prevFixedScheduleCount.current = count;
+    }
+    return count;
+  }, [filteredEmployees, workRuleTypeByWorkerId, isLoadingData]);
 
   const plannedScheduleCount = useMemo(() => {
-    return filteredEmployees.filter(emp => {
+    const count = filteredEmployees.filter(emp => {
       const ruleType = workRuleTypeByWorkerId[emp.id];
       return ruleType === 'planned' || ruleType === 'planner';
     }).length;
-  }, [filteredEmployees, workRuleTypeByWorkerId]);
+    if (!isLoadingData) {
+      prevPlannedScheduleCount.current = count;
+    }
+    return count;
+  }, [filteredEmployees, workRuleTypeByWorkerId, isLoadingData]);
 
   const flexibleScheduleCount = useMemo(() => {
-    return filteredEmployees.filter(emp => {
+    const count = filteredEmployees.filter(emp => {
       const ruleType = workRuleTypeByWorkerId[emp.id];
       return ruleType === 'flexible' || ruleType === 'open';
     }).length;
-  }, [filteredEmployees, workRuleTypeByWorkerId]);
+    if (!isLoadingData) {
+      prevFlexibleScheduleCount.current = count;
+    }
+    return count;
+  }, [filteredEmployees, workRuleTypeByWorkerId, isLoadingData]);
 
   // Preset filter functions
   const applyAllWorkersPreset = () => {
@@ -1854,7 +1879,9 @@ export default function Schedule() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold text-foreground mb-1">Schedule</h1>
-          <p className="text-xs text-muted-foreground">Schedule and manage workers shifts efficiently</p>
+          <p className="text-xs text-muted-foreground">
+            {isLoading ? 'Loading...' : 'Schedule and manage workers shifts efficiently'}
+          </p>
         </div>
       </div>
 
@@ -1864,6 +1891,9 @@ export default function Schedule() {
         </div>
       )}
 
+      {/* Content */}
+      {!isLoading && (
+      <div>
       {/* Stats Cards - Filter Presets */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div 
@@ -1876,7 +1906,7 @@ export default function Schedule() {
         >
           <div className="flex items-center gap-3">
             <Users className="h-5 w-5 text-gray-600" />
-            <div className="text-2xl font-bold text-gray-900">{isLoadingData ? '—' : allWorkersCount}</div>
+            <div className="text-2xl font-bold text-gray-900">{isLoadingData ? prevAllWorkersCount.current : allWorkersCount}</div>
             <div className="text-sm text-muted-foreground">All Workers</div>
           </div>
         </div>
@@ -1890,7 +1920,7 @@ export default function Schedule() {
         >
           <div className="flex items-center gap-3">
             <Users className="h-5 w-5 text-[#059669]" />
-            <div className="text-2xl font-bold text-gray-900">{isLoadingData ? '—' : fixedScheduleCount}</div>
+            <div className="text-2xl font-bold text-gray-900">{isLoadingData ? prevFixedScheduleCount.current : fixedScheduleCount}</div>
             <div className="text-sm text-muted-foreground">Fixed Schedule</div>
           </div>
         </div>
@@ -1904,7 +1934,7 @@ export default function Schedule() {
         >
           <div className="flex items-center gap-3">
             <Users className="h-5 w-5 text-blue-600" />
-            <div className="text-2xl font-bold text-gray-900">{isLoadingData ? '—' : plannedScheduleCount}</div>
+            <div className="text-2xl font-bold text-gray-900">{isLoadingData ? prevPlannedScheduleCount.current : plannedScheduleCount}</div>
             <div className="text-sm text-muted-foreground">Planned Schedule</div>
               </div>
           </div>
@@ -1918,7 +1948,7 @@ export default function Schedule() {
         >
           <div className="flex items-center gap-3">
             <Users className="h-5 w-5 text-orange-600" />
-            <div className="text-2xl font-bold text-gray-900">{isLoadingData ? '—' : flexibleScheduleCount}</div>
+            <div className="text-2xl font-bold text-gray-900">{isLoadingData ? prevFlexibleScheduleCount.current : flexibleScheduleCount}</div>
             <div className="text-sm text-muted-foreground">Flexible Schedule</div>
           </div>
         </div>
@@ -3430,6 +3460,8 @@ export default function Schedule() {
             </div>
           </div>
         </div>
+      )}
+      </div>
       )}
 
     </div>
