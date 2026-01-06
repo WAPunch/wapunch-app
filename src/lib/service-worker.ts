@@ -35,7 +35,14 @@ class ServiceWorkerManager {
         // Set up event listeners
         this.setupEventListeners();
       } else {
-        logger.debug('Service Worker registration skipped in development');
+        // IMPORTANT:
+        // In dev, we intentionally do NOT register a service worker, but Chrome may still have
+        // an old SW + caches from a previous production build on the same origin (localhost),
+        // which can cause the app to load stale assets and appear "broken" (no data anywhere).
+        // So we proactively unregister any existing SWs and clear caches in dev.
+        logger.debug('Service Worker registration skipped in development - ensuring old SW/caches are cleared');
+        await this.unregister();
+        await this.clearCaches();
       }
     } catch (error) {
       logger.error('Service Worker registration failed', error instanceof Error ? error : new Error(String(error)));

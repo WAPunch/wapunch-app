@@ -158,6 +158,21 @@ type FixedScheduleDayRow = {
   break_minutes: number;
 };
 
+type WorkerUnavailabilityRuleRow = {
+  id: string;
+  company_id: string;
+  worker_id: string;
+  start_date: string;
+  end_date: string | null;
+  day_of_week: number | null; // 0 = Sunday, 6 = Saturday, null = all days
+  start_time: string;
+  end_time: string;
+  reason: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 function normalizeTime(value: string): string {
   // Supabase time columns often come back as "HH:MM:SS". UI expects "HH:MM".
   if (!value) return '';
@@ -181,7 +196,13 @@ function detectRecurrencePattern(shifts: PlannedShiftRow[], recurrenceId: string
   }
 
   const dates = recurringShifts.map(s => new Date(s.shift_date));
-  const daysDiff = Math.round((dates[1].getTime() - dates[0].getTime()) / (1000 * 60 * 60 * 24));
+  const firstDate = dates[0];
+  const secondDate = dates[1];
+  if (!firstDate || !secondDate) {
+    return { frequency: null, totalCount: recurringShifts.length, shiftType: recurringShifts[0]?.shift_type || 'work' };
+  }
+
+  const daysDiff = Math.round((secondDate.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24));
   
   // Detect frequency based on date differences
   if (daysDiff === 1) {
@@ -194,7 +215,7 @@ function detectRecurrencePattern(shifts: PlannedShiftRow[], recurrenceId: string
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     return { 
       frequency: 'weekly', 
-      dayOfWeek: dayNames[dates[0].getDay()],
+      dayOfWeek: dayNames[firstDate.getDay()] || 'Monday',
       totalCount: recurringShifts.length,
       shiftType: recurringShifts[0]?.shift_type || 'work'
     };
@@ -314,6 +335,7 @@ export default function Schedule() {
   const [fixedScheduleIdByWorkerId, setFixedScheduleIdByWorkerId] = useState<Record<string, string>>({});
   const [workRuleDateRangeByWorkerId, setWorkRuleDateRangeByWorkerId] = useState<Record<string, { start_date: string | null; end_date: string | null }>>({});
   const [fixedSchedules, setFixedSchedules] = useState<FixedScheduleRow[]>([]);
+  const [unavailabilityRules, setUnavailabilityRules] = useState<WorkerUnavailabilityRuleRow[]>([]);
   
   // Multi-select filter states
   const [selectedWorkerType, setSelectedWorkerType] = useState<string[]>([]);
@@ -424,7 +446,7 @@ export default function Schedule() {
     setLoadError(null);
 
     try {
-      const [workersRes, sitesRes, rulesRes, fixedSchedulesRes, shiftsRes] = await Promise.all([
+      const [workersRes, sitesRes, rulesRes, fixedSchedulesRes, shiftsRes, unavailabilityRes] = await Promise.all([
         supabase
           .from('workers')
           .select('id, first_name, last_name, is_active, archived, worker_type, job_title:job_titles(name)')
@@ -468,6 +490,11 @@ export default function Schedule() {
           .lte('shift_date', weekRange.endISO)
           .order('shift_date', { ascending: true })
           .order('start_time', { ascending: true }),
+        supabase
+          .from('worker_unavailability_rules')
+          .select('id, company_id, worker_id, start_date, end_date, day_of_week, start_time, end_time, reason, is_active, created_at, updated_at')
+          .eq('company_id', currentCompany.id)
+          .eq('is_active', true),
       ]);
 
       if (workersRes.error) throw workersRes.error;
@@ -475,6 +502,15 @@ export default function Schedule() {
       if (rulesRes.error) throw rulesRes.error;
       if (fixedSchedulesRes.error) throw fixedSchedulesRes.error;
       if (shiftsRes.error) throw shiftsRes.error;
+      // Unavailability rules should NOT block Schedule loading.
+      // If the table isn't deployed yet or RLS blocks it, keep working with an empty array.
+      if (unavailabilityRes.error) {
+        logger.warn(
+          'Error fetching worker_unavailability_rules (continuing without unavailability rendering):',
+          unavailabilityRes.error
+        );
+        setUnavailabilityRules([]);
+      }
 
       const siteMap: Record<string, string> = {};
       for (const s of (sitesRes.data || []) as SiteRow[]) {
@@ -548,6 +584,11 @@ export default function Schedule() {
 
       // Store fixed schedules
       setFixedSchedules((fixedSchedulesRes.data || []) as unknown as FixedScheduleRow[]);
+
+      // Store unavailability rules
+      if (!unavailabilityRes.error) {
+        setUnavailabilityRules((unavailabilityRes.data || []) as WorkerUnavailabilityRuleRow[]);
+      }
 
       // Filter shifts by role: admin/supervisor see drafts+published, employee only published
       const userRole = currentCompanyUser?.role;
@@ -995,6 +1036,31 @@ export default function Schedule() {
       return;
     }
 
+    // Validate overlap with unavailability rules (frontend check for better UX)
+    // The database trigger will also catch this, but we can show a better error message
+    const shiftDate = new Date(shiftForm.shiftDate);
+    const dayOfWeek = shiftDate.getDay();
+    const applicableUnavailabilityRules = unavailabilityRules.filter(rule => {
+      if (rule.worker_id !== shiftForm.workerId) return false;
+      if (shiftForm.shiftDate < rule.start_date) return false;
+      if (rule.end_date && shiftForm.shiftDate > rule.end_date) return false;
+      if (rule.day_of_week !== null && rule.day_of_week !== dayOfWeek) return false;
+      return true;
+    });
+
+    // Check for time overlap
+    for (const rule of applicableUnavailabilityRules) {
+      const ruleStartTime = normalizeTime(rule.start_time);
+      const ruleEndTime = normalizeTime(rule.end_time);
+      
+      // Two time ranges overlap if: start1 < end2 AND start2 < end1
+      if (ruleStartTime < shiftForm.endTime && shiftForm.startTime < ruleEndTime) {
+        const reason = rule.reason ? ` (${rule.reason})` : '';
+        setShiftFormError(`Shift overlaps with worker unavailability rule${reason}. Worker is unavailable from ${ruleStartTime} to ${ruleEndTime} on this date.`);
+        return;
+      }
+    }
+
     try {
       setIsCreatingShift(true);
       setShiftFormError(null);
@@ -1225,6 +1291,31 @@ export default function Schedule() {
     if (shiftForm.startTime >= shiftForm.endTime) {
       setShiftFormError('End time must be after start time');
       return;
+    }
+
+    // Validate overlap with unavailability rules (frontend check for better UX)
+    // The database trigger will also catch this, but we can show a better error message
+    const shiftDate = new Date(shiftForm.shiftDate);
+    const dayOfWeek = shiftDate.getDay();
+    const applicableUnavailabilityRules = unavailabilityRules.filter(rule => {
+      if (rule.worker_id !== shiftForm.workerId) return false;
+      if (shiftForm.shiftDate < rule.start_date) return false;
+      if (rule.end_date && shiftForm.shiftDate > rule.end_date) return false;
+      if (rule.day_of_week !== null && rule.day_of_week !== dayOfWeek) return false;
+      return true;
+    });
+
+    // Check for time overlap
+    for (const rule of applicableUnavailabilityRules) {
+      const ruleStartTime = normalizeTime(rule.start_time);
+      const ruleEndTime = normalizeTime(rule.end_time);
+      
+      // Two time ranges overlap if: start1 < end2 AND start2 < end1
+      if (ruleStartTime < shiftForm.endTime && shiftForm.startTime < ruleEndTime) {
+        const reason = rule.reason ? ` (${rule.reason})` : '';
+        setShiftFormError(`Shift overlaps with worker unavailability rule${reason}. Worker is unavailable from ${ruleStartTime} to ${ruleEndTime} on this date.`);
+        return;
+      }
     }
 
     // Validate repeating shift
@@ -1863,6 +1954,55 @@ export default function Schedule() {
       location: 'Fixed Schedule',
       status: 'published' as const, // Virtual status for rendering
     }];
+  };
+
+  // Generate virtual unavailability rule shifts for a worker on a specific date
+  const getUnavailabilityRulesForDate = (workerId: string, date: Date): Shift[] => {
+    const dateStr = date.toISOString().split('T')[0];
+    if (!dateStr) return [];
+
+    // Get day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
+    const dayOfWeek = date.getDay();
+
+    // Find all active unavailability rules for this worker that apply to this date
+    const applicableRules = unavailabilityRules.filter(rule => {
+      // Must be for this worker
+      if (rule.worker_id !== workerId) return false;
+
+      // DEBUG: Log filtering logic
+      const passesDateStart = !(dateStr < rule.start_date);
+      const passesDateEnd = !(rule.end_date && dateStr > rule.end_date);
+      const passesDayOfWeek = !(rule.day_of_week !== null && rule.day_of_week !== dayOfWeek);
+
+      console.log(`[UNAVAIL DEBUG] ${dateStr} (${dayOfWeek}) | rule.id=${rule.id.substring(0,8)} | start=${rule.start_date} end=${rule.end_date} dow=${rule.day_of_week} | passesStart=${passesDateStart} passesEnd=${passesDateEnd} passesDow=${passesDayOfWeek}`);
+
+      // Date must be within the rule's date range
+      if (dateStr < rule.start_date) return false;
+      if (rule.end_date && dateStr > rule.end_date) return false;
+
+      // If rule has day_of_week, it must match
+      if (rule.day_of_week !== null && rule.day_of_week !== dayOfWeek) return false;
+
+      return true;
+    });
+
+    // Convert rules to virtual shifts
+    return applicableRules.map(rule => {
+      const startTime = normalizeTime(rule.start_time);
+      const endTime = normalizeTime(rule.end_time);
+
+      return {
+        id: `unavailability-${rule.id}-${dateStr}`, // Virtual ID
+        workerId,
+        date: dateStr,
+        startTime,
+        endTime,
+        role: rule.reason || 'Unavailable',
+        location: 'Unavailability',
+        status: 'published' as const, // Virtual status for rendering
+        shiftType: 'unavailable' as const,
+      };
+    });
   };
 
   // Status to style mapping
@@ -2706,12 +2846,14 @@ export default function Schedule() {
                 {weekDates.map((date, dayIndex) => {
                   const dayShifts = getShiftsForDate(date).filter(shift => shift.workerId === employee.id);
                   const fixedScheduleShifts = getFixedScheduleShiftsForDate(employee.id, date);
+                  const unavailabilityShifts = getUnavailabilityRulesForDate(employee.id, date);
                   const dateStr = date.toISOString().split('T')[0] || '';
                   const activeRuleType = dateStr ? getActiveWorkRuleTypeForDate(employee.id, dateStr) : undefined;
                   const isFixedScheduleForDate = activeRuleType === 'fixed';
                   const noWorkRuleForDate = !activeRuleType;
                   // Combine and sort all shifts by start time so they display in chronological order
-                  const allShiftsForDay = [...dayShifts, ...fixedScheduleShifts].sort((a, b) => {
+                  // Unavailability rules should appear first (as background blocks)
+                  const allShiftsForDay = [...unavailabilityShifts, ...dayShifts, ...fixedScheduleShifts].sort((a, b) => {
                     // Compare start times (HH:MM format)
                     if (a.startTime < b.startTime) return -1;
                     if (a.startTime > b.startTime) return 1;
@@ -2719,7 +2861,7 @@ export default function Schedule() {
                   });
                   const shiftCount = allShiftsForDay.length;
                   const cellHeight = shiftCount > 0 ? 40 * shiftCount : 40; // 40px per shift
-                  // Check if there's an "All Day" shift (00:00 to 23:59)
+                  // Check if there's an "All Day" shift (00:00 to 23:59) - includes time_off and unavailability
                   const hasAllDayShift = allShiftsForDay.some(shift => 
                     shift.startTime === '00:00' && shift.endTime === '23:59'
                   );
@@ -2737,11 +2879,20 @@ export default function Schedule() {
                         <>
                           {allShiftsForDay.map((shift, shiftIndex) => {
                             const isFixedScheduleShift = shift.id.startsWith('fixed-');
+                            const isUnavailabilityShift = shift.id.startsWith('unavailability-');
                             const style = isFixedScheduleShift 
                               ? {
                                   bgColor: 'bg-green-50',
                                   textColor: 'text-green-700',
                                   borderColorHex: '#059669', // primary green
+                                  borderStyle: 'solid',
+                                  opacity: '',
+                                }
+                              : isUnavailabilityShift
+                              ? {
+                                  bgColor: 'bg-gray-100',
+                                  textColor: 'text-gray-600',
+                                  borderColorHex: '#6B7280', // gray-500
                                   borderStyle: 'solid',
                                   opacity: '',
                                 }
@@ -2756,13 +2907,13 @@ export default function Schedule() {
                                 key={shift.id}
                                 className={`absolute text-xs flex flex-col justify-center ${style.bgColor} ${style.textColor} ${style.opacity} left-0 right-0 transition-all duration-200 ${hasAllDayShift ? '' : 'group-hover:left-6'} ${
                                   shiftIndex < shiftCount - 1 ? 'border-b border-gray-300' : ''
-                                } ${isFixedScheduleShift ? 'pointer-events-none' : 'cursor-pointer'}`}
+                                } ${isFixedScheduleShift || isUnavailabilityShift ? 'pointer-events-none' : 'cursor-pointer'}`}
                                 onClick={() => {
-                                  if (!isFixedScheduleShift) {
+                                  if (!isFixedScheduleShift && !isUnavailabilityShift) {
                                     handleEditShift(shift.id);
                                   }
                                 }}
-                                title={isFixedScheduleShift ? 'Fixed schedule - managed from Worker Settings' : shift.isDelete ? 'To be deleted on publish' : undefined}
+                                title={isFixedScheduleShift ? 'Fixed schedule - managed from Worker Settings' : isUnavailabilityShift ? 'Unavailability rule - managed from Unavailabilities page' : shift.isDelete ? 'To be deleted on publish' : undefined}
                               style={{ 
                                   borderLeft: `3px ${style.borderStyle}`,
                                   borderLeftColor: style.borderColorHex,
@@ -3632,7 +3783,8 @@ export default function Schedule() {
                       
                       logger.info('Successfully deleted current and future recurring shifts');
                     } catch (error) {
-                      logger.error('Error deleting future recurring shifts:', error);
+                      const errObj = error instanceof Error ? error : new Error(String(error));
+                      logger.error('Error deleting future recurring shifts:', errObj);
                       setShiftFormError('Failed to delete shifts. Please try again.');
                       setShowDeleteRecurringOptions(false);
                       setShowCreateShift(true);
@@ -3674,7 +3826,8 @@ export default function Schedule() {
                       
                       logger.info('Successfully deleted all recurring shifts');
                     } catch (error) {
-                      logger.error('Error deleting all recurring shifts:', error);
+                      const errObj = error instanceof Error ? error : new Error(String(error));
+                      logger.error('Error deleting all recurring shifts:', errObj);
                       setShiftFormError('Failed to delete shifts. Please try again.');
                       setShowDeleteRecurringOptions(false);
                       setShowCreateShift(true);
