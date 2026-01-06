@@ -98,6 +98,7 @@ interface Shift {
   isOvertimeAllowed?: boolean;
   isDelete?: boolean; // Draft delete intent
   originalPublishedId?: string; // ID of the published shift this delete intent targets
+  shiftType?: 'work' | 'time_off' | 'unavailable' | null; // Type of shift
 }
 
 type PlannedShiftRow = {
@@ -116,6 +117,8 @@ type PlannedShiftRow = {
   notes?: string | null;
   is_delete?: boolean | null;
   edited_published_shift_id?: string | null;
+  recurrence_id?: string | null;
+  shift_type?: 'work' | 'time_off' | 'unavailable' | null;
 };
 
 type WorkerRow = {
@@ -162,6 +165,75 @@ function normalizeTime(value: string): string {
   return value;
 }
 
+// Helper function to detect recurrence pattern
+function detectRecurrencePattern(shifts: PlannedShiftRow[], recurrenceId: string): {
+  frequency: 'daily' | 'weekly' | 'monthly' | 'custom' | null;
+  dayOfWeek?: string;
+  totalCount: number;
+  shiftType?: 'work' | 'time_off' | 'unavailable';
+} {
+  const recurringShifts = shifts.filter(s => s.recurrence_id === recurrenceId).sort((a, b) => 
+    new Date(a.shift_date).getTime() - new Date(b.shift_date).getTime()
+  );
+  
+  if (recurringShifts.length < 2) {
+    return { frequency: null, totalCount: recurringShifts.length, shiftType: recurringShifts[0]?.shift_type || 'work' };
+  }
+
+  const dates = recurringShifts.map(s => new Date(s.shift_date));
+  const daysDiff = Math.round((dates[1].getTime() - dates[0].getTime()) / (1000 * 60 * 60 * 24));
+  
+  // Detect frequency based on date differences
+  if (daysDiff === 1) {
+    return { 
+      frequency: 'daily', 
+      totalCount: recurringShifts.length,
+      shiftType: recurringShifts[0]?.shift_type || 'work'
+    };
+  } else if (daysDiff === 7) {
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return { 
+      frequency: 'weekly', 
+      dayOfWeek: dayNames[dates[0].getDay()],
+      totalCount: recurringShifts.length,
+      shiftType: recurringShifts[0]?.shift_type || 'work'
+    };
+  } else if (daysDiff >= 28 && daysDiff <= 31) {
+    return { 
+      frequency: 'monthly', 
+      totalCount: recurringShifts.length,
+      shiftType: recurringShifts[0]?.shift_type || 'work'
+    };
+  }
+  
+  return { 
+    frequency: 'custom', 
+    totalCount: recurringShifts.length,
+    shiftType: recurringShifts[0]?.shift_type || 'work'
+  };
+}
+
+// Helper function to generate recurrence description
+function getRecurrenceDescription(pattern: ReturnType<typeof detectRecurrencePattern>): string {
+  if (!pattern.frequency) return '';
+  
+  const typeLabel = pattern.shiftType === 'time_off' ? 'time off' : 
+                    pattern.shiftType === 'unavailable' ? 'unavailability' : 'shift';
+  
+  switch (pattern.frequency) {
+    case 'daily':
+      return `This is part of a recurring ${typeLabel} that repeats daily (${pattern.totalCount} total)`;
+    case 'weekly':
+      return `This is part of a recurring ${typeLabel} for every ${pattern.dayOfWeek} (${pattern.totalCount} total)`;
+    case 'monthly':
+      return `This is part of a recurring ${typeLabel} that repeats monthly (${pattern.totalCount} total)`;
+    case 'custom':
+      return `This is part of a recurring ${typeLabel} (${pattern.totalCount} total)`;
+    default:
+      return '';
+  }
+}
+
 export default function Schedule() {
   const { registerSubmodules } = useSubmoduleNav();
   const { currentCompany, currentCompanyUser } = useCompany();
@@ -177,11 +249,17 @@ export default function Schedule() {
   const [showEraseDraftsConfirm, setShowEraseDraftsConfirm] = useState(false);
   const [isErasingDrafts, setIsErasingDrafts] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showDeleteRecurringOptions, setShowDeleteRecurringOptions] = useState(false);
   const [isDeletingShift, setIsDeletingShift] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
+  const [currentShiftRecurrenceInfo, setCurrentShiftRecurrenceInfo] = useState<{
+    recurrenceId: string;
+    pattern: ReturnType<typeof detectRecurrencePattern>;
+    description: string;
+  } | null>(null);
   
   // Create shift modal form state (Single Shift)
   const [shiftForm, setShiftForm] = useState({
@@ -307,6 +385,7 @@ export default function Schedule() {
       registerSubmodules('Schedule', [
         { id: 'schedule', label: 'Schedule', href: '/schedule/schedule', icon: Calendar },
         { id: 'time-off', label: 'Time Off', href: '/schedule/time-off', icon: Calendar },
+        { id: 'unavailabilities', label: 'Unavailabilities', href: '/schedule/unavailabilities', icon: Calendar },
     ]);
   }, [registerSubmodules]);
 
@@ -383,7 +462,7 @@ export default function Schedule() {
           .eq('company_id', currentCompany.id),
         supabase
           .from('planned_shifts')
-          .select('id, company_id, worker_id, site_id, shift_date, start_time, end_time, shift_type, status, published_at, created_at, break_minutes, is_overtime_allowed, notes, is_delete, edited_published_shift_id')
+          .select('id, company_id, worker_id, site_id, shift_date, start_time, end_time, shift_type, status, published_at, created_at, break_minutes, is_overtime_allowed, notes, is_delete, edited_published_shift_id, recurrence_id')
           .eq('company_id', currentCompany.id)
           .gte('shift_date', weekRange.startISO)
           .lte('shift_date', weekRange.endISO)
@@ -520,6 +599,7 @@ export default function Schedule() {
           isOvertimeAllowed: s.is_overtime_allowed || false,
           isDelete: isDeleteIntent,
           originalPublishedId: s.edited_published_shift_id || undefined,
+          shiftType: s.shift_type || 'work', // Include shift_type
         };
       });
       setShifts(mappedShifts);
@@ -848,6 +928,23 @@ export default function Schedule() {
     const shiftTitle = notes.split('\n')[0] || '';
     const notesOnly = notes.includes('\n') ? notes.split('\n').slice(1).join('\n') : '';
 
+    // Find the original shift in allShiftsRaw to get recurrence_id
+    const originalShift = allShiftsRaw.find(s => s.id === shiftId);
+    
+    // Check if this shift is part of a recurring series
+    if (originalShift?.recurrence_id) {
+      const pattern = detectRecurrencePattern(allShiftsRaw, originalShift.recurrence_id);
+      const description = getRecurrenceDescription(pattern);
+      
+      setCurrentShiftRecurrenceInfo({
+        recurrenceId: originalShift.recurrence_id,
+        pattern,
+        description
+      });
+    } else {
+      setCurrentShiftRecurrenceInfo(null);
+    }
+
     setShiftForm({
       workerId: shift.workerId,
       shiftDate: shift.date,
@@ -1010,6 +1107,7 @@ export default function Schedule() {
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
       setEditingShiftId(null);
+      setCurrentShiftRecurrenceInfo(null);
       setShowCreateShift(false);
 
       // Reload data
@@ -1029,9 +1127,16 @@ export default function Schedule() {
     const shiftToDelete = shifts.find(s => s.id === editingShiftId);
     if (!shiftToDelete) return;
 
-    // Hide shift modal and show confirmation modal for both published and draft shifts
-    setShowCreateShift(false); // Hide shift modal
-    setShowDeleteConfirm(true); // Show confirmation modal
+    // Hide shift modal
+    setShowCreateShift(false);
+    
+    // If this is part of a recurring series, show recurring options modal
+    if (currentShiftRecurrenceInfo) {
+      setShowDeleteRecurringOptions(true);
+    } else {
+      // Otherwise show regular delete confirmation
+      setShowDeleteConfirm(true);
+    }
   };
 
   // Handle delete shift (delete directly)
@@ -1077,6 +1182,7 @@ export default function Schedule() {
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
       setEditingShiftId(null);
+      setCurrentShiftRecurrenceInfo(null);
       setShowCreateShift(false);
 
       // Reload data
@@ -1149,6 +1255,9 @@ export default function Schedule() {
         notes: shiftForm.notes || shiftForm.shiftTitle || null,
       };
 
+      // Generate recurrence_id for recurring shifts
+      const recurrenceId = shiftForm.isRepeating ? crypto.randomUUID() : null;
+
       // Generate dates for repeating shifts
       const datesToCreate: string[] = [];
       if (shiftForm.isRepeating) {
@@ -1176,6 +1285,7 @@ export default function Schedule() {
       const shiftsToInsert = datesToCreate.map(date => ({
         ...baseShiftData,
         shift_date: date,
+        recurrence_id: recurrenceId,
       }));
 
       const { error } = await supabase
@@ -1320,6 +1430,7 @@ export default function Schedule() {
   const handleCloseCreateShiftModal = () => {
     setShowCreateShift(false);
     setEditingShiftId(null);
+    setCurrentShiftRecurrenceInfo(null);
     setShiftForm({
       workerId: '',
       shiftDate: '',
@@ -1755,7 +1866,7 @@ export default function Schedule() {
   };
 
   // Status to style mapping
-  const getStatusStyle = (status: 'draft' | 'published', isDelete?: boolean) => {
+  const getStatusStyle = (status: 'draft' | 'published', isDelete?: boolean, shiftType?: 'work' | 'time_off' | 'unavailable' | null) => {
     if (isDelete) {
       // Delete intent styling: faded, strikethrough appearance
       return {
@@ -1764,6 +1875,17 @@ export default function Schedule() {
         borderColorHex: '#EF4444', // red-500
         borderStyle: 'dashed',
         opacity: 'opacity-50',
+      };
+    }
+    
+    // Time off shifts are always purple
+    if (shiftType === 'time_off') {
+      return {
+        bgColor: 'bg-purple-50',
+        textColor: 'text-purple-700',
+        borderColorHex: '#9333EA', // purple-600
+        borderStyle: 'solid',
+        opacity: '',
       };
     }
     
@@ -2597,6 +2719,10 @@ export default function Schedule() {
                   });
                   const shiftCount = allShiftsForDay.length;
                   const cellHeight = shiftCount > 0 ? 40 * shiftCount : 40; // 40px per shift
+                  // Check if there's an "All Day" shift (00:00 to 23:59)
+                  const hasAllDayShift = allShiftsForDay.some(shift => 
+                    shift.startTime === '00:00' && shift.endTime === '23:59'
+                  );
                   // Apply gray background ONLY when cell is completely empty (no planned shifts AND no fixed schedule shifts)
                   // If there's any content (planned or fixed schedule), use white background
                   const shouldShowGrayBackground = ((isFixedScheduleForDate || noWorkRuleForDate) && allShiftsForDay.length === 0);
@@ -2619,7 +2745,7 @@ export default function Schedule() {
                                   borderStyle: 'solid',
                                   opacity: '',
                                 }
-                              : getStatusStyle(shift.status, shift.isDelete);
+                              : getStatusStyle(shift.status, shift.isDelete, shift.shiftType);
                             
                             // Calculate position: each shift gets equal height
                             const shiftHeightPercent = 100 / shiftCount;
@@ -2628,7 +2754,7 @@ export default function Schedule() {
                             return (
                               <div
                                 key={shift.id}
-                                className={`absolute text-xs flex flex-col justify-center ${style.bgColor} ${style.textColor} ${style.opacity} left-0 right-0 transition-all duration-200 group-hover:left-6 ${
+                                className={`absolute text-xs flex flex-col justify-center ${style.bgColor} ${style.textColor} ${style.opacity} left-0 right-0 transition-all duration-200 ${hasAllDayShift ? '' : 'group-hover:left-6'} ${
                                   shiftIndex < shiftCount - 1 ? 'border-b border-gray-300' : ''
                                 } ${isFixedScheduleShift ? 'pointer-events-none' : 'cursor-pointer'}`}
                                 onClick={() => {
@@ -2657,33 +2783,35 @@ export default function Schedule() {
                                 <div className={`text-xs leading-tight flex items-center gap-1 ${shift.isDelete ? 'opacity-50' : 'opacity-75'}`}>
                                   <Clock className="w-2.5 h-2.5" />
                                   <span className={shift.isDelete ? 'line-through' : ''}>
-                                  {shift.startTime} – {shift.endTime}
+                                  {shift.startTime === '00:00' && shift.endTime === '23:59' ? 'All Day' : `${shift.startTime} – ${shift.endTime}`}
                                   </span>
                                 </div>
                               </div>
                             </div>
                             );
                           })}
-                          {/* Add button that appears on hover - available for all workers */}
-                          <button 
-                              title={`Add shift for ${employee.name}`}
-                            className="absolute top-1/2 left-1 transform -translate-y-1/2 w-4 h-4 border border-gray-200 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-white z-20"
-                            style={{ backgroundColor: 'white', zIndex: 20 }}
-                            onClick={() => {
-                                setSelectedEmployee(employee.id);
-                                // Preselect the employee and date in the form
-                                const dateStr = date.toISOString().slice(0, 10);
-                                setShiftForm(prev => ({ 
-                                  ...prev, 
-                                  workerId: employee.id,
-                                  shiftDate: dateStr
-                                }));
-                                setShowCreateShift(true);
-                            }}
-                            aria-label={`Add shift for ${employee.name}`}
-                          >
-                            <Plus className="w-2.5 h-2.5 text-gray-400" />
-                          </button>
+                          {/* Add button that appears on hover - only show if there's no "All Day" shift */}
+                          {!hasAllDayShift && (
+                            <button 
+                                title={`Add shift for ${employee.name}`}
+                              className="absolute top-1/2 left-1 transform -translate-y-1/2 w-4 h-4 border border-gray-200 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-white z-20"
+                              style={{ backgroundColor: 'white', zIndex: 20 }}
+                              onClick={() => {
+                                  setSelectedEmployee(employee.id);
+                                  // Preselect the employee and date in the form
+                                  const dateStr = date.toISOString().slice(0, 10);
+                                  setShiftForm(prev => ({ 
+                                    ...prev, 
+                                    workerId: employee.id,
+                                    shiftDate: dateStr
+                                  }));
+                                  setShowCreateShift(true);
+                              }}
+                              aria-label={`Add shift for ${employee.name}`}
+                            >
+                              <Plus className="w-2.5 h-2.5 text-gray-400" />
+                            </button>
+                          )}
                         </>
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
@@ -2846,6 +2974,24 @@ export default function Schedule() {
               {shiftFormError && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
                   {shiftFormError}
+                </div>
+              )}
+
+              {/* Recurrence Info Banner */}
+              {editingShiftId && currentShiftRecurrenceInfo && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-3">
+                  <div className="flex-shrink-0 mt-0.5">
+                    <Calendar className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-blue-900">
+                      Recurring {currentShiftRecurrenceInfo.pattern.shiftType === 'time_off' ? 'Time Off' : 
+                               currentShiftRecurrenceInfo.pattern.shiftType === 'unavailable' ? 'Unavailability' : 'Shift'}
+                    </p>
+                    <p className="text-sm text-blue-700 mt-1">
+                      {currentShiftRecurrenceInfo.description}
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -3395,6 +3541,169 @@ export default function Schedule() {
                 }}
               >
                 {isDeletingShift ? 'Deleting...' : 'Confirm Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Recurring Shift Options Modal */}
+      {showDeleteRecurringOptions && currentShiftRecurrenceInfo && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center">
+                  <Calendar className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    Delete Recurring {currentShiftRecurrenceInfo.pattern.shiftType === 'time_off' ? 'Time Off' : 
+                                     currentShiftRecurrenceInfo.pattern.shiftType === 'unavailable' ? 'Unavailability' : 'Shift'}
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    {currentShiftRecurrenceInfo.description}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowDeleteRecurringOptions(false);
+                  setShowCreateShift(true); // Restore shift modal
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Close modal"
+                disabled={isDeletingShift}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6">
+              <p className="text-sm text-gray-700 mb-4">
+                How would you like to delete this recurring {currentShiftRecurrenceInfo.pattern.shiftType === 'time_off' ? 'time off' : 
+                                                            currentShiftRecurrenceInfo.pattern.shiftType === 'unavailable' ? 'unavailability' : 'shift'}?
+              </p>
+              
+              <div className="space-y-3">
+                {/* Option 1: Delete only this shift */}
+                <button
+                  onClick={async () => {
+                    setShowDeleteRecurringOptions(false);
+                    setShowDeleteConfirm(true);
+                  }}
+                  disabled={isDeletingShift}
+                  className="w-full p-4 text-left border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <div className="font-medium text-gray-900 mb-1">Delete only this shift</div>
+                  <div className="text-sm text-gray-500">
+                    Only this occurrence will be deleted. Other shifts in the series will remain.
+                  </div>
+                </button>
+
+                {/* Option 2: Delete this and all future shifts */}
+                <button
+                  onClick={async () => {
+                    if (!editingShiftId || !currentCompany?.id || !currentShiftRecurrenceInfo) return;
+                    
+                    setIsDeletingShift(true);
+                    try {
+                      const currentShift = allShiftsRaw.find(s => s.id === editingShiftId);
+                      if (!currentShift) return;
+                      
+                      // Delete this shift and all future shifts in the series
+                      const { error } = await supabase
+                        .from('planned_shifts')
+                        .delete()
+                        .eq('company_id', currentCompany.id)
+                        .eq('recurrence_id', currentShiftRecurrenceInfo.recurrenceId)
+                        .gte('shift_date', currentShift.shift_date);
+                      
+                      if (error) throw error;
+                      
+                      // Reload schedule data
+                      await loadScheduleData();
+                      
+                      setShowDeleteRecurringOptions(false);
+                      setEditingShiftId(null);
+                      setCurrentShiftRecurrenceInfo(null);
+                      
+                      logger.info('Successfully deleted current and future recurring shifts');
+                    } catch (error) {
+                      logger.error('Error deleting future recurring shifts:', error);
+                      setShiftFormError('Failed to delete shifts. Please try again.');
+                      setShowDeleteRecurringOptions(false);
+                      setShowCreateShift(true);
+                    } finally {
+                      setIsDeletingShift(false);
+                    }
+                  }}
+                  disabled={isDeletingShift}
+                  className="w-full p-4 text-left border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <div className="font-medium text-gray-900 mb-1">Delete this and all future shifts</div>
+                  <div className="text-sm text-gray-500">
+                    This shift and all future occurrences will be deleted. Past shifts will remain.
+                  </div>
+                </button>
+
+                {/* Option 3: Delete all shifts in series */}
+                <button
+                  onClick={async () => {
+                    if (!currentCompany?.id || !currentShiftRecurrenceInfo) return;
+                    
+                    setIsDeletingShift(true);
+                    try {
+                      // Delete all shifts in the series
+                      const { error } = await supabase
+                        .from('planned_shifts')
+                        .delete()
+                        .eq('company_id', currentCompany.id)
+                        .eq('recurrence_id', currentShiftRecurrenceInfo.recurrenceId);
+                      
+                      if (error) throw error;
+                      
+                      // Reload schedule data
+                      await loadScheduleData();
+                      
+                      setShowDeleteRecurringOptions(false);
+                      setEditingShiftId(null);
+                      setCurrentShiftRecurrenceInfo(null);
+                      
+                      logger.info('Successfully deleted all recurring shifts');
+                    } catch (error) {
+                      logger.error('Error deleting all recurring shifts:', error);
+                      setShiftFormError('Failed to delete shifts. Please try again.');
+                      setShowDeleteRecurringOptions(false);
+                      setShowCreateShift(true);
+                    } finally {
+                      setIsDeletingShift(false);
+                    }
+                  }}
+                  disabled={isDeletingShift}
+                  className="w-full p-4 text-left border border-red-300 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <div className="font-medium text-red-700 mb-1">Delete all {currentShiftRecurrenceInfo.pattern.totalCount} shifts in this series</div>
+                  <div className="text-sm text-red-600">
+                    All {currentShiftRecurrenceInfo.pattern.totalCount} shifts in this recurring series will be permanently deleted.
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setShowDeleteRecurringOptions(false);
+                  setShowCreateShift(true); // Restore shift modal
+                }}
+                disabled={isDeletingShift}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
               </button>
             </div>
           </div>

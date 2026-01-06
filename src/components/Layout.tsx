@@ -65,6 +65,7 @@ const MODULE_SUBMODULES: Record<string, Submodule[]> = {
   Schedule: [
     { id: 'schedule', label: 'Schedule', href: '/schedule/schedule' },
     { id: 'time-off', label: 'Time Off', href: '/schedule/time-off' },
+    { id: 'unavailabilities', label: 'Unavailabilities', href: '/schedule/unavailabilities' },
   ],
   'Time & Attendance': [
     { id: 'whos-working', label: "Who's Working", href: '/time-and-attendance/whos-working' },

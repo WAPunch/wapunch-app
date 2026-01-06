@@ -88,6 +88,11 @@ const TimeOff = lazy(() => {
   return import('./pages/schedule/TimeOff');
 });
 
+const Unavailabilities = lazy(() => {
+  logger.debug('Loading Unavailabilities component');
+  return import('./pages/schedule/Unavailabilities');
+});
+
 const Schedule = lazy(() => {
   logger.debug('Loading Schedule component');
   return import('./pages/schedule/Schedule');
@@ -311,6 +316,7 @@ function App() {
     // Schedule routes
     router.addRoute('/schedule/schedule', () => setCurrentPage('schedule'));
     router.addRoute('/schedule/time-off', () => setCurrentPage('time-off'));
+    router.addRoute('/schedule/unavailabilities', () => setCurrentPage('unavailabilities'));
     
     // Time & Attendance routes
     router.addRoute('/time-and-attendance/whos-working', () => setCurrentPage('whos-working'));
@@ -412,6 +418,8 @@ function App() {
         return <Schedule />;
       case 'time-off':
         return <TimeOff />;
+      case 'unavailabilities':
+        return <Unavailabilities />;
       case 'team-attendance':
         return <TeamAttendance />;
       case 'team-attendance3':
