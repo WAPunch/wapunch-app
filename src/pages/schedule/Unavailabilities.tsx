@@ -499,10 +499,20 @@ export default function Unavailabilities() {
       return;
     }
 
+    // Validate end_date for non-recurring rules
+    const dayOfWeekValue = form.dayOfWeek ? parseInt(form.dayOfWeek) : null;
+    const isRecurring = dayOfWeekValue !== null;
+    
+    if (!isRecurring && !form.endDate) {
+      setCreateError('End date is required when "All Days" is selected. For recurring unavailability, please select a specific day of week.');
+      return;
+    }
+
     setIsCreating(true);
     setCreateError(null);
 
     try {
+      
       const { error: insertError } = await supabase
         .from('worker_unavailability_rules')
         .insert({
@@ -510,11 +520,12 @@ export default function Unavailabilities() {
           worker_id: form.workerId,
           start_date: form.startDate,
           end_date: form.endDate || null,
-          day_of_week: form.dayOfWeek ? parseInt(form.dayOfWeek) : null,
+          day_of_week: dayOfWeekValue,
           start_time: form.startTime,
           end_time: form.endTime,
           reason: form.reason || null,
           is_active: true,
+          is_recurring: isRecurring, // Set based on day_of_week
         });
 
       if (insertError) throw insertError;
@@ -584,20 +595,31 @@ export default function Unavailabilities() {
       return;
     }
 
+    // Validate end_date for non-recurring rules
+    const dayOfWeekValue = form.dayOfWeek ? parseInt(form.dayOfWeek) : null;
+    const isRecurring = dayOfWeekValue !== null;
+    
+    if (!isRecurring && !form.endDate) {
+      setCreateError('End date is required when "All Days" is selected. For recurring unavailability, please select a specific day of week.');
+      return;
+    }
+
     setIsUpdating(true);
     setCreateError(null);
 
     try {
+      
       const { error: updateError } = await supabase
         .from('worker_unavailability_rules')
         .update({
           worker_id: form.workerId,
           start_date: form.startDate,
           end_date: form.endDate || null,
-          day_of_week: form.dayOfWeek ? parseInt(form.dayOfWeek) : null,
+          day_of_week: dayOfWeekValue,
           start_time: form.startTime,
           end_time: form.endTime,
           reason: form.reason || null,
+          is_recurring: isRecurring, // Set based on day_of_week
           updated_at: new Date().toISOString(),
         })
         .eq('id', selectedRule.id);
@@ -1249,7 +1271,9 @@ export default function Unavailabilities() {
                     disabled={isCreating}
                     min={form.startDate}
                   />
-                  <p className="text-xs text-gray-500 mt-1">Leave empty for indefinite</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Required if "All Days" is selected. Leave empty for indefinite if specific day is selected.
+                  </p>
                 </div>
               </div>
 
@@ -1274,7 +1298,9 @@ export default function Unavailabilities() {
                   <option value="5">Friday</option>
                   <option value="6">Saturday</option>
                 </select>
-                <p className="text-xs text-gray-500 mt-1">Leave as "All Days" to apply every day in the date range</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Select a specific day for recurring unavailability, or "All Days" for date range only.
+                </p>
               </div>
 
               {/* Start Time and End Time */}
@@ -1441,7 +1467,9 @@ export default function Unavailabilities() {
                     disabled={isUpdating}
                     min={form.startDate}
                   />
-                  <p className="text-xs text-gray-500 mt-1">Leave empty for indefinite</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Required if "All Days" is selected. Leave empty for indefinite if specific day is selected.
+                  </p>
                 </div>
               </div>
 
@@ -1466,7 +1494,9 @@ export default function Unavailabilities() {
                   <option value="5">Friday</option>
                   <option value="6">Saturday</option>
                 </select>
-                <p className="text-xs text-gray-500 mt-1">Leave as "All Days" to apply every day in the date range</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Select a specific day for recurring unavailability, or "All Days" for date range only.
+                </p>
               </div>
 
               {/* Start Time and End Time */}

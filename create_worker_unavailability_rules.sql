@@ -78,42 +78,43 @@ BEGIN
             day_of_week,
             start_time,
             end_time,
-            reason
-        FROM public.worker_unavailability_rules
-        WHERE company_id = p_company_id
-            AND worker_id = p_worker_id
-            AND is_active = true
+            wur.reason  -- Explicitly prefix with table alias
+        FROM public.worker_unavailability_rules wur
+        WHERE wur.company_id = p_company_id
+            AND wur.worker_id = p_worker_id
+            AND wur.is_active = true
             -- Date range check: shift_date must be within rule's date range
-            AND p_shift_date >= start_date
-            AND (end_date IS NULL OR p_shift_date <= end_date)
+            AND p_shift_date >= wur.start_date
+            AND (wur.end_date IS NULL OR p_shift_date <= wur.end_date)
             -- Day of week check: if rule has day_of_week, it must match
-            AND (day_of_week IS NULL OR day_of_week = v_shift_day_of_week)
+            AND (wur.day_of_week IS NULL OR wur.day_of_week = v_shift_day_of_week)
     LOOP
         -- Check for time overlap
         -- Two time ranges overlap if: start1 < end2 AND start2 < end1
         IF v_rule_record.start_time < p_end_time AND p_start_time < v_rule_record.end_time THEN
-            RETURN QUERY SELECT 
-                v_rule_record.id,
-                v_rule_record.reason,
-                format(
-                    'Shift overlaps with unavailability rule: %s to %s on %s',
-                    v_rule_record.start_time::text,
-                    v_rule_record.end_time::text,
-                    CASE 
-                        WHEN v_rule_record.day_of_week IS NOT NULL THEN 
-                            CASE v_rule_record.day_of_week
-                                WHEN 0 THEN 'Sunday'
-                                WHEN 1 THEN 'Monday'
-                                WHEN 2 THEN 'Tuesday'
-                                WHEN 3 THEN 'Wednesday'
-                                WHEN 4 THEN 'Thursday'
-                                WHEN 5 THEN 'Friday'
-                                WHEN 6 THEN 'Saturday'
-                            END
-                        ELSE format('%s to %s', v_rule_record.start_date::text, 
-                            COALESCE(v_rule_record.end_date::text, 'indefinite'))
-                    END
-                ) AS conflict_details;
+            -- Use explicit column assignment to avoid ambiguity
+            rule_id := v_rule_record.id;
+            reason := v_rule_record.reason;
+            conflict_details := format(
+                'Shift overlaps with unavailability rule: %s to %s on %s',
+                v_rule_record.start_time::text,
+                v_rule_record.end_time::text,
+                CASE 
+                    WHEN v_rule_record.day_of_week IS NOT NULL THEN 
+                        CASE v_rule_record.day_of_week
+                            WHEN 0 THEN 'Sunday'
+                            WHEN 1 THEN 'Monday'
+                            WHEN 2 THEN 'Tuesday'
+                            WHEN 3 THEN 'Wednesday'
+                            WHEN 4 THEN 'Thursday'
+                            WHEN 5 THEN 'Friday'
+                            WHEN 6 THEN 'Saturday'
+                        END
+                    ELSE format('%s to %s', v_rule_record.start_date::text, 
+                        COALESCE(v_rule_record.end_date::text, 'indefinite'))
+                END
+            );
+            RETURN NEXT;
         END IF;
     END LOOP;
     
@@ -129,14 +130,18 @@ AS $$
 DECLARE
     v_overlap RECORD;
 BEGIN
-    -- Only check for published or draft shifts (not cancelled/deleted)
-    IF NEW.status = 'cancelled' OR NEW.is_delete = true THEN
+    -- Only check for active shifts (not deleted)
+    IF NEW.is_deleted = true THEN
         RETURN NEW;
     END IF;
     
     -- Check for overlap with worker unavailability rules
     FOR v_overlap IN
-        SELECT * FROM public.check_worker_unavailability_overlap(
+        SELECT 
+            rule_id,
+            reason,
+            conflict_details
+        FROM public.check_worker_unavailability_overlap(
             NEW.company_id,
             NEW.worker_id,
             NEW.shift_date,
@@ -170,7 +175,7 @@ CREATE TRIGGER trg_validate_planned_shift_unavailability_update
         OR OLD.end_time IS DISTINCT FROM NEW.end_time
         OR OLD.worker_id IS DISTINCT FROM NEW.worker_id
         OR OLD.status IS DISTINCT FROM NEW.status
-        OR OLD.is_delete IS DISTINCT FROM NEW.is_delete)
+        OR OLD.is_deleted IS DISTINCT FROM NEW.is_deleted)
     EXECUTE FUNCTION public.validate_planned_shift_against_unavailability();
 
 -- Add comments

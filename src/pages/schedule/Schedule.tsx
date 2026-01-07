@@ -115,7 +115,7 @@ type PlannedShiftRow = {
   break_minutes?: number | null;
   is_overtime_allowed?: boolean | null;
   notes?: string | null;
-  is_delete?: boolean | null;
+  is_deleted?: boolean | null;
   edited_published_shift_id?: string | null;
   recurrence_id?: string | null;
   shift_type?: 'work' | 'time_off' | 'unavailable' | null;
@@ -484,7 +484,7 @@ export default function Schedule() {
           .eq('company_id', currentCompany.id),
         supabase
           .from('planned_shifts')
-          .select('id, company_id, worker_id, site_id, shift_date, start_time, end_time, shift_type, status, published_at, created_at, break_minutes, is_overtime_allowed, notes, is_delete, edited_published_shift_id, recurrence_id')
+          .select('id, company_id, worker_id, site_id, shift_date, start_time, end_time, shift_type, status, published_at, created_at, break_minutes, is_overtime_allowed, notes, is_deleted, edited_published_shift_id, recurrence_id')
           .eq('company_id', currentCompany.id)
           .gte('shift_date', weekRange.startISO)
           .lte('shift_date', weekRange.endISO)
@@ -598,7 +598,7 @@ export default function Schedule() {
       setAllShiftsRaw(allShifts); // Store all shifts for counting
       
       // For calendar display: show published and drafts
-      // Published shifts with is_delete = true are shown as delete intents (red)
+      // Published shifts with is_deleted = true are shown as delete intents (red)
       // Draft delete intents (legacy) are also shown
       // Hide published shifts that have a draft linked to them (being edited)
       const publishedShiftIdsWithDrafts = new Set(
@@ -616,15 +616,15 @@ export default function Schedule() {
             }
             return true;
           })
-        : allShifts.filter(s => s.status === 'published' && !s.is_delete && !publishedShiftIdsWithDrafts.has(s.id)); // Employee: only published, no delete intents, no hidden by drafts
+        : allShifts.filter(s => s.status === 'published' && !s.is_deleted && !publishedShiftIdsWithDrafts.has(s.id)); // Employee: only published, no delete intents, no hidden by drafts
       
       // Map shifts and identify delete intents
       // Delete intents can be:
-      // 1. Published shifts with is_delete = true (marked for deletion)
-      // 2. Draft shifts with is_delete = true (legacy, should be cleaned up)
+      // 1. Published shifts with is_deleted = true (marked for deletion)
+      // 2. Draft shifts with is_deleted = true (legacy, should be cleaned up)
       const mappedShifts: Shift[] = shiftsForCalendar.map((s) => {
         const siteName = (s.site_id && siteMap[s.site_id]) || 'Unassigned site';
-        const isDeleteIntent = s.is_delete === true; // Can be published or draft
+        const isDeleteIntent = s.is_deleted === true; // Can be published or draft
         
         return {
           id: s.id,
@@ -695,14 +695,14 @@ export default function Schedule() {
         s.shift_date >= weekRange.startISO && 
         s.shift_date <= weekRange.endISO
       );
-      const legacyDeleteIntents = allDrafts.filter(s => s.is_delete === true);
-      const regularDrafts = allDrafts.filter(s => !s.is_delete);
+      const legacyDeleteIntents = allDrafts.filter(s => s.is_deleted === true);
+      const regularDrafts = allDrafts.filter(s => !s.is_deleted);
       
-      // Get published shifts marked for deletion (is_delete = true) - only for filtered workers
+      // Get published shifts marked for deletion (is_deleted = true) - only for filtered workers
       const publishedShiftsMarkedForDeletion = allShiftsRaw
         .filter(s => 
           s.status === 'published' && 
-          s.is_delete === true &&
+          s.is_deleted === true &&
           filteredWorkerIdsSet.has(s.worker_id) &&
           s.shift_date >= weekRange.startISO && 
           s.shift_date <= weekRange.endISO
@@ -719,7 +719,7 @@ export default function Schedule() {
           .update({ 
             status: 'published',
             published_at: new Date().toISOString(),
-            is_delete: false, // Ensure new published shifts don't have is_delete
+            is_deleted: false, // Ensure new published shifts don't have is_deleted
             edited_published_shift_id: null // Clear the reference since original will be deleted
           })
           .in('id', regularDraftIds);
@@ -783,7 +783,7 @@ export default function Schedule() {
       // Get all published shifts for the current week, but only for filtered workers
       const publishedShifts = allShiftsRaw.filter(
         s => s.status === 'published' && 
-        !s.is_delete &&
+        !s.is_deleted &&
         s.shift_date >= weekRange.startISO && 
         s.shift_date <= weekRange.endISO &&
         filteredWorkerIds.has(s.worker_id)
@@ -859,11 +859,11 @@ export default function Schedule() {
         if (error) throw error;
       }
 
-      // Restore published shifts marked for deletion (set is_delete = false) - only for filtered workers
+      // Restore published shifts marked for deletion (set is_deleted = false) - only for filtered workers
       const publishedShiftsMarkedForDeletion = allShiftsRaw
         .filter(s => 
           s.status === 'published' && 
-          s.is_delete === true &&
+          s.is_deleted === true &&
           filteredWorkerIdsSet.has(s.worker_id) &&
           s.shift_date >= weekRange.startISO && 
           s.shift_date <= weekRange.endISO
@@ -873,7 +873,7 @@ export default function Schedule() {
       if (publishedShiftsMarkedForDeletion.length > 0) {
         const { error } = await supabase
           .from('planned_shifts')
-          .update({ is_delete: false })
+          .update({ is_deleted: false })
           .in('id', publishedShiftsMarkedForDeletion);
 
         if (error) throw error;
@@ -1074,7 +1074,7 @@ export default function Schedule() {
       const wasPublished = originalShift?.status === 'published';
       const wasDeleteIntent = originalShift?.isDelete === true;
 
-      // If it was published with is_delete = true, restore it and update
+      // If it was published with is_deleted = true, restore it and update
       if (wasPublished && wasDeleteIntent) {
         // Restore the published shift (remove delete mark) and update it
         const { error } = await supabase
@@ -1086,7 +1086,7 @@ export default function Schedule() {
             shift_date: shiftForm.shiftDate,
             start_time: startTimeFormatted,
             end_time: endTimeFormatted,
-            is_delete: false, // Restore from delete intent
+            is_deleted: false, // Restore from delete intent
             break_minutes: shiftForm.breakMinutes || 0,
             is_overtime_allowed: true, // Overtime is always allowed
             notes: shiftForm.notes || shiftForm.shiftTitle || null,
@@ -1108,7 +1108,7 @@ export default function Schedule() {
             start_time: startTimeFormatted,
             end_time: endTimeFormatted,
             status: 'draft',
-            is_delete: false, // Explicitly set to false
+            is_deleted: false, // Explicitly set to false
             break_minutes: shiftForm.breakMinutes || 0,
             is_overtime_allowed: true, // Overtime is always allowed
             notes: shiftForm.notes || shiftForm.shiftTitle || null,
@@ -1128,7 +1128,7 @@ export default function Schedule() {
             shift_date: shiftForm.shiftDate,
             start_time: startTimeFormatted,
             end_time: endTimeFormatted,
-            is_delete: false, // Convert from delete intent to regular draft
+            is_deleted: false, // Convert from delete intent to regular draft
             break_minutes: shiftForm.breakMinutes || 0,
             is_overtime_allowed: true, // Overtime is always allowed
             notes: shiftForm.notes || shiftForm.shiftTitle || null,
@@ -2072,7 +2072,7 @@ export default function Schedule() {
   const draftCount = useMemo(() => {
     return allShiftsRaw.filter(s => 
       s.status === 'draft' && 
-      !s.is_delete &&
+      !s.is_deleted &&
       filteredWorkerIds.has(s.worker_id) &&
       s.shift_date >= weekRange.startISO && 
       s.shift_date <= weekRange.endISO
@@ -2082,7 +2082,7 @@ export default function Schedule() {
   const publishedDeleteCount = useMemo(() => {
     return allShiftsRaw.filter(s => 
       s.status === 'published' && 
-      s.is_delete === true &&
+      s.is_deleted === true &&
       filteredWorkerIds.has(s.worker_id) &&
       s.shift_date >= weekRange.startISO && 
       s.shift_date <= weekRange.endISO
@@ -2092,7 +2092,7 @@ export default function Schedule() {
   const legacyDeleteIntentCount = useMemo(() => {
     return allShiftsRaw.filter(s => 
       s.status === 'draft' && 
-      s.is_delete === true &&
+      s.is_deleted === true &&
       filteredWorkerIds.has(s.worker_id) &&
       s.shift_date >= weekRange.startISO && 
       s.shift_date <= weekRange.endISO
@@ -2106,7 +2106,7 @@ export default function Schedule() {
     const filteredWorkerIdsSet = new Set(filteredEmployees.map(emp => emp.id));
     return allShiftsRaw.some(s => 
       s.status === 'published' && 
-      !s.is_delete &&
+      !s.is_deleted &&
       filteredWorkerIdsSet.has(s.worker_id) &&
       s.shift_date >= weekRange.startISO && 
       s.shift_date <= weekRange.endISO
