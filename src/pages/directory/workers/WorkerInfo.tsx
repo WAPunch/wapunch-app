@@ -33,6 +33,8 @@ const defaultWorker = {
   customWorkerId: '',
   logsBreaks: false,
   logsTransfers: false,
+  defaultDailyHours: null as number | null,
+  defaultWeeklyHours: null as number | null,
 };
 
 export default function WorkerInfo() {
@@ -498,10 +500,21 @@ export default function WorkerInfo() {
           const startDate = rule.start_date || new Date().toISOString().slice(0, 10);
           const endDate = rule.end_date || '';
           
+          // Load default hours from worker_work_rules
+          const defaultDailyHours = (rule as any).default_daily_hours ? Number((rule as any).default_daily_hours) : null;
+          const defaultWeeklyHours = (rule as any).default_weekly_hours ? Number((rule as any).default_weekly_hours) : null;
+          
           setWorkRuleType(ruleType);
           setFixedScheduleId(scheduleId);
           setWorkRuleStartDate(startDate);
           setWorkRuleEndDate(endDate);
+          
+          // Update worker state with default hours from work rules
+          setWorker(prev => ({
+            ...prev,
+            defaultDailyHours,
+            defaultWeeklyHours
+          }));
           
           // Save original values for change tracking
           setOriginalWorkRules({
@@ -516,6 +529,13 @@ export default function WorkerInfo() {
           setFixedScheduleId('');
           setWorkRuleStartDate(defaultStartDate);
           setWorkRuleEndDate('');
+          
+          // Reset default hours when no work rule exists
+          setWorker(prev => ({
+            ...prev,
+            defaultDailyHours: null,
+            defaultWeeklyHours: null
+          }));
           
           // Save original values (empty) for change tracking
           setOriginalWorkRules({
@@ -604,6 +624,9 @@ export default function WorkerInfo() {
                   customWorkerId: workerData.custom_worker_id || '',
                   logsBreaks: Boolean(workerData.logs_breaks),
                   logsTransfers: Boolean(workerData.logs_transfers),
+                  // defaultDailyHours and defaultWeeklyHours are now loaded from worker_work_rules
+                  defaultDailyHours: null,
+                  defaultWeeklyHours: null,
                 };
 
                 // Debug logging
@@ -674,6 +697,9 @@ export default function WorkerInfo() {
             customWorkerId: parsedWorker.customWorkerId || parsedWorker.custom_worker_id || '',
             logsBreaks: Boolean(parsedWorker.logsBreaks ?? parsedWorker.logs_breaks ?? false),
             logsTransfers: Boolean(parsedWorker.logsTransfers ?? parsedWorker.logs_transfers ?? false),
+            // defaultDailyHours and defaultWeeklyHours are now loaded from worker_work_rules
+            defaultDailyHours: null,
+            defaultWeeklyHours: null,
           };
           setWorker(mappedWorker);
           setOriginalWorker(mappedWorker);
@@ -726,6 +752,13 @@ export default function WorkerInfo() {
   useEffect(() => {
     if (workRuleType !== 'fixed') {
       setFixedScheduleId('');
+    }
+  }, [workRuleType]);
+
+  // Clear default hours when work rule type changes to 'fixed'
+  useEffect(() => {
+    if (workRuleType === 'fixed') {
+      setWorker(prev => ({ ...prev, defaultDailyHours: null, defaultWeeklyHours: null }));
     }
   }, [workRuleType]);
 
@@ -923,6 +956,7 @@ export default function WorkerInfo() {
         custom_worker_id: worker.customWorkerId.trim() || null,
         logs_breaks: Boolean(worker.logsBreaks),
         logs_transfers: Boolean(worker.logsTransfers),
+        // default_daily_hours and default_weekly_hours are now stored in worker_work_rules
       };
 
       // Debug logging
@@ -1084,6 +1118,16 @@ export default function WorkerInfo() {
         // Add fixed_schedule_id if rule type is fixed (assuming column exists or will be added)
         if (workRuleType === 'fixed' && fixedScheduleId) {
           workRuleData.fixed_schedule_id = fixedScheduleId;
+        }
+
+        // Add default hours if rule type is 'planned' or 'open', NULL if 'fixed'
+        if (workRuleType === 'planned' || workRuleType === 'open') {
+          workRuleData.default_daily_hours = worker.defaultDailyHours ? Number(worker.defaultDailyHours) : null;
+          workRuleData.default_weekly_hours = worker.defaultWeeklyHours ? Number(worker.defaultWeeklyHours) : null;
+        } else {
+          // Clear default hours for 'fixed' rules
+          workRuleData.default_daily_hours = null;
+          workRuleData.default_weekly_hours = null;
         }
 
         if (existingRule) {
@@ -1801,6 +1845,52 @@ export default function WorkerInfo() {
                     <p className="text-xs text-gray-500 mt-1">Leave empty for ongoing schedule</p>
                   </div>
                 </div>
+
+                {/* Default Hours (only for planned or open work rules) */}
+                {(workRuleType === 'planned' || workRuleType === 'open') && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label htmlFor="defaultDailyHours" className="block text-sm font-medium text-gray-700 mb-2">
+                        Default Daily Hours <span className="text-gray-400">(optional)</span>
+                      </label>
+                      <input
+                        id="defaultDailyHours"
+                        type="number"
+                        step="0.25"
+                        min="0"
+                        max="24"
+                        value={worker.defaultDailyHours ?? ''}
+                        onChange={(e) => {
+                          const value = e.target.value === '' ? null : Number(e.target.value);
+                          setWorker(prev => ({ ...prev, defaultDailyHours: value }));
+                        }}
+                        className="w-full px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        placeholder="e.g., 8.0"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Expected hours per day (0-24)</p>
+                    </div>
+                    <div>
+                      <label htmlFor="defaultWeeklyHours" className="block text-sm font-medium text-gray-700 mb-2">
+                        Default Weekly Hours <span className="text-gray-400">(optional)</span>
+                      </label>
+                      <input
+                        id="defaultWeeklyHours"
+                        type="number"
+                        step="0.25"
+                        min="0"
+                        max="168"
+                        value={worker.defaultWeeklyHours ?? ''}
+                        onChange={(e) => {
+                          const value = e.target.value === '' ? null : Number(e.target.value);
+                          setWorker(prev => ({ ...prev, defaultWeeklyHours: value }));
+                        }}
+                        className="w-full px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        placeholder="e.g., 40.0"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Expected hours per week (0-168)</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

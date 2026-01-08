@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
 import { useCompany } from '../../hooks/useCompany';
 import { supabase, getCurrentUser } from '../../lib/supabase';
@@ -89,8 +90,17 @@ export default function TimeOff() {
   const [selectedRequest, setSelectedRequest] = useState<TimeOffRequest | null>(null);
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+  const [showChangeToRejectedModal, setShowChangeToRejectedModal] = useState(false);
+  const [showRevertToPendingModal, setShowRevertToPendingModal] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string>('');
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [openMenu, setOpenMenu] = useState<null | { request: TimeOffRequest; anchorRect: DOMRect }>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuAnchorRef = useRef<HTMLElement | null>(null);
 
   // Add Time Off Form State
   const [addForm, setAddForm] = useState({
@@ -102,11 +112,11 @@ export default function TimeOff() {
   });
 
   useEffect(() => {
-    registerSubmodules('Schedule', [
-      { id: 'schedule', label: 'Schedule', href: '/schedule/schedule', icon: Calendar },
-      { id: 'time-off', label: 'Time Off', href: '/schedule/time-off', icon: Calendar },
+      registerSubmodules('Schedule', [
+        { id: 'schedule', label: 'Schedule', href: '/schedule/schedule', icon: Calendar },
+        { id: 'time-off', label: 'Time Off', href: '/schedule/time-off', icon: Calendar },
       { id: 'unavailabilities', label: 'Unavailabilities', href: '/schedule/unavailabilities', icon: Calendar },
-    ]);
+      ]);
   }, [registerSubmodules]);
 
   // Close dropdowns when clicking outside
@@ -198,6 +208,7 @@ export default function TimeOff() {
           )
         `)
         .eq('company_id', currentCompany.id)
+        .eq('is_deleted', false)
         .order('created_at', { ascending: false });
 
       if (fetchError) throw fetchError;
@@ -432,29 +443,44 @@ export default function TimeOff() {
     return diffDays;
   };
 
-  // Toggle menu
-  const toggleMenu = (requestId: string) => {
-    setOpenMenuId(openMenuId === requestId ? null : requestId);
+  // Toggle menu (rendered in a portal so it is not clipped by table overflow containers)
+  const toggleMenu = (request: TimeOffRequest, anchorEl: HTMLElement) => {
+    setOpenMenu((prev) => {
+      if (prev?.request.id === request.id) return null;
+      menuAnchorRef.current = anchorEl;
+      return { request, anchorRect: anchorEl.getBoundingClientRect() };
+    });
   };
 
-  // Close menu when clicking outside
+  // Close menu when clicking outside (portal-aware)
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (openMenuId) {
-        const menuElement = document.querySelector(`[data-menu-id="${openMenuId}"]`);
-        if (menuElement && !menuElement.contains(event.target as Node)) {
-          setOpenMenuId(null);
-        }
-      }
+      if (!openMenu) return;
+      const target = event.target as Node;
+      const clickedMenu = menuRef.current?.contains(target) ?? false;
+      const clickedAnchor = menuAnchorRef.current?.contains(target) ?? false;
+      if (!clickedMenu && !clickedAnchor) setOpenMenu(null);
     };
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [openMenuId]);
+  }, [openMenu]);
+
+  // Close menu on scroll/resize to avoid stale positioning
+  useEffect(() => {
+    if (!openMenu) return;
+    const close = () => setOpenMenu(null);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [openMenu]);
 
   // Handle view request
   const handleViewRequest = (request: TimeOffRequest) => {
-    setOpenMenuId(null);
+    setOpenMenu(null);
     setSelectedRequest(request);
     setShowViewModal(true);
   };
@@ -486,14 +512,17 @@ export default function TimeOff() {
       
       setShowApproveModal(false);
       setShowViewModal(false);
+      const approvedRequest = selectedRequest;
       setSelectedRequest(null);
       await fetchTimeOffRequests();
       
       // Show success message
-      alert(`Time off request approved successfully! ${calculateDays(selectedRequest.start_date, selectedRequest.end_date)} shift(s) have been created on the calendar.`);
+      setSuccessMessage(`Time off request approved successfully! ${calculateDays(approvedRequest.start_date, approvedRequest.end_date)} shift(s) have been created on the calendar.`);
+      setShowSuccessModal(true);
     } catch (err: any) {
       logger.error('Error approving request:', err);
-      alert('Failed to approve request: ' + (err.message || 'Unknown error'));
+      setErrorMessage('Failed to approve request: ' + (err.message || 'Unknown error'));
+      setShowErrorModal(true);
     } finally {
       setIsProcessing(false);
     }
@@ -519,10 +548,99 @@ export default function TimeOff() {
       await fetchTimeOffRequests();
       
       // Show success message
-      alert('Time off request rejected successfully.');
+      setSuccessMessage('Time off request rejected successfully. Associated shifts have been deleted from calendar.');
+      setShowSuccessModal(true);
     } catch (err: any) {
       logger.error('Error rejecting request:', err);
-      alert('Failed to reject request: ' + (err.message || 'Unknown error'));
+      setErrorMessage('Failed to reject request: ' + (err.message || 'Unknown error'));
+      setShowErrorModal(true);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Handle change status (for approved requests) - opens confirmation modal
+  const handleChangeStatusClick = (request: TimeOffRequest, newStatus: 'pending' | 'rejected') => {
+    setSelectedRequest(request);
+    if (newStatus === 'pending') {
+      setShowRevertToPendingModal(true);
+    } else {
+      setShowChangeToRejectedModal(true);
+    }
+    setOpenMenu(null);
+  };
+
+  // Handle change status (for approved requests) - confirms and executes
+  const handleChangeStatus = async (newStatus: 'pending' | 'rejected') => {
+    if (!selectedRequest || !currentCompany?.id) return;
+
+    setIsProcessing(true);
+    try {
+      const { error: updateError } = await supabase
+        .from('time_off_requests')
+        .update({ 
+          status: newStatus,
+          approved_by: null // Clear approved_by when reverting
+        })
+        .eq('id', selectedRequest.id);
+
+      if (updateError) throw updateError;
+
+      const actionText = newStatus === 'pending' ? 'reverted to pending' : 'changed to rejected';
+      logger.info(`Time off request ${actionText}`, { requestId: selectedRequest.id });
+      
+      setShowChangeToRejectedModal(false);
+      setShowRevertToPendingModal(false);
+      setShowViewModal(false);
+      setSelectedRequest(null);
+      await fetchTimeOffRequests();
+      
+      // Show success message
+      setSuccessMessage(`Time off request ${actionText} successfully. Associated shifts have been deleted from calendar.`);
+      setShowSuccessModal(true);
+    } catch (err: any) {
+      logger.error(`Error changing status to ${newStatus}:`, err);
+      setErrorMessage(`Failed to change status: ${err.message || 'Unknown error'}`);
+      setShowErrorModal(true);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Handle delete request - show confirmation modal
+  const handleDeleteRequest = (requestToDelete: TimeOffRequest) => {
+    setSelectedRequest(requestToDelete);
+    setShowDeleteConfirmModal(true);
+    setOpenMenu(null);
+  };
+
+  // Confirm delete request
+  const confirmDeleteRequest = async () => {
+    if (!selectedRequest || !currentCompany?.id) return;
+
+    try {
+      setIsProcessing(true);
+      // Soft delete - mark as deleted instead of hard deleting
+      const { error: deleteError } = await supabase
+        .from('time_off_requests')
+        .update({ is_deleted: true })
+        .eq('id', selectedRequest.id);
+
+      if (deleteError) throw deleteError;
+
+      logger.info('Time off request deleted (soft delete)', { requestId: selectedRequest.id });
+      setShowDeleteConfirmModal(false);
+      setShowViewModal(false);
+      const deletedRequest = selectedRequest;
+      setSelectedRequest(null);
+      await fetchTimeOffRequests();
+      
+      setSuccessMessage('Time off request deleted successfully.');
+      setShowSuccessModal(true);
+    } catch (err: any) {
+      logger.error('Error deleting request:', err);
+      setErrorMessage('Failed to delete request: ' + (err.message || 'Unknown error'));
+      setShowErrorModal(true);
     } finally {
       setIsProcessing(false);
     }
@@ -595,7 +713,8 @@ export default function TimeOff() {
       });
       
       // Show success message
-      alert('Time off request created successfully! It is now pending approval.');
+      setSuccessMessage('Time off request created successfully! It is now pending approval.');
+      setShowSuccessModal(true);
     } catch (err: any) {
       logger.error('Error creating time off request:', err);
       setCreateError(err.message || 'Failed to create time off request');
@@ -634,8 +753,8 @@ export default function TimeOff() {
             <Plus style={{ width: '14px', height: '14px' }} />
             Add Time Off
           </button>
-        </div>
       </div>
+    </div>
 
       {/* Error Message */}
       {error && (
@@ -952,9 +1071,9 @@ export default function TimeOff() {
 
       {/* Table */}
       {!isLoading && !error && (
-        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-4">
-          <div className="overflow-x-auto">
-            <table className="w-full">
+        <div className="bg-white border border-gray-200 rounded-lg mb-4">
+          <div className="overflow-x-auto overflow-y-visible">
+            <table className="w-full overflow-visible">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="px-6 py-3 text-left">
@@ -1002,7 +1121,7 @@ export default function TimeOff() {
                   <th className="text-left py-3 px-2 font-medium text-gray-900 text-xs w-24">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-gray-200 overflow-visible">
                 {paginatedRequests.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500">
@@ -1011,7 +1130,7 @@ export default function TimeOff() {
                   </tr>
                 ) : (
                   paginatedRequests.map((request, index) => (
-                    <tr key={request.id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={request.id} className="hover:bg-gray-50 transition-colors overflow-visible">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div 
@@ -1042,7 +1161,7 @@ export default function TimeOff() {
                       <td className="px-6 py-4">
                         {getStatusBadge(request.status)}
                       </td>
-                      <td className="py-2 px-2 w-24">
+                      <td className="py-2 px-2 w-24 overflow-visible">
                         <div className="flex items-center gap-1">
                           <button 
                             onClick={() => handleViewRequest(request)}
@@ -1052,53 +1171,19 @@ export default function TimeOff() {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          {request.status === 'pending' && (
-                            <div className="relative" data-menu-id={request.id}>
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleMenu(request.id);
-                                }}
-                                className="p-1 hover:bg-gray-100 rounded transition-colors"
-                                aria-label={`More options for time off request`}
-                                title={`More options for time off request`}
-                              >
-                                <MoreVertical className="w-4 h-4" />
-                              </button>
-                              {openMenuId === request.id && (
-                                <div className={`absolute right-0 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-[100] ${
-                                  index === paginatedRequests.length - 1 ? 'bottom-full mb-1' : 'top-full mt-1'
-                                }`}>
-                                  <div className="py-1">
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setOpenMenuId(null);
-                                        setSelectedRequest(request);
-                                        setShowApproveModal(true);
-                                      }}
-                                      className="w-full px-4 py-2 text-left text-sm text-green-600 hover:bg-green-50 flex items-center gap-2"
-                                    >
-                                      <Check className="w-4 h-4" />
-                                      Approve
-                                    </button>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setOpenMenuId(null);
-                                        setSelectedRequest(request);
-                                        setShowRejectModal(true);
-                                      }}
-                                      className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                                    >
-                                      <X className="w-4 h-4" />
-                                      Reject
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          )}
+                          <div className="relative" data-menu-id={request.id}>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleMenu(request, e.currentTarget as HTMLElement);
+                              }}
+                              className="p-1 hover:bg-gray-100 rounded transition-colors"
+                              aria-label={`More options for time off request`}
+                              title={`More options for time off request`}
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -1429,41 +1514,92 @@ export default function TimeOff() {
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
-              {selectedRequest.status === 'pending' && (
-                <>
+            <div className="flex items-center justify-between p-6 border-t border-gray-200">
+              {/* Delete button (always available) */}
+              <button
+                onClick={() => {
+                  setShowViewModal(false);
+                  handleDeleteRequest(selectedRequest);
+                }}
+                className="px-4 py-2 text-sm font-medium text-red-700 bg-white border border-red-300 rounded-lg hover:bg-red-50 transition-colors"
+                disabled={isProcessing}
+              >
+                Delete Request
+              </button>
+
+              <div className="flex items-center gap-3">
+                {selectedRequest.status === 'pending' && (
+                  <>
+                    <button
+                      onClick={() => {
+                        setShowViewModal(false);
+                        setShowRejectModal(true);
+                      }}
+                      className="px-4 py-2 text-sm font-medium text-red-700 bg-white border border-red-300 rounded-lg hover:bg-red-50 transition-colors"
+                      disabled={isProcessing}
+                    >
+                      Reject
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowViewModal(false);
+                        setShowApproveModal(true);
+                      }}
+                      className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+                      style={{ backgroundColor: 'var(--primary-brand-hex)' }}
+                      disabled={isProcessing}
+                    >
+                      Approve
+                    </button>
+                  </>
+                )}
+                {selectedRequest.status === 'approved' && (
+                  <>
+                    <button
+                      onClick={() => {
+                        setShowViewModal(false);
+                        setShowChangeToRejectedModal(true);
+                      }}
+                      className="px-4 py-2 text-sm font-medium text-red-700 bg-white border border-red-300 rounded-lg hover:bg-red-50 transition-colors"
+                      disabled={isProcessing}
+                    >
+                      Change to Rejected
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowViewModal(false);
+                        setShowRevertToPendingModal(true);
+                      }}
+                      className="px-4 py-2 text-sm font-medium text-yellow-700 bg-white border border-yellow-300 rounded-lg hover:bg-yellow-50 transition-colors"
+                      disabled={isProcessing}
+                    >
+                      Revert to Pending
+                    </button>
+                  </>
+                )}
+                {selectedRequest.status === 'rejected' && (
                   <button
                     onClick={() => {
                       setShowViewModal(false);
-                      setShowRejectModal(true);
+                      setShowRevertToPendingModal(true);
                     }}
-                    className="px-4 py-2 text-sm font-medium text-red-700 bg-white border border-red-300 rounded-lg hover:bg-red-50 transition-colors"
+                    className="px-4 py-2 text-sm font-medium text-yellow-700 bg-white border border-yellow-300 rounded-lg hover:bg-yellow-50 transition-colors"
+                    disabled={isProcessing}
                   >
-                    Reject
+                    Revert to Pending
                   </button>
-                  <button
-                    onClick={() => {
-                      setShowViewModal(false);
-                      setShowApproveModal(true);
-                    }}
-                    className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
-                    style={{ backgroundColor: 'var(--primary-brand-hex)' }}
-                  >
-                    Approve
-                  </button>
-                </>
-              )}
-              {selectedRequest.status !== 'pending' && (
+                )}
                 <button
                   onClick={() => {
                     setShowViewModal(false);
                     setSelectedRequest(null);
                   }}
                   className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  disabled={isProcessing}
                 >
                   Close
                 </button>
-              )}
+              </div>
             </div>
           </div>
         </div>
@@ -1558,9 +1694,14 @@ export default function TimeOff() {
             </div>
 
             <div className="p-6">
-              <p className="text-sm text-gray-700">
+              <p className="text-sm text-gray-700 mb-3">
                 Are you sure you want to reject this time off request for <span className="font-semibold">{selectedRequest.worker_first_name} {selectedRequest.worker_last_name}</span>?
               </p>
+              {selectedRequest.status === 'approved' && (
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+                  <strong>Warning:</strong> This request is currently approved. Rejecting it will delete {calculateDays(selectedRequest.start_date, selectedRequest.end_date)} shift(s) from the calendar.
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
@@ -1589,6 +1730,406 @@ export default function TimeOff() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirmModal && selectedRequest && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[201] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Delete Request</h3>
+                  <p className="text-sm text-gray-500">This action cannot be undone</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowDeleteConfirmModal(false);
+                  setSelectedRequest(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                disabled={isProcessing}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              <p className="text-sm text-gray-700 mb-3">
+                Are you sure you want to delete this time off request for <span className="font-semibold">{selectedRequest.worker_first_name} {selectedRequest.worker_last_name}</span>?
+              </p>
+              {selectedRequest.status === 'approved' && (
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+                  <strong>Warning:</strong> This request is currently approved. Deleting it will also delete {calculateDays(selectedRequest.start_date, selectedRequest.end_date)} shift(s) from the calendar.
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setShowDeleteConfirmModal(false);
+                  setSelectedRequest(null);
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={isProcessing}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteRequest}
+                disabled={isProcessing}
+                className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+                style={{ 
+                  backgroundColor: isProcessing ? '#9CA3AF' : '#EF4444',
+                  cursor: isProcessing ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {isProcessing ? 'Deleting...' : 'Delete Request'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Change to Rejected Confirmation Modal */}
+      {showChangeToRejectedModal && selectedRequest && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[201] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center">
+                  <XCircle className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Change to Rejected</h3>
+                  <p className="text-sm text-gray-500">This will delete calendar shifts</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowChangeToRejectedModal(false);
+                  setSelectedRequest(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                disabled={isProcessing}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              <p className="text-sm text-gray-700 mb-3">
+                Are you sure you want to change this approved request to rejected for <span className="font-semibold">{selectedRequest.worker_first_name} {selectedRequest.worker_last_name}</span>?
+              </p>
+              <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+                <strong>Warning:</strong> This will delete {calculateDays(selectedRequest.start_date, selectedRequest.end_date)} shift(s) from the calendar.
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setShowChangeToRejectedModal(false);
+                  setSelectedRequest(null);
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={isProcessing}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleChangeStatus('rejected')}
+                disabled={isProcessing}
+                className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+                style={{ 
+                  backgroundColor: isProcessing ? '#9CA3AF' : '#EF4444',
+                  cursor: isProcessing ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {isProcessing ? 'Changing...' : 'Change to Rejected'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Revert to Pending Confirmation Modal */}
+      {showRevertToPendingModal && selectedRequest && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[201] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-yellow-50 flex items-center justify-center">
+                  <Clock className="w-5 h-5 text-yellow-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Revert to Pending</h3>
+                  <p className="text-sm text-gray-500">{selectedRequest.status === 'approved' ? 'This will delete calendar shifts' : 'Request will be pending again'}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowRevertToPendingModal(false);
+                  setSelectedRequest(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                disabled={isProcessing}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              <p className="text-sm text-gray-700 mb-3">
+                Are you sure you want to revert this {selectedRequest.status === 'approved' ? 'approved' : 'rejected'} request to pending for <span className="font-semibold">{selectedRequest.worker_first_name} {selectedRequest.worker_last_name}</span>?
+              </p>
+              {selectedRequest.status === 'approved' && (
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+                  <strong>Warning:</strong> This will delete {calculateDays(selectedRequest.start_date, selectedRequest.end_date)} shift(s) from the calendar.
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setShowRevertToPendingModal(false);
+                  setSelectedRequest(null);
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={isProcessing}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleChangeStatus('pending')}
+                disabled={isProcessing}
+                className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+                style={{ 
+                  backgroundColor: isProcessing ? '#9CA3AF' : '#F59E0B',
+                  cursor: isProcessing ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {isProcessing ? 'Reverting...' : 'Revert to Pending'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Modal */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[201] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-green-50 flex items-center justify-center">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Success</h3>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowSuccessModal(false);
+                  setSuccessMessage('');
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              <p className="text-sm text-gray-700">{successMessage}</p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setShowSuccessModal(false);
+                  setSuccessMessage('');
+                }}
+                className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+                style={{ 
+                  backgroundColor: '#10B981',
+                  cursor: 'pointer'
+                }}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Error Modal */}
+      {showErrorModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[201] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Error</h3>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowErrorModal(false);
+                  setErrorMessage('');
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              <p className="text-sm text-gray-700">{errorMessage}</p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setShowErrorModal(false);
+                  setErrorMessage('');
+                }}
+                className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+                style={{ 
+                  backgroundColor: '#EF4444',
+                  cursor: 'pointer'
+                }}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* More actions menu (portal so it can float above overflow containers) */}
+      {openMenu && typeof document !== 'undefined' && (() => {
+        const request = openMenu.request;
+        const menuWidth = 192; // w-48
+        const gap = 6;
+        const estimatedMenuHeight =
+          request.status === 'approved'
+            ? 5 * 36 + 16
+            : request.status === 'pending'
+              ? 4 * 36 + 16
+              : 4 * 36 + 16;
+
+        const rect = openMenu.anchorRect;
+        const viewportW = window.innerWidth;
+        const viewportH = window.innerHeight;
+
+        let left = rect.right - menuWidth;
+        left = Math.max(8, Math.min(left, viewportW - menuWidth - 8));
+
+        const preferBottom = rect.bottom + gap + estimatedMenuHeight <= viewportH - 8;
+        const top = preferBottom ? rect.bottom + gap : Math.max(8, rect.top - gap - estimatedMenuHeight);
+
+        return createPortal(
+          <div
+            ref={menuRef}
+            className="fixed"
+            style={{ top, left, width: menuWidth, zIndex: 1000 }}
+          >
+            <div className="bg-white border border-gray-200 rounded-md shadow-lg">
+              <div className="py-1">
+                {request.status === 'pending' && (
+                  <>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenMenu(null);
+                        setSelectedRequest(request);
+                        setShowApproveModal(true);
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm text-green-600 hover:bg-green-50 flex items-center gap-2"
+                    >
+                      <Check className="w-4 h-4" />
+                      Approve
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenMenu(null);
+                        setSelectedRequest(request);
+                        setShowRejectModal(true);
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                    >
+                      <X className="w-4 h-4" />
+                      Reject
+                    </button>
+                  </>
+                )}
+
+                {request.status === 'approved' && (
+                  <>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleChangeStatusClick(request, 'pending');
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm text-yellow-600 hover:bg-yellow-50 flex items-center gap-2"
+                    >
+                      <Clock className="w-4 h-4" />
+                      Revert to Pending
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleChangeStatusClick(request, 'rejected');
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                    >
+                      <XCircle className="w-4 h-4" />
+                      Change to Rejected
+                    </button>
+                  </>
+                )}
+
+                {request.status === 'rejected' && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleChangeStatusClick(request, 'pending');
+                    }}
+                    className="w-full px-4 py-2 text-left text-sm text-yellow-600 hover:bg-yellow-50 flex items-center gap-2"
+                  >
+                    <Clock className="w-4 h-4" />
+                    Revert to Pending
+                  </button>
+                )}
+
+                <div className="border-t border-gray-200 my-1"></div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenMenu(null);
+                    handleDeleteRequest(request);
+                  }}
+                  className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Delete Request
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        );
+      })()}
     </div>
   );
 }
