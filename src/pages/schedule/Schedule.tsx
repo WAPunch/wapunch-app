@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
 import { getCurrentStatusDotColor } from '../../hooks/useWorkers';
 import { useCompany } from '../../hooks/useCompany';
-import { supabase } from '../../lib/supabase';
+import { supabase, getCurrentUser } from '../../lib/supabase';
 import { logger } from '../../lib/logger';
 import { 
   Clock, 
@@ -265,6 +265,9 @@ export default function Schedule() {
   const [showFilters, setShowFilters] = useState(false);
   const [showCreateShift, setShowCreateShift] = useState(false);
   const [showMultipleShifts, setShowMultipleShifts] = useState(false);
+  const [showAddTimeOffModal, setShowAddTimeOffModal] = useState(false);
+  const [isCreatingTimeOff, setIsCreatingTimeOff] = useState(false);
+  const [timeOffCreateError, setTimeOffCreateError] = useState<string | null>(null);
   const [showUnpublishConfirm, setShowUnpublishConfirm] = useState(false);
   const [isUnpublishing, setIsUnpublishing] = useState(false);
   const [showEraseDraftsConfirm, setShowEraseDraftsConfirm] = useState(false);
@@ -336,6 +339,35 @@ export default function Schedule() {
   const [workRuleDateRangeByWorkerId, setWorkRuleDateRangeByWorkerId] = useState<Record<string, { start_date: string | null; end_date: string | null }>>({});
   const [fixedSchedules, setFixedSchedules] = useState<FixedScheduleRow[]>([]);
   const [unavailabilityRules, setUnavailabilityRules] = useState<WorkerUnavailabilityRuleRow[]>([]);
+  
+  // Time Off modal state
+  const [timeOffCategories, setTimeOffCategories] = useState<Array<{ id: string; name: string }>>([]);
+  const [timeOffForm, setTimeOffForm] = useState({
+    workerId: '',
+    categoryId: '',
+    startDate: '',
+    endDate: '',
+    notes: '',
+  });
+  
+  // Unavailability modal state
+  const [showAddUnavailabilityModal, setShowAddUnavailabilityModal] = useState(false);
+  const [showEditUnavailabilityModal, setShowEditUnavailabilityModal] = useState(false);
+  const [showDeleteUnavailabilityConfirm, setShowDeleteUnavailabilityConfirm] = useState(false);
+  const [selectedUnavailabilityRule, setSelectedUnavailabilityRule] = useState<WorkerUnavailabilityRuleRow | null>(null);
+  const [isCreatingUnavailability, setIsCreatingUnavailability] = useState(false);
+  const [isUpdatingUnavailability, setIsUpdatingUnavailability] = useState(false);
+  const [isDeletingUnavailability, setIsDeletingUnavailability] = useState(false);
+  const [unavailabilityCreateError, setUnavailabilityCreateError] = useState<string | null>(null);
+  const [unavailabilityForm, setUnavailabilityForm] = useState({
+    workerId: '',
+    startDate: '',
+    endDate: '',
+    dayOfWeek: '',
+    startTime: '',
+    endTime: '',
+    reason: '',
+  });
   
   // Multi-select filter states
   const [selectedWorkerType, setSelectedWorkerType] = useState<string[]>([]);
@@ -661,6 +693,361 @@ export default function Schedule() {
   useEffect(() => {
     loadScheduleData();
   }, [loadScheduleData]);
+
+  // Fetch time off categories
+  const fetchTimeOffCategories = async () => {
+    if (!currentCompany?.id) return;
+
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('time_off_categories')
+        .select('id, name')
+        .eq('company_id', currentCompany.id)
+        .eq('is_active', true)
+        .order('name');
+
+      if (fetchError) throw fetchError;
+      setTimeOffCategories(data || []);
+    } catch (err: any) {
+      logger.error('Error fetching time off categories:', err);
+    }
+  };
+
+  // Load categories when company changes
+  useEffect(() => {
+    fetchTimeOffCategories();
+  }, [currentCompany?.id]);
+
+  // Handle create time off request (approved directly from Schedule)
+  const handleCreateTimeOffRequest = async () => {
+    if (!currentCompany?.id) return;
+
+    // Validation
+    if (!timeOffForm.workerId) {
+      setTimeOffCreateError('Please select a worker');
+      return;
+    }
+    if (!timeOffForm.categoryId) {
+      setTimeOffCreateError('Please select a category');
+      return;
+    }
+    if (!timeOffForm.startDate) {
+      setTimeOffCreateError('Please select a start date');
+      return;
+    }
+    if (!timeOffForm.endDate) {
+      setTimeOffCreateError('Please select an end date');
+      return;
+    }
+    if (new Date(timeOffForm.endDate) < new Date(timeOffForm.startDate)) {
+      setTimeOffCreateError('End date must be after start date');
+      return;
+    }
+
+    setIsCreatingTimeOff(true);
+    setTimeOffCreateError(null);
+
+    try {
+      // Get current user for approved_by
+      const currentUser = await getCurrentUser();
+      const approvedById = currentUser?.id || null;
+
+      // Create time off request with status 'approved' directly
+      const { error: insertError } = await supabase
+        .from('time_off_requests')
+        .insert({
+          company_id: currentCompany.id,
+          worker_id: timeOffForm.workerId,
+          time_off_category_id: timeOffForm.categoryId,
+          start_date: timeOffForm.startDate,
+          end_date: timeOffForm.endDate,
+          status: 'approved', // Directly approved when created from Schedule
+          approved_by: approvedById,
+          notes: timeOffForm.notes || null,
+        });
+
+      if (insertError) throw insertError;
+
+      // Reset form and close modal
+      setTimeOffForm({
+        workerId: '',
+        categoryId: '',
+        startDate: '',
+        endDate: '',
+        notes: '',
+      });
+      setShowAddTimeOffModal(false);
+
+      // Reload schedule data to show the new time off on calendar
+      await loadScheduleData();
+      
+      logger.info('Successfully created approved time off request from Schedule', {
+        workerId: timeOffForm.workerId,
+        categoryId: timeOffForm.categoryId,
+        startDate: timeOffForm.startDate,
+        endDate: timeOffForm.endDate
+      });
+    } catch (err: any) {
+      logger.error('Error creating time off request:', err);
+      setTimeOffCreateError(err.message || 'Failed to create time off request');
+    } finally {
+      setIsCreatingTimeOff(false);
+    }
+  };
+
+  // Handle create unavailability rule
+  const handleCreateUnavailabilityRule = async () => {
+    if (!currentCompany?.id) return;
+
+    // Validation
+    if (!unavailabilityForm.workerId) {
+      setUnavailabilityCreateError('Please select a worker');
+      return;
+    }
+    if (!unavailabilityForm.startDate) {
+      setUnavailabilityCreateError('Please select a start date');
+      return;
+    }
+    if (!unavailabilityForm.startTime) {
+      setUnavailabilityCreateError('Please select a start time');
+      return;
+    }
+    if (!unavailabilityForm.endTime) {
+      setUnavailabilityCreateError('Please select an end time');
+      return;
+    }
+
+    // Validate date range
+    if (unavailabilityForm.endDate && new Date(unavailabilityForm.startDate) > new Date(unavailabilityForm.endDate)) {
+      setUnavailabilityCreateError('End date must be after or equal to start date');
+      return;
+    }
+
+    // Validate time range
+    if (unavailabilityForm.startTime >= unavailabilityForm.endTime) {
+      setUnavailabilityCreateError('End time must be after start time');
+      return;
+    }
+
+    // Validate end_date for non-recurring rules
+    const dayOfWeekValue = unavailabilityForm.dayOfWeek ? parseInt(unavailabilityForm.dayOfWeek) : null;
+    const isRecurring = dayOfWeekValue !== null;
+    
+    if (!isRecurring && !unavailabilityForm.endDate) {
+      setUnavailabilityCreateError('End date is required when "All Days" is selected. For recurring unavailability, please select a specific day of week.');
+      return;
+    }
+
+    setIsCreatingUnavailability(true);
+    setUnavailabilityCreateError(null);
+
+    try {
+      const { error: insertError } = await supabase
+        .from('worker_unavailability_rules')
+        .insert({
+          company_id: currentCompany.id,
+          worker_id: unavailabilityForm.workerId,
+          start_date: unavailabilityForm.startDate,
+          end_date: unavailabilityForm.endDate || null,
+          day_of_week: dayOfWeekValue,
+          start_time: unavailabilityForm.startTime,
+          end_time: unavailabilityForm.endTime,
+          reason: unavailabilityForm.reason || null,
+          is_active: true,
+          is_recurring: isRecurring,
+        });
+
+      if (insertError) throw insertError;
+
+      // Reset form and close modal
+      setUnavailabilityForm({
+        workerId: '',
+        startDate: '',
+        endDate: '',
+        dayOfWeek: '',
+        startTime: '',
+        endTime: '',
+        reason: '',
+      });
+      setShowAddUnavailabilityModal(false);
+
+      // Reload schedule data to show the new unavailability on calendar
+      await loadScheduleData();
+      
+      logger.info('Successfully created unavailability rule from Schedule', {
+        workerId: unavailabilityForm.workerId,
+        startDate: unavailabilityForm.startDate,
+        endDate: unavailabilityForm.endDate,
+        dayOfWeek: unavailabilityForm.dayOfWeek
+      });
+    } catch (err: any) {
+      logger.error('Error creating unavailability rule:', err);
+      setUnavailabilityCreateError(err.message || 'Failed to create unavailability rule');
+    } finally {
+      setIsCreatingUnavailability(false);
+    }
+  };
+
+  // Handle click on unavailability shift to open edit modal
+  const handleUnavailabilityClick = (shiftId: string) => {
+    // shiftId format from getUnavailabilityRulesForDate:
+    // "unavailability-${rule.id}-${YYYY-MM-DD}"
+    const match = shiftId.match(/^unavailability-([0-9a-fA-F-]{36})-(\d{4}-\d{2}-\d{2})$/);
+    if (!match) return;
+
+    const ruleId = match[1];
+    const rule = unavailabilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+
+    // Populate form with rule data
+    setUnavailabilityForm({
+      workerId: rule.worker_id,
+      startDate: rule.start_date,
+      endDate: rule.end_date || '',
+      dayOfWeek: rule.day_of_week !== null ? rule.day_of_week.toString() : '',
+      startTime: rule.start_time.substring(0, 5), // HH:MM:SS -> HH:MM
+      endTime: rule.end_time.substring(0, 5),
+      reason: rule.reason || '',
+    });
+
+    setSelectedUnavailabilityRule(rule);
+    setShowEditUnavailabilityModal(true);
+    setUnavailabilityCreateError(null);
+  };
+
+  // Handle update unavailability rule
+  const handleUpdateUnavailabilityRule = async () => {
+    if (!selectedUnavailabilityRule || !currentCompany?.id) return;
+
+    // Validation
+    if (!unavailabilityForm.workerId) {
+      setUnavailabilityCreateError('Please select a worker');
+      return;
+    }
+    if (!unavailabilityForm.startDate) {
+      setUnavailabilityCreateError('Please select a start date');
+      return;
+    }
+    if (!unavailabilityForm.startTime) {
+      setUnavailabilityCreateError('Please select a start time');
+      return;
+    }
+    if (!unavailabilityForm.endTime) {
+      setUnavailabilityCreateError('Please select an end time');
+      return;
+    }
+
+    // Validate date range
+    if (unavailabilityForm.endDate && new Date(unavailabilityForm.startDate) > new Date(unavailabilityForm.endDate)) {
+      setUnavailabilityCreateError('End date must be after or equal to start date');
+      return;
+    }
+
+    // Validate time range
+    if (unavailabilityForm.startTime >= unavailabilityForm.endTime) {
+      setUnavailabilityCreateError('End time must be after start time');
+      return;
+    }
+
+    // Validate end_date for non-recurring rules
+    const dayOfWeekValue = unavailabilityForm.dayOfWeek ? parseInt(unavailabilityForm.dayOfWeek) : null;
+    const isRecurring = dayOfWeekValue !== null;
+    
+    if (!isRecurring && !unavailabilityForm.endDate) {
+      setUnavailabilityCreateError('End date is required when "All Days" is selected. For recurring unavailability, please select a specific day of week.');
+      return;
+    }
+
+    setIsUpdatingUnavailability(true);
+    setUnavailabilityCreateError(null);
+
+    try {
+      const { error: updateError } = await supabase
+        .from('worker_unavailability_rules')
+        .update({
+          worker_id: unavailabilityForm.workerId,
+          start_date: unavailabilityForm.startDate,
+          end_date: unavailabilityForm.endDate || null,
+          day_of_week: dayOfWeekValue,
+          start_time: unavailabilityForm.startTime,
+          end_time: unavailabilityForm.endTime,
+          reason: unavailabilityForm.reason || null,
+          is_recurring: isRecurring,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', selectedUnavailabilityRule.id);
+
+      if (updateError) throw updateError;
+
+      // Reset form and close modal
+      setUnavailabilityForm({
+        workerId: '',
+        startDate: '',
+        endDate: '',
+        dayOfWeek: '',
+        startTime: '',
+        endTime: '',
+        reason: '',
+      });
+      setShowEditUnavailabilityModal(false);
+      setSelectedUnavailabilityRule(null);
+
+      // Reload schedule data
+      await loadScheduleData();
+      
+      logger.info('Successfully updated unavailability rule from Schedule', {
+        ruleId: selectedUnavailabilityRule.id
+      });
+    } catch (err: any) {
+      logger.error('Error updating unavailability rule:', err);
+      setUnavailabilityCreateError(err.message || 'Failed to update unavailability rule');
+    } finally {
+      setIsUpdatingUnavailability(false);
+    }
+  };
+
+  // Handle delete unavailability rule
+  const handleDeleteUnavailabilityRule = async () => {
+    if (!selectedUnavailabilityRule || !currentCompany?.id) return;
+
+    setIsDeletingUnavailability(true);
+
+    try {
+      const { error: deleteError } = await supabase
+        .from('worker_unavailability_rules')
+        .delete()
+        .eq('id', selectedUnavailabilityRule.id);
+
+      if (deleteError) throw deleteError;
+
+      logger.info('Unavailability rule deleted from Schedule', { 
+        ruleId: selectedUnavailabilityRule.id 
+      });
+      
+      setShowDeleteUnavailabilityConfirm(false);
+      setShowEditUnavailabilityModal(false);
+      setSelectedUnavailabilityRule(null);
+
+      // Reset form
+      setUnavailabilityForm({
+        workerId: '',
+        startDate: '',
+        endDate: '',
+        dayOfWeek: '',
+        startTime: '',
+        endTime: '',
+        reason: '',
+      });
+
+      // Reload schedule data
+      await loadScheduleData();
+    } catch (err: any) {
+      logger.error('Error deleting unavailability rule:', err);
+      setUnavailabilityCreateError(err.message || 'Failed to delete unavailability rule');
+    } finally {
+      setIsDeletingUnavailability(false);
+    }
+  };
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -1917,8 +2304,96 @@ export default function Schedule() {
     return shifts.filter(shift => shift.date === dateStr);
   };
 
+  // Helper function to convert time string (HH:MM) to minutes since midnight
+  const timeToMinutes = (timeStr: string): number => {
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    return hours * 60 + minutes;
+  };
+
+  // Helper function to convert minutes since midnight to time string (HH:MM)
+  const minutesToTime = (minutes: number): string => {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+  };
+
+  // Adjust fixed schedule shifts based on unavailability rules (similar to time_off logic)
+  const adjustFixedScheduleForUnavailability = (fixedScheduleShifts: Shift[], unavailabilityShifts: Shift[]): Shift[] => {
+    if (fixedScheduleShifts.length === 0 || unavailabilityShifts.length === 0) {
+      return fixedScheduleShifts;
+    }
+
+    const adjustedShifts: Shift[] = [];
+
+    for (const fixedShift of fixedScheduleShifts) {
+      const fixedStartMinutes = timeToMinutes(fixedShift.startTime);
+      const fixedEndMinutes = timeToMinutes(fixedShift.endTime);
+
+      // Check if any unavailability completely covers this fixed schedule
+      const isCompletelyCovered = unavailabilityShifts.some(unav => {
+        const unavStart = timeToMinutes(unav.startTime);
+        const unavEnd = timeToMinutes(unav.endTime);
+        return unavStart <= fixedStartMinutes && unavEnd >= fixedEndMinutes;
+      });
+
+      if (isCompletelyCovered) {
+        // Skip this fixed schedule shift entirely
+        continue;
+      }
+
+      // Find overlapping unavailability rules
+      const overlappingUnavs = unavailabilityShifts
+        .filter(unav => {
+          const unavStart = timeToMinutes(unav.startTime);
+          const unavEnd = timeToMinutes(unav.endTime);
+          return unavStart < fixedEndMinutes && unavEnd > fixedStartMinutes;
+        })
+        .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+
+      if (overlappingUnavs.length === 0) {
+        // No overlap, keep the fixed schedule as is
+        adjustedShifts.push(fixedShift);
+        continue;
+      }
+
+      // Adjust the fixed schedule to avoid overlaps
+      let adjustedStart = fixedStartMinutes;
+      let adjustedEnd = fixedEndMinutes;
+
+      for (const unav of overlappingUnavs) {
+        const unavStart = timeToMinutes(unav.startTime);
+        const unavEnd = timeToMinutes(unav.endTime);
+
+        if (unavStart <= adjustedStart) {
+          // Unavailability starts before or at fixed schedule start
+          adjustedStart = Math.max(adjustedStart, unavEnd);
+        } else if (unavStart > adjustedStart && unavEnd < adjustedEnd) {
+          // Unavailability is within the fixed schedule - show part before
+          adjustedEnd = unavStart;
+          break;
+        } else if (unavStart > adjustedStart && unavEnd >= adjustedEnd) {
+          // Unavailability starts within but ends after fixed schedule
+          adjustedEnd = unavStart;
+          break;
+        }
+      }
+
+      // Only add if there's still a valid time range
+      if (adjustedStart < adjustedEnd) {
+        adjustedShifts.push({
+          ...fixedShift,
+          startTime: minutesToTime(adjustedStart),
+          endTime: minutesToTime(adjustedEnd),
+        });
+      }
+    }
+
+    return adjustedShifts;
+  };
+
   // Generate virtual fixed schedule shifts for a worker on a specific date
-  const getFixedScheduleShiftsForDate = (workerId: string, date: Date): Shift[] => {
+  // Adjusted based on time_off shifts (full day hides fixed schedule, partial day clips it)
+  const getFixedScheduleShiftsForDate = (workerId: string, date: Date, timeOffShifts: Shift[] = []): Shift[] => {
     const dateStr = date.toISOString().split('T')[0];
     if (!dateStr) return [];
 
@@ -1939,10 +2414,79 @@ export default function Schedule() {
     if (!scheduleDay) return [];
 
     // Create virtual shift
-    const startTime = scheduleDay.start_time ? normalizeTime(scheduleDay.start_time) : '';
-    const endTime = scheduleDay.end_time ? normalizeTime(scheduleDay.end_time) : '';
+    let startTime = scheduleDay.start_time ? normalizeTime(scheduleDay.start_time) : '';
+    let endTime = scheduleDay.end_time ? normalizeTime(scheduleDay.end_time) : '';
     
     if (!startTime || !endTime) return [];
+
+    // Check for time_off shifts that affect this fixed schedule
+    const timeOffForDay = timeOffShifts.filter(shift => 
+      shift.shiftType === 'time_off' && 
+      shift.workerId === workerId && 
+      shift.date === dateStr
+    );
+
+    // If there's a full day time_off (00:00 to 23:59), don't show fixed schedule
+    const hasFullDayTimeOff = timeOffForDay.some(shift => 
+      shift.startTime === '00:00' && shift.endTime === '23:59'
+    );
+
+    if (hasFullDayTimeOff) {
+      return []; // Don't show fixed schedule if there's a full day time off
+    }
+
+    // If there are partial time_off shifts, adjust the fixed schedule to avoid overlap
+    if (timeOffForDay.length > 0) {
+      const fixedStartMinutes = timeToMinutes(startTime);
+      const fixedEndMinutes = timeToMinutes(endTime);
+
+      // Sort time_off shifts by start time
+      const sortedTimeOffs = [...timeOffForDay].sort((a, b) => 
+        timeToMinutes(a.startTime) - timeToMinutes(b.startTime)
+      );
+
+      // Find the first non-overlapping segment of the fixed schedule
+      let adjustedStart = fixedStartMinutes;
+      let adjustedEnd = fixedEndMinutes;
+
+      for (const timeOff of sortedTimeOffs) {
+        const timeOffStart = timeToMinutes(timeOff.startTime);
+        const timeOffEnd = timeToMinutes(timeOff.endTime);
+
+        // If time_off overlaps with the fixed schedule
+        if (timeOffStart < adjustedEnd && timeOffEnd > adjustedStart) {
+          // If time_off starts before or at the fixed schedule start
+          if (timeOffStart <= adjustedStart) {
+            // Move fixed schedule start to after time_off end
+            adjustedStart = Math.max(adjustedStart, timeOffEnd);
+          }
+          // If time_off is completely within the fixed schedule
+          else if (timeOffStart > adjustedStart && timeOffEnd < adjustedEnd) {
+            // Show the part before time_off (most common case: time_off in the middle)
+            adjustedEnd = timeOffStart;
+            break; // For simplicity, show only the first segment before time_off
+          }
+          // If time_off starts within but ends after fixed schedule end
+          else if (timeOffStart > adjustedStart && timeOffEnd >= adjustedEnd) {
+            // Clip the end to before time_off starts
+            adjustedEnd = timeOffStart;
+            break;
+          }
+          // If time_off completely covers the fixed schedule
+          else if (timeOffStart <= adjustedStart && timeOffEnd >= adjustedEnd) {
+            return []; // Fixed schedule is completely covered
+          }
+        }
+      }
+
+      // Only return fixed schedule if there's still a valid time range
+      if (adjustedStart >= adjustedEnd) {
+        return []; // No valid fixed schedule segment
+      }
+
+      startTime = minutesToTime(adjustedStart);
+      endTime = minutesToTime(adjustedEnd);
+    }
 
     return [{
       id: `fixed-${workerId}-${dateStr}`, // Virtual ID
@@ -2754,11 +3298,31 @@ export default function Schedule() {
                     <div className="border-t border-gray-100 my-1"></div>
                     
                     {/* Time off section */}
-                    <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                    <button 
+                      onClick={() => {
+                        setTimeOffForm({
+                          workerId: '',
+                          categoryId: '',
+                          startDate: '',
+                          endDate: '',
+                          notes: '',
+                        });
+                        setTimeOffCreateError(null);
+                        setShowAddTimeOffModal(true);
+                        setShowAddDropdown(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                    >
                       <CalendarX className="w-4 h-4" />
                       Add time off
                     </button>
-                    <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setShowAddUnavailabilityModal(true);
+                        setShowAddDropdown(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                    >
                       <CalendarX className="w-4 h-4" />
                       Add unavailability
                     </button>
@@ -2845,20 +3409,75 @@ export default function Schedule() {
                 {/* Day Cells */}
                 {weekDates.map((date, dayIndex) => {
                   const dayShifts = getShiftsForDate(date).filter(shift => shift.workerId === employee.id);
-                  const fixedScheduleShifts = getFixedScheduleShiftsForDate(employee.id, date);
+                  // Get time_off shifts to adjust fixed schedule
+                  const timeOffShifts = dayShifts.filter(shift => shift.shiftType === 'time_off');
+                  const workShifts = dayShifts.filter(shift => shift.shiftType === 'work' || !shift.shiftType);
                   const unavailabilityShifts = getUnavailabilityRulesForDate(employee.id, date);
                   const dateStr = date.toISOString().split('T')[0] || '';
+                  
+                  // Priority hierarchy: time_off full day > unavailability full day > work shifts
+                  // Check for full day time_off (highest priority)
+                  const hasFullDayTimeOff = timeOffShifts.some(shift => 
+                    shift.startTime === '00:00' && shift.endTime === '23:59'
+                  );
+                  
+                  // Check for full day unavailability (second priority)
+                  const hasFullDayUnavailability = unavailabilityShifts.some(shift => 
+                    shift.startTime === '00:00' && shift.endTime === '23:59'
+                  );
+                  
+                  // Apply priority logic
+                  let allShiftsForDay: Shift[] = [];
+                  
+                  if (hasFullDayTimeOff) {
+                    // Priority 1: If there's a full day time_off, only show time_off shifts
+                    allShiftsForDay = timeOffShifts;
+                  } else if (hasFullDayUnavailability) {
+                    // Priority 2: If there's a full day unavailability, only show unavailability shifts
+                    allShiftsForDay = unavailabilityShifts;
+                  } else {
+                    // Priority 3: Show work shifts, but adjust fixed schedule based on time_off partial
+                    const fixedScheduleShifts = getFixedScheduleShiftsForDate(employee.id, date, timeOffShifts);
+                    // Also adjust fixed schedule based on unavailability partial
+                    const adjustedFixedScheduleShifts = adjustFixedScheduleForUnavailability(
+                      fixedScheduleShifts,
+                      unavailabilityShifts
+                    );
+                    
+                    // Filter out work shifts that overlap with unavailability or time_off
+                    const filteredWorkShifts = workShifts.filter(workShift => {
+                      const workStart = timeToMinutes(workShift.startTime);
+                      const workEnd = timeToMinutes(workShift.endTime);
+                      
+                      // Check overlap with unavailability
+                      const overlapsUnavailability = unavailabilityShifts.some(unav => {
+                        const unavStart = timeToMinutes(unav.startTime);
+                        const unavEnd = timeToMinutes(unav.endTime);
+                        return workStart < unavEnd && workEnd > unavStart;
+                      });
+                      
+                      // Check overlap with time_off
+                      const overlapsTimeOff = timeOffShifts.some(timeOff => {
+                        const timeOffStart = timeToMinutes(timeOff.startTime);
+                        const timeOffEnd = timeToMinutes(timeOff.endTime);
+                        return workStart < timeOffEnd && workEnd > timeOffStart;
+                      });
+                      
+                      return !overlapsUnavailability && !overlapsTimeOff;
+                    });
+                    
+                    // Combine: unavailability (partial), time_off (partial), work shifts, adjusted fixed schedule
+                    allShiftsForDay = [...unavailabilityShifts, ...timeOffShifts, ...filteredWorkShifts, ...adjustedFixedScheduleShifts].sort((a, b) => {
+                      // Compare start times (HH:MM format)
+                      if (a.startTime < b.startTime) return -1;
+                      if (a.startTime > b.startTime) return 1;
+                      return 0;
+                    });
+                  }
+                  
                   const activeRuleType = dateStr ? getActiveWorkRuleTypeForDate(employee.id, dateStr) : undefined;
                   const isFixedScheduleForDate = activeRuleType === 'fixed';
                   const noWorkRuleForDate = !activeRuleType;
-                  // Combine and sort all shifts by start time so they display in chronological order
-                  // Unavailability rules should appear first (as background blocks)
-                  const allShiftsForDay = [...unavailabilityShifts, ...dayShifts, ...fixedScheduleShifts].sort((a, b) => {
-                    // Compare start times (HH:MM format)
-                    if (a.startTime < b.startTime) return -1;
-                    if (a.startTime > b.startTime) return 1;
-                    return 0;
-                  });
                   const shiftCount = allShiftsForDay.length;
                   const cellHeight = shiftCount > 0 ? 40 * shiftCount : 40; // 40px per shift
                   // Check if there's an "All Day" shift (00:00 to 23:59) - includes time_off and unavailability
@@ -2907,19 +3526,23 @@ export default function Schedule() {
                                 key={shift.id}
                                 className={`absolute text-xs flex flex-col justify-center ${style.bgColor} ${style.textColor} ${style.opacity} left-0 right-0 transition-all duration-200 ${hasAllDayShift ? '' : 'group-hover:left-6'} ${
                                   shiftIndex < shiftCount - 1 ? 'border-b border-gray-300' : ''
-                                } ${isFixedScheduleShift || isUnavailabilityShift ? 'pointer-events-none' : 'cursor-pointer'}`}
-                                onClick={() => {
-                                  if (!isFixedScheduleShift && !isUnavailabilityShift) {
+                                } ${isFixedScheduleShift ? 'pointer-events-none' : 'cursor-pointer'}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (isUnavailabilityShift) {
+                                    handleUnavailabilityClick(shift.id);
+                                  } else if (!isFixedScheduleShift) {
                                     handleEditShift(shift.id);
                                   }
                                 }}
-                                title={isFixedScheduleShift ? 'Fixed schedule - managed from Worker Settings' : isUnavailabilityShift ? 'Unavailability rule - managed from Unavailabilities page' : shift.isDelete ? 'To be deleted on publish' : undefined}
+                                title={isFixedScheduleShift ? 'Fixed schedule - managed from Worker Settings' : isUnavailabilityShift ? 'Click to edit or delete unavailability rule' : shift.isDelete ? 'To be deleted on publish' : undefined}
                               style={{ 
                                   borderLeft: `3px ${style.borderStyle}`,
                                   borderLeftColor: style.borderColorHex,
                                   top: `${topPercent}%`,
                                   height: `${shiftHeightPercent}%`,
-                                  zIndex: 1, // Same z-index for all shifts so they stack properly
+                                  zIndex: isUnavailabilityShift ? 10 : 1, // Higher z-index for unavailability to ensure clickability
+                                  pointerEvents: isFixedScheduleShift ? 'none' : 'auto',
                               }}
                             >
                               <div className="px-1.5 py-0.5">
@@ -3918,6 +4541,615 @@ export default function Schedule() {
                 }}
               >
                 {isUnpublishing ? 'Deleting...' : 'Confirm Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Time Off Modal */}
+      {showAddTimeOffModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 sticky top-0 bg-white z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center">
+                  <Plus className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Add Time Off</h3>
+                  <p className="text-sm text-gray-500">Create a new time off (approved immediately)</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowAddTimeOffModal(false);
+                  setTimeOffCreateError(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                disabled={isCreatingTimeOff}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <div className="p-6 space-y-4">
+              {timeOffCreateError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                  {timeOffCreateError}
+                </div>
+              )}
+
+              {/* Worker Selection */}
+              <div>
+                <label htmlFor="timeoff-worker-select" className="block text-sm font-medium text-gray-700 mb-2">
+                  Employee <span className="text-red-500">*</span>
+                </label>
+                <select
+                  id="timeoff-worker-select"
+                  value={timeOffForm.workerId}
+                  onChange={(e) => setTimeOffForm(prev => ({ ...prev, workerId: e.target.value }))}
+                  className="w-full px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                  disabled={isCreatingTimeOff}
+                >
+                  <option value="">Select an employee</option>
+                  {employees.map(employee => (
+                    <option key={employee.id} value={employee.id}>
+                      {employee.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Category Selection */}
+              <div>
+                <label htmlFor="timeoff-category-select" className="block text-sm font-medium text-gray-700 mb-2">
+                  Category <span className="text-red-500">*</span>
+                </label>
+                <select
+                  id="timeoff-category-select"
+                  value={timeOffForm.categoryId}
+                  onChange={(e) => setTimeOffForm(prev => ({ ...prev, categoryId: e.target.value }))}
+                  className="w-full px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                  disabled={isCreatingTimeOff}
+                >
+                  <option value="">Select a category</option>
+                  {timeOffCategories.map(category => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Start Date and End Date */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="timeoff-start-date" className="block text-sm font-medium text-gray-700 mb-2">
+                    Start Date <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    id="timeoff-start-date"
+                    value={timeOffForm.startDate}
+                    onChange={(e) => setTimeOffForm(prev => ({ ...prev, startDate: e.target.value }))}
+                    className="w-full px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                    disabled={isCreatingTimeOff}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="timeoff-end-date" className="block text-sm font-medium text-gray-700 mb-2">
+                    End Date <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    id="timeoff-end-date"
+                    value={timeOffForm.endDate}
+                    onChange={(e) => setTimeOffForm(prev => ({ ...prev, endDate: e.target.value }))}
+                    className="w-full px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                    disabled={isCreatingTimeOff}
+                    min={timeOffForm.startDate}
+                  />
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label htmlFor="timeoff-notes" className="block text-sm font-medium text-gray-700 mb-2">
+                  Notes
+                </label>
+                <textarea
+                  id="timeoff-notes"
+                  value={timeOffForm.notes}
+                  onChange={(e) => setTimeOffForm(prev => ({ ...prev, notes: e.target.value }))}
+                  placeholder="Add any additional notes..."
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                  disabled={isCreatingTimeOff}
+                />
+              </div>
+
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+                This will create a time off request with status <strong>Approved</strong>. It will appear on the calendar immediately.
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200 sticky bottom-0 bg-white">
+              <button
+                onClick={() => {
+                  setShowAddTimeOffModal(false);
+                  setTimeOffCreateError(null);
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={isCreatingTimeOff}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateTimeOffRequest}
+                disabled={isCreatingTimeOff}
+                className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+                style={{ 
+                  backgroundColor: isCreatingTimeOff ? '#9CA3AF' : 'var(--primary-brand-hex)',
+                  cursor: isCreatingTimeOff ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {isCreatingTimeOff ? 'Creating...' : 'Create Time Off'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Unavailability Rule Modal */}
+      {showAddUnavailabilityModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 sticky top-0 bg-white z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center">
+                  <Plus className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Add Unavailability Rule</h3>
+                  <p className="text-sm text-gray-500">Create a new unavailability rule</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowAddUnavailabilityModal(false);
+                  setUnavailabilityCreateError(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                disabled={isCreatingUnavailability}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <div className="p-6 space-y-4">
+              {unavailabilityCreateError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                  {unavailabilityCreateError}
+                </div>
+              )}
+
+              {/* Worker Selection */}
+              <div>
+                <label htmlFor="unavailability-worker-select" className="block text-sm font-medium text-gray-700 mb-2">
+                  Employee <span className="text-red-500">*</span>
+                </label>
+                <select
+                  id="unavailability-worker-select"
+                  value={unavailabilityForm.workerId}
+                  onChange={(e) => setUnavailabilityForm(prev => ({ ...prev, workerId: e.target.value }))}
+                  className="w-full px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                  disabled={isCreatingUnavailability}
+                >
+                  <option value="">Select an employee</option>
+                  {employees.map(employee => (
+                    <option key={employee.id} value={employee.id}>
+                      {employee.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Start Date and End Date */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="unavailability-start-date" className="block text-sm font-medium text-gray-700 mb-2">
+                    Start Date <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    id="unavailability-start-date"
+                    value={unavailabilityForm.startDate}
+                    onChange={(e) => setUnavailabilityForm(prev => ({ ...prev, startDate: e.target.value }))}
+                    className="w-full px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                    disabled={isCreatingUnavailability}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="unavailability-end-date" className="block text-sm font-medium text-gray-700 mb-2">
+                    End Date <span className="text-gray-500">(optional)</span>
+                  </label>
+                  <input
+                    type="date"
+                    id="unavailability-end-date"
+                    value={unavailabilityForm.endDate}
+                    onChange={(e) => setUnavailabilityForm(prev => ({ ...prev, endDate: e.target.value }))}
+                    className="w-full px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                    disabled={isCreatingUnavailability}
+                    min={unavailabilityForm.startDate}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Required if "All Days" is selected. Leave empty for indefinite if specific day is selected.
+                  </p>
+                </div>
+              </div>
+
+              {/* Day of Week */}
+              <div>
+                <label htmlFor="unavailability-day-of-week" className="block text-sm font-medium text-gray-700 mb-2">
+                  Day of Week <span className="text-gray-500">(optional)</span>
+                </label>
+                <select
+                  id="unavailability-day-of-week"
+                  value={unavailabilityForm.dayOfWeek}
+                  onChange={(e) => setUnavailabilityForm(prev => ({ ...prev, dayOfWeek: e.target.value }))}
+                  className="w-full px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                  disabled={isCreatingUnavailability}
+                >
+                  <option value="">All Days</option>
+                  <option value="0">Sunday</option>
+                  <option value="1">Monday</option>
+                  <option value="2">Tuesday</option>
+                  <option value="3">Wednesday</option>
+                  <option value="4">Thursday</option>
+                  <option value="5">Friday</option>
+                  <option value="6">Saturday</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Select a specific day for recurring unavailability, or "All Days" for date range only.
+                </p>
+              </div>
+
+              {/* Start Time and End Time */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="unavailability-start-time" className="block text-sm font-medium text-gray-700 mb-2">
+                    Start Time <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="time"
+                    id="unavailability-start-time"
+                    value={unavailabilityForm.startTime}
+                    onChange={(e) => setUnavailabilityForm(prev => ({ ...prev, startTime: e.target.value }))}
+                    className="w-full px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                    disabled={isCreatingUnavailability}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="unavailability-end-time" className="block text-sm font-medium text-gray-700 mb-2">
+                    End Time <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="time"
+                    id="unavailability-end-time"
+                    value={unavailabilityForm.endTime}
+                    onChange={(e) => setUnavailabilityForm(prev => ({ ...prev, endTime: e.target.value }))}
+                    className="w-full px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                    disabled={isCreatingUnavailability}
+                  />
+                </div>
+              </div>
+
+              {/* Reason */}
+              <div>
+                <label htmlFor="unavailability-reason" className="block text-sm font-medium text-gray-700 mb-2">
+                  Reason <span className="text-gray-500">(optional)</span>
+                </label>
+                <textarea
+                  id="unavailability-reason"
+                  value={unavailabilityForm.reason}
+                  onChange={(e) => setUnavailabilityForm(prev => ({ ...prev, reason: e.target.value }))}
+                  placeholder="Add a reason for this unavailability..."
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                  disabled={isCreatingUnavailability}
+                />
+              </div>
+
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+                This rule will block planned shifts from being created during the specified time period.
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200 sticky bottom-0 bg-white">
+              <button
+                onClick={() => {
+                  setShowAddUnavailabilityModal(false);
+                  setUnavailabilityCreateError(null);
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={isCreatingUnavailability}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateUnavailabilityRule}
+                disabled={isCreatingUnavailability}
+                className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+                style={{ 
+                  backgroundColor: isCreatingUnavailability ? '#9CA3AF' : 'var(--primary-brand-hex)',
+                  cursor: isCreatingUnavailability ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {isCreatingUnavailability ? 'Creating...' : 'Create Rule'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Unavailability Rule Modal */}
+      {showEditUnavailabilityModal && selectedUnavailabilityRule && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 sticky top-0 bg-white z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center">
+                  <Edit className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Edit Unavailability Rule</h3>
+                  <p className="text-sm text-gray-500">Update or delete unavailability rule</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowEditUnavailabilityModal(false);
+                  setSelectedUnavailabilityRule(null);
+                  setUnavailabilityCreateError(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                disabled={isUpdatingUnavailability || isDeletingUnavailability}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <div className="p-6 space-y-4">
+              {unavailabilityCreateError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                  {unavailabilityCreateError}
+                </div>
+              )}
+
+              {/* Worker Selection */}
+              <div>
+                <label htmlFor="edit-unavailability-worker-select" className="block text-sm font-medium text-gray-700 mb-2">
+                  Employee <span className="text-red-500">*</span>
+                </label>
+                <select
+                  id="edit-unavailability-worker-select"
+                  value={unavailabilityForm.workerId}
+                  onChange={(e) => setUnavailabilityForm(prev => ({ ...prev, workerId: e.target.value }))}
+                  className="w-full px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                  disabled={isUpdatingUnavailability || isDeletingUnavailability}
+                >
+                  <option value="">Select an employee</option>
+                  {employees.map(employee => (
+                    <option key={employee.id} value={employee.id}>
+                      {employee.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Start Date and End Date */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="edit-unavailability-start-date" className="block text-sm font-medium text-gray-700 mb-2">
+                    Start Date <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    id="edit-unavailability-start-date"
+                    value={unavailabilityForm.startDate}
+                    onChange={(e) => setUnavailabilityForm(prev => ({ ...prev, startDate: e.target.value }))}
+                    className="w-full px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                    disabled={isUpdatingUnavailability || isDeletingUnavailability}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="edit-unavailability-end-date" className="block text-sm font-medium text-gray-700 mb-2">
+                    End Date <span className="text-gray-500">(optional)</span>
+                  </label>
+                  <input
+                    type="date"
+                    id="edit-unavailability-end-date"
+                    value={unavailabilityForm.endDate}
+                    onChange={(e) => setUnavailabilityForm(prev => ({ ...prev, endDate: e.target.value }))}
+                    className="w-full px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                    disabled={isUpdatingUnavailability || isDeletingUnavailability}
+                    min={unavailabilityForm.startDate}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Required if "All Days" is selected. Leave empty for indefinite if specific day is selected.
+                  </p>
+                </div>
+              </div>
+
+              {/* Day of Week */}
+              <div>
+                <label htmlFor="edit-unavailability-day-of-week" className="block text-sm font-medium text-gray-700 mb-2">
+                  Day of Week <span className="text-gray-500">(optional)</span>
+                </label>
+                <select
+                  id="edit-unavailability-day-of-week"
+                  value={unavailabilityForm.dayOfWeek}
+                  onChange={(e) => setUnavailabilityForm(prev => ({ ...prev, dayOfWeek: e.target.value }))}
+                  className="w-full px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                  disabled={isUpdatingUnavailability || isDeletingUnavailability}
+                >
+                  <option value="">All Days</option>
+                  <option value="0">Sunday</option>
+                  <option value="1">Monday</option>
+                  <option value="2">Tuesday</option>
+                  <option value="3">Wednesday</option>
+                  <option value="4">Thursday</option>
+                  <option value="5">Friday</option>
+                  <option value="6">Saturday</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Select a specific day for recurring unavailability, or "All Days" for date range only.
+                </p>
+              </div>
+
+              {/* Start Time and End Time */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="edit-unavailability-start-time" className="block text-sm font-medium text-gray-700 mb-2">
+                    Start Time <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="time"
+                    id="edit-unavailability-start-time"
+                    value={unavailabilityForm.startTime}
+                    onChange={(e) => setUnavailabilityForm(prev => ({ ...prev, startTime: e.target.value }))}
+                    className="w-full px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                    disabled={isUpdatingUnavailability || isDeletingUnavailability}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="edit-unavailability-end-time" className="block text-sm font-medium text-gray-700 mb-2">
+                    End Time <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="time"
+                    id="edit-unavailability-end-time"
+                    value={unavailabilityForm.endTime}
+                    onChange={(e) => setUnavailabilityForm(prev => ({ ...prev, endTime: e.target.value }))}
+                    className="w-full px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                    disabled={isUpdatingUnavailability || isDeletingUnavailability}
+                  />
+                </div>
+              </div>
+
+              {/* Reason */}
+              <div>
+                <label htmlFor="edit-unavailability-reason" className="block text-sm font-medium text-gray-700 mb-2">
+                  Reason <span className="text-gray-500">(optional)</span>
+                </label>
+                <textarea
+                  id="edit-unavailability-reason"
+                  value={unavailabilityForm.reason}
+                  onChange={(e) => setUnavailabilityForm(prev => ({ ...prev, reason: e.target.value }))}
+                  placeholder="Add a reason for this unavailability..."
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                  disabled={isUpdatingUnavailability || isDeletingUnavailability}
+                />
+              </div>
+
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+                This rule will block planned shifts from being created during the specified time period.
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between gap-3 p-6 border-t border-gray-200 sticky bottom-0 bg-white">
+              <button
+                onClick={() => {
+                  setShowDeleteUnavailabilityConfirm(true);
+                }}
+                disabled={isUpdatingUnavailability || isDeletingUnavailability}
+                className="px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-300 rounded-lg hover:bg-red-50 transition-colors"
+              >
+                Delete
+              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    setShowEditUnavailabilityModal(false);
+                    setSelectedUnavailabilityRule(null);
+                    setUnavailabilityCreateError(null);
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  disabled={isUpdatingUnavailability || isDeletingUnavailability}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUpdateUnavailabilityRule}
+                  disabled={isUpdatingUnavailability || isDeletingUnavailability}
+                  className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+                  style={{ 
+                    backgroundColor: (isUpdatingUnavailability || isDeletingUnavailability) ? '#9CA3AF' : 'var(--primary-brand-hex)',
+                    cursor: (isUpdatingUnavailability || isDeletingUnavailability) ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {isUpdatingUnavailability ? 'Updating...' : 'Update Rule'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteUnavailabilityConfirm && selectedUnavailabilityRule && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[201] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Delete Unavailability Rule</h3>
+                  <p className="text-sm text-gray-500">This action cannot be undone</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowDeleteUnavailabilityConfirm(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                disabled={isDeletingUnavailability}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              <p className="text-sm text-gray-700">
+                Are you sure you want to delete this unavailability rule? This will remove the rule and allow shifts to be scheduled during this time period.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+              <button
+                onClick={() => setShowDeleteUnavailabilityConfirm(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={isDeletingUnavailability}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteUnavailabilityRule}
+                disabled={isDeletingUnavailability}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+              >
+                {isDeletingUnavailability ? 'Deleting...' : 'Delete Rule'}
               </button>
             </div>
           </div>

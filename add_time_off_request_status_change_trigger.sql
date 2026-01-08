@@ -11,8 +11,8 @@ DECLARE
     v_end_time time := '23:59:59'::time;
     v_published_at timestamptz := NOW();
 BEGIN
-    -- Case 1: Request is approved (or re-approved)
-    IF NEW.status = 'approved' AND (OLD.status IS DISTINCT FROM 'approved' OR OLD.is_deleted = true) THEN
+    -- Case 1: Request is approved (INSERT with approved or UPDATE to approved)
+    IF NEW.status = 'approved' AND (OLD IS NULL OR OLD.status IS DISTINCT FROM 'approved' OR OLD.is_deleted = true) THEN
         -- Delete any existing planned_shifts for this request first, to avoid duplicates on re-approval
         DELETE FROM public.planned_shifts
         WHERE time_off_request_id = NEW.id;
@@ -49,12 +49,21 @@ BEGIN
 END;
 $$;
 
--- Drop existing trigger if it exists
+-- Drop existing triggers if they exist
 DROP TRIGGER IF EXISTS trg_time_off_approved ON public.time_off_requests;
+DROP TRIGGER IF EXISTS trg_time_off_request_status_change ON public.time_off_requests;
+DROP TRIGGER IF EXISTS trg_time_off_request_after_insert ON public.time_off_requests;
+DROP TRIGGER IF EXISTS trg_time_off_request_before_delete ON public.time_off_requests;
 
 -- Create or replace the main trigger for status changes and deletion
 CREATE TRIGGER trg_time_off_request_status_change
 AFTER UPDATE OF status, is_deleted ON public.time_off_requests
+FOR EACH ROW
+EXECUTE FUNCTION public.on_time_off_request_status_change();
+
+-- Also handle INSERT to create shifts when request is created directly with approved status
+CREATE TRIGGER trg_time_off_request_after_insert
+AFTER INSERT ON public.time_off_requests
 FOR EACH ROW
 EXECUTE FUNCTION public.on_time_off_request_status_change();
 
@@ -66,7 +75,8 @@ EXECUTE FUNCTION public.on_time_off_request_status_change();
 
 -- Add comments
 COMMENT ON FUNCTION public.on_time_off_request_status_change IS 
-'Manages planned_shifts lifecycle when time_off_request status changes:
-- Creates shifts when approved
+'Manages planned_shifts lifecycle when time_off_request is created or status changes:
+- Creates shifts when request is INSERTED with approved status
+- Creates shifts when request status is UPDATED to approved
 - Deletes shifts when rejected, reverted to pending, or deleted
 - Prevents duplicate shifts on re-approval';

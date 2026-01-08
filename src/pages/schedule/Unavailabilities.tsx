@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useSubmoduleNav } from '../../hooks/useSubmoduleNav';
 import { useCompany } from '../../hooks/useCompany';
 import { supabase } from '../../lib/supabase';
@@ -20,7 +21,8 @@ import {
   MoreVertical,
   Power,
   PowerOff,
-  AlertTriangle
+  AlertTriangle,
+  CheckCircle
 } from 'lucide-react';
 
 interface WorkerUnavailabilityRule {
@@ -87,7 +89,13 @@ export default function Unavailabilities() {
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedRule, setSelectedRule] = useState<WorkerUnavailabilityRule | null>(null);
   const [ruleToDelete, setRuleToDelete] = useState<WorkerUnavailabilityRule | null>(null);
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string>('');
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [openMenu, setOpenMenu] = useState<null | { rule: WorkerUnavailabilityRule; anchorRect: DOMRect }>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuAnchorRef = useRef<HTMLElement | null>(null);
 
   // Add/Edit Form State
   const [form, setForm] = useState({
@@ -359,35 +367,56 @@ export default function Unavailabilities() {
   };
 
   // Toggle menu
-  const toggleMenu = (ruleId: string) => {
-    setOpenMenuId(openMenuId === ruleId ? null : ruleId);
+  const toggleMenu = (rule: WorkerUnavailabilityRule, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const anchorEl = e.currentTarget as HTMLElement;
+    if (openMenu?.rule.id === rule.id) {
+      setOpenMenu(null);
+      menuAnchorRef.current = null;
+      return;
+    }
+    setOpenMenu(() => {
+      menuAnchorRef.current = anchorEl;
+      return { rule, anchorRect: anchorEl.getBoundingClientRect() };
+    });
   };
 
-  // Close menu when clicking outside
+  // Close menu when clicking outside (portal-aware)
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (openMenuId) {
-        const menuElement = document.querySelector(`[data-menu-id="${openMenuId}"]`);
-        if (menuElement && !menuElement.contains(event.target as Node)) {
-          setOpenMenuId(null);
-        }
-      }
+      if (!openMenu) return;
+      const target = event.target as Node;
+      const clickedMenu = menuRef.current?.contains(target) ?? false;
+      const clickedAnchor = menuAnchorRef.current?.contains(target) ?? false;
+      if (!clickedMenu && !clickedAnchor) setOpenMenu(null);
     };
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [openMenuId]);
+  }, [openMenu]);
+
+  // Close menu on scroll/resize to avoid stale positioning
+  useEffect(() => {
+    if (!openMenu) return;
+    const close = () => setOpenMenu(null);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [openMenu]);
 
   // Handle view rule
   const handleViewRule = (rule: WorkerUnavailabilityRule) => {
-    setOpenMenuId(null);
+    setOpenMenu(null);
     setSelectedRule(rule);
     setShowViewModal(true);
   };
 
   // Handle edit rule
   const handleEditRule = (rule: WorkerUnavailabilityRule) => {
-    setOpenMenuId(null);
+    setOpenMenu(null);
     setSelectedRule(rule);
     setForm({
       workerId: rule.worker_id,
@@ -421,19 +450,21 @@ export default function Unavailabilities() {
         isActive: !rule.is_active 
       });
       
-      setOpenMenuId(null);
+      setOpenMenu(null);
       await fetchUnavailabilityRules();
       
-      alert(`Unavailability rule ${!rule.is_active ? 'activated' : 'deactivated'} successfully.`);
+      setSuccessMessage(`Unavailability rule ${!rule.is_active ? 'activated' : 'deactivated'} successfully.`);
+      setShowSuccessModal(true);
     } catch (err: any) {
       logger.error('Error updating rule status:', err);
-      alert('Failed to update rule status: ' + (err.message || 'Unknown error'));
+      setErrorMessage('Failed to update rule status: ' + (err.message || 'Unknown error'));
+      setShowErrorModal(true);
     }
   };
 
   // Handle delete rule
   const handleDeleteRule = (rule: WorkerUnavailabilityRule) => {
-    setOpenMenuId(null);
+    setOpenMenu(null);
     setRuleToDelete(rule);
   };
 
@@ -453,10 +484,12 @@ export default function Unavailabilities() {
       setRuleToDelete(null);
       await fetchUnavailabilityRules();
       
-      alert('Unavailability rule deleted successfully.');
+      setSuccessMessage('Unavailability rule deleted successfully.');
+      setShowSuccessModal(true);
     } catch (err: any) {
       logger.error('Error deleting rule:', err);
-      alert('Failed to delete rule: ' + (err.message || 'Unknown error'));
+      setErrorMessage('Failed to delete rule: ' + (err.message || 'Unknown error'));
+      setShowErrorModal(true);
     }
   };
 
@@ -552,7 +585,8 @@ export default function Unavailabilities() {
         dayOfWeek: form.dayOfWeek
       });
       
-      alert('Unavailability rule created successfully!');
+      setSuccessMessage('Unavailability rule created successfully!');
+      setShowSuccessModal(true);
     } catch (err: any) {
       logger.error('Error creating unavailability rule:', err);
       setCreateError(err.message || 'Failed to create unavailability rule');
@@ -646,7 +680,8 @@ export default function Unavailabilities() {
         ruleId: selectedRule.id
       });
       
-      alert('Unavailability rule updated successfully!');
+      setSuccessMessage('Unavailability rule updated successfully!');
+      setShowSuccessModal(true);
     } catch (err: any) {
       logger.error('Error updating unavailability rule:', err);
       setCreateError(err.message || 'Failed to update unavailability rule');
@@ -1028,66 +1063,14 @@ export default function Unavailabilities() {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          <div className="relative" data-menu-id={rule.id}>
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleMenu(rule.id);
-                              }}
-                              className="p-1 hover:bg-gray-100 rounded transition-colors"
-                              aria-label={`More options for unavailability rule`}
-                              title={`More options for unavailability rule`}
-                            >
-                              <MoreVertical className="w-4 h-4" />
-                            </button>
-                            {openMenuId === rule.id && (
-                              <div className={`absolute right-0 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-[100] ${
-                                index === paginatedRules.length - 1 ? 'bottom-full mb-1' : 'top-full mt-1'
-                              }`}>
-                                <div className="py-1">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleEditRule(rule);
-                                    }}
-                                    className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                                  >
-                                    <Edit className="w-4 h-4" />
-                                    Edit
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleToggleActive(rule);
-                                    }}
-                                    className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                                  >
-                                    {rule.is_active ? (
-                                      <>
-                                        <PowerOff className="w-4 h-4" />
-                                        Deactivate
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Power className="w-4 h-4" />
-                                        Activate
-                                      </>
-                                    )}
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleDeleteRule(rule);
-                                    }}
-                                    className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                    Delete
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
+                          <button 
+                            onClick={(e) => toggleMenu(rule, e)}
+                            className="p-1 hover:bg-gray-100 rounded transition-colors"
+                            aria-label={`More options for unavailability rule`}
+                            title={`More options for unavailability rule`}
+                          >
+                            <MoreVertical className="w-4 h-4" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1717,6 +1700,175 @@ export default function Unavailabilities() {
               >
                 <Trash2 className="w-4 h-4" />
                 Delete Rule
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* More actions menu (portal so it can float above overflow containers) */}
+      {openMenu && typeof document !== 'undefined' && (() => {
+        const rule = openMenu.rule;
+        const menuWidth = 192; // w-48
+        const gap = 6;
+        const estimatedMenuHeight = 4 * 36 + 16; // 3 buttons + divider + padding
+
+        const rect = openMenu.anchorRect;
+        const viewportW = window.innerWidth;
+        const viewportH = window.innerHeight;
+
+        let left = rect.right - menuWidth;
+        left = Math.max(8, Math.min(left, viewportW - menuWidth - 8));
+
+        const preferBottom = rect.bottom + gap + estimatedMenuHeight <= viewportH - 8;
+        const top = preferBottom ? rect.bottom + gap : Math.max(8, rect.top - gap - estimatedMenuHeight);
+
+        return createPortal(
+          <div
+            ref={menuRef}
+            className="fixed"
+            style={{ top, left, width: menuWidth, zIndex: 1000 }}
+          >
+            <div className="bg-white border border-gray-200 rounded-md shadow-lg">
+              <div className="py-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenMenu(null);
+                    handleEditRule(rule);
+                  }}
+                  className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                >
+                  <Edit className="w-4 h-4" />
+                  Edit
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenMenu(null);
+                    handleToggleActive(rule);
+                  }}
+                  className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                >
+                  {rule.is_active ? (
+                    <>
+                      <PowerOff className="w-4 h-4" />
+                      Deactivate
+                    </>
+                  ) : (
+                    <>
+                      <Power className="w-4 h-4" />
+                      Activate
+                    </>
+                  )}
+                </button>
+                <div className="border-t border-gray-200 my-1"></div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenMenu(null);
+                    handleDeleteRule(rule);
+                  }}
+                  className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        );
+      })()}
+
+      {/* Success Modal */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[201] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-green-50 flex items-center justify-center">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Success</h3>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowSuccessModal(false);
+                  setSuccessMessage('');
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              <p className="text-sm text-gray-700">{successMessage}</p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setShowSuccessModal(false);
+                  setSuccessMessage('');
+                }}
+                className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+                style={{ 
+                  backgroundColor: '#10B981',
+                  cursor: 'pointer'
+                }}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Error Modal */}
+      {showErrorModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[201] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Error</h3>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowErrorModal(false);
+                  setErrorMessage('');
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              <p className="text-sm text-gray-700">{errorMessage}</p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setShowErrorModal(false);
+                  setErrorMessage('');
+                }}
+                className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+                style={{ 
+                  backgroundColor: '#EF4444',
+                  cursor: 'pointer'
+                }}
+              >
+                OK
               </button>
             </div>
           </div>
